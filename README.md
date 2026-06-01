@@ -94,4 +94,4 @@ See [docs/low-level.md](docs/low-level.md).
 
 ## License
 
-No open-source license has been selected yet. Add a license before publishing if the repository should be reusable by others.
+Solar is licensed under the MIT License. See [LICENSE](LICENSE) for the full text.
