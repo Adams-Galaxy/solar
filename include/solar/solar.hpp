@@ -1,0 +1,16 @@
+#pragma once
+
+#include "solar/contribution.hpp"
+#include "solar/core.hpp"
+#include "solar/device/device.hpp"
+#include "solar/events.hpp"
+#include "solar/entry.hpp"
+#include "solar/facilities.hpp"
+#include "solar/log.hpp"
+#include "solar/metrics.hpp"
+#include "solar/remote.hpp"
+#include "solar/rtos/rtos.hpp"
+#include "solar/service.hpp"
+#include "solar/services.hpp"
+#include "solar/system.hpp"
+#include "solar/task.hpp"

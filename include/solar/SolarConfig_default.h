@@ -1,0 +1,25 @@
+#pragma once
+
+#ifndef configSOLAR_ENTRYPOINT_SERIAL_BAUD
+#define configSOLAR_ENTRYPOINT_SERIAL_BAUD 115200
+#endif
+
+#ifndef configSOLAR_REMOTE_RX_BUFFER_SIZE
+#define configSOLAR_REMOTE_RX_BUFFER_SIZE 128
+#endif
+
+#ifndef configSOLAR_STATIC_AFTER_BOOT
+#define configSOLAR_STATIC_AFTER_BOOT 1
+#endif
+
+#ifndef configSOLAR_LOG_FORMAT_BUFFER_BYTES
+#define configSOLAR_LOG_FORMAT_BUFFER_BYTES 192
+#endif
+
+#ifndef configSOLAR_LOG_RECORD_BYTES
+#define configSOLAR_LOG_RECORD_BYTES 128
+#endif
+
+#ifndef configSOLAR_EVENT_FORMAT_BUFFER_BYTES
+#define configSOLAR_EVENT_FORMAT_BUFFER_BYTES 160
+#endif
