@@ -12,5 +12,5 @@ Initial active-development release.
 - Event descriptors, fixed history, and direct event sinks.
 - Metric descriptors, user-defined units, policies, timers, groups, and snapshots.
 - Binary Remote protocol/service with generated core schema descriptors.
-- Public `solar::rtos` facade over selected low-level implementations.
-- Host CMake tests and simulated runtime support.
+- Public `solar::rtos` facade over Zephyr kernel primitives.
+- Zephyr application entry support and native simulator preparation.

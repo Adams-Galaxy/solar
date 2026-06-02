@@ -19,7 +19,7 @@ namespace solar
  *
  * @tparam NameT Stable service name.
  * @tparam StackWords Statically allocated stack size in RTOS words.
- * @tparam PriorityValue Portable Solar priority mapped by the low-level RTOS.
+ * @tparam PriorityValue Portable Solar priority mapped onto Zephyr priority.
  */
 template <typename NameT,
           std::size_t StackWords,
@@ -39,7 +39,7 @@ struct ServiceSpec
  *
  * Service loops should check this token regularly and return when stop is
  * requested. Solar deliberately avoids killing behavior as a normal lifecycle
- * mechanism; the low-level backend may still terminate as a last resort.
+ * mechanism; the RTOS wrapper may still terminate as a last resort.
  */
 class StopToken
 {

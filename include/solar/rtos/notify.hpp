@@ -2,7 +2,6 @@
 
 #include <cstdint>
 
-#include "low_level/rtos/notify.hpp"
 #include "solar/rtos/deadline.hpp"
 #include "solar/rtos/notify_action.hpp"
 #include "solar/rtos/thread.hpp"
@@ -12,7 +11,10 @@ namespace solar::rtos
 
 inline Status notify(ThreadId target, std::uint32_t value, NotifyAction action)
 {
-    return low_level::rtos::notify(target, value, action);
+    (void)target;
+    (void)value;
+    (void)action;
+    return Status::NotReady;
 }
 
 inline Status notify(const Thread &target, std::uint32_t value, NotifyAction action)
@@ -22,12 +24,15 @@ inline Status notify(const Thread &target, std::uint32_t value, NotifyAction act
 
 inline Status notify_from_isr(ThreadId target, std::uint32_t value, NotifyAction action, bool &higher_priority_woken)
 {
-    return low_level::rtos::notify_from_isr(target, value, action, higher_priority_woken);
+    higher_priority_woken = false;
+    return notify(target, value, action);
 }
 
 inline Status wait(std::uint32_t &out_value, Tick timeout_ticks = WaitForever)
 {
-    return low_level::rtos::wait(out_value, timeout_ticks);
+    (void)out_value;
+    (void)timeout_ticks;
+    return Status::NotReady;
 }
 
 inline Status wait(std::uint32_t &out_value, const Deadline &deadline)
@@ -37,7 +42,8 @@ inline Status wait(std::uint32_t &out_value, const Deadline &deadline)
 
 inline Status give(ThreadId target)
 {
-    return low_level::rtos::give(target);
+    (void)target;
+    return Status::NotReady;
 }
 
 inline Status give(const Thread &target)
@@ -47,7 +53,9 @@ inline Status give(const Thread &target)
 
 inline Status take(std::uint32_t &out_value, Tick timeout_ticks = WaitForever)
 {
-    return low_level::rtos::take(out_value, timeout_ticks);
+    (void)out_value;
+    (void)timeout_ticks;
+    return Status::NotReady;
 }
 
 inline Status take(std::uint32_t &out_value, const Deadline &deadline)

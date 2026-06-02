@@ -12,7 +12,7 @@ Solar is under active development. The current package documents the intended ar
 - Facilities are passive state/capability.
 - Services are active threaded actors.
 - Metrics, events, and Remote vocabulary are contributed by their owning components and collected by `System`.
-- Platform and low-level hardware bindings are project-owned boundaries, not Solar core.
+- Zephyr provides the kernel, board model, drivers, and native simulation target.
 
 ## Static Graph
 
@@ -79,22 +79,23 @@ Remote uses system-collected catalogs by default, so component-owned methods, to
 
 See [Remote](remote.md).
 
-## Entry And Simulation
+## Entry
 
 Applications define profile headers such as:
 
 - `include/app/robot.hpp`
-- `include/app/simulated.hpp`
 
-Solar entry owns construction and boot. Profiles provide the graph and optional hooks such as `preflight`, `awake`, `failed`, `finished`, and `exit_code`.
+Solar entry owns construction and boot. Profiles provide the graph and optional hooks such as `preflight`, `awake`, `failed`, and `exit_code`.
 
 See [Entry And Profiles](entry-and-profiles.md).
 
-## Low Level And RTOS
+## Zephyr And RTOS
 
-Solar core depends on stable public APIs such as `solar::rtos` and project-owned `low_level` facade headers. Build configuration selects a concrete low-level implementation such as Teensyduino/FreeRTOS or host simulation.
+Solar is built explicitly on Zephyr. `solar::rtos` wraps Zephyr kernel primitives in Solar vocabulary, while application board/peripheral code can use Zephyr drivers directly or through project-owned typed adapters.
 
-See [Low Level Boundary](low-level.md) and [RTOS](rtos.md).
+Zephyr's native simulator is the host simulation path. Solar does not carry a separate platform or simulator switch.
+
+See [Zephyr](zephyr.md) and [RTOS](rtos.md).
 
 ## Conventions
 

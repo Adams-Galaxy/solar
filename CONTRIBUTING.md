@@ -8,21 +8,27 @@ Solar is in active development and the architecture is still settling. Contribut
 - Keep facilities passive and services active/threaded.
 - Avoid heap allocation in normal runtime paths.
 - Use fixed-capacity buffers and queues.
-- Put platform/hardware bindings behind project-owned `low_level` facades.
+- Use Zephyr as the kernel, board, driver, and simulation substrate.
 - Document public template APIs with Doxygen-style comments.
 - Update the relevant markdown docs when architecture changes.
 
 ## Checks
 
-Run host tests:
+Build the owning Zephyr firmware application. On Linux, use native sim:
 
 ```sh
-cmake -S solar -B solar/build -DSOLAR_BUILD_TESTS=ON
-cmake --build solar/build
-ctest --test-dir solar/build --output-on-failure
+west build -p auto -b native_sim/native/64 firmware
+west build -t run
 ```
 
-In this project, also run the firmware and simulator checks before larger changes.
+On macOS, use QEMU for the local smoke build:
+
+```sh
+west build -p auto -b qemu_x86_64 firmware
+west build -t run
+```
+
+Add Zephyr-native tests as runtime code grows.
 
 ## Documentation
 

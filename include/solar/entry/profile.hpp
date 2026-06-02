@@ -204,9 +204,8 @@ template <typename Profile>
 /**
  * @brief Run a profile's optional preflight hook.
  *
- * Preflight happens before `System` construction in the simulated runner. It is
- * intended for host-side setup such as sockets, replay files, or external
- * systems.
+ * Preflight happens before `System` construction in Solar-owned entry helpers.
+ * It is intended for project-specific setup that must happen before graph boot.
  */
 Status preflight()
 {
@@ -285,7 +284,7 @@ Status boot(typename Profile::System &system)
 
 template <typename Profile>
 /**
- * @brief Query the simulated runner completion policy.
+ * @brief Query an optional profile completion policy.
  */
 bool finished(typename Profile::System &system)
 {
@@ -302,7 +301,7 @@ bool finished(typename Profile::System &system)
 
 template <typename Profile>
 /**
- * @brief Query the simulated runner exit code policy.
+ * @brief Query an optional profile exit code policy.
  */
 int exit_code(typename Profile::System const &system)
 {

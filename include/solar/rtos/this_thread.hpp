@@ -1,6 +1,7 @@
 #pragma once
 
-#include "low_level/rtos/this_thread.hpp"
+#include <zephyr/kernel.h>
+
 #include "solar/rtos/deadline.hpp"
 #include "solar/rtos/priority.hpp"
 
@@ -13,17 +14,21 @@ namespace solar::rtos::ThisThread
 template <class Rep, class Period>
 inline void sleep_for(std::chrono::duration<Rep, Period> duration)
 {
-    low_level::rtos::sleep_for(duration);
+    k_sleep(to_timeout(to_ticks(duration)));
 }
 
 inline void sleep_for(Tick ticks)
 {
-    low_level::rtos::sleep_for(ticks);
+    k_sleep(to_timeout(ticks));
 }
 
 inline void sleep_until(Tick deadline_ticks)
 {
-    low_level::rtos::sleep_until(deadline_ticks);
+    const Tick now = now_ticks();
+    if (deadline_ticks > now)
+    {
+        sleep_for(deadline_ticks - now);
+    }
 }
 
 inline DeadlineStatus wait_until(const Deadline &deadline)
@@ -39,12 +44,12 @@ inline DeadlineStatus wait_until(Tick deadline_ticks, Tick grace_ticks = 0)
 
 inline void yield()
 {
-    low_level::rtos::yield();
+    k_yield();
 }
 
 inline ThreadId get_id()
 {
-    return low_level::rtos::current_thread_id();
+    return k_current_get();
 }
 
 inline ThreadId id()
@@ -54,12 +59,12 @@ inline ThreadId id()
 
 inline NativePriority priority()
 {
-    return low_level::rtos::current_priority();
+    return k_thread_priority_get(k_current_get());
 }
 
 inline void set_priority(NativePriority priority_value)
 {
-    low_level::rtos::set_current_priority(priority_value);
+    k_thread_priority_set(k_current_get(), priority_value);
 }
 
 inline void set_priority(Priority priority_value)
@@ -74,7 +79,7 @@ inline Priority priority_enum()
 
 inline void suspend()
 {
-    low_level::rtos::suspend_current();
+    k_thread_suspend(k_current_get());
 }
 
 } // namespace solar::rtos::ThisThread
