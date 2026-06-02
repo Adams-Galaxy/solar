@@ -1,9 +1,22 @@
 {
-    "python-envs.pythonProjects": [
-        {
-            "path": ".",
-            "envManager": "ms-python.python:venv",
-            "packageManager": "ms-python.python:pip"
-        }
-    ]
+    "C_Cpp.default.compileCommands": "${workspaceFolder}/../ENMT301-RoboCup/zephyrproject/build-teensy40/compile_commands.json",
+    "C_Cpp.default.configurationProvider": "",
+    "C_Cpp.intelliSenseEngine": "disabled",
+    "C_Cpp.default.cppStandard": "gnu++20",
+    "C_Cpp.default.cStandard": "gnu11",
+    "clangd.arguments": [
+        "--compile-commands-dir=${workspaceFolder}/../ENMT301-RoboCup/zephyrproject/build-teensy40",
+        "--query-driver=/home/adam/zephyr-sdk-1.0.1/gnu/arm-zephyr-eabi/bin/arm-zephyr-eabi-*"
+    ],
+    "C_Cpp.formatting": "clangFormat",
+    "editor.formatOnSave": false,
+    "[c]": {
+        "editor.defaultFormatter": "ms-vscode.cpptools"
+    },
+    "[cpp]": {
+        "editor.defaultFormatter": "ms-vscode.cpptools"
+    },
+    "[cuda-cpp]": {
+        "editor.defaultFormatter": "ms-vscode.cpptools"
+    }
 }
