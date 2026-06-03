@@ -2,7 +2,7 @@
 
 #include <zephyr/irq.h>
 
-namespace solar::rtos
+namespace solar::kernel
 {
 
 class CriticalSection
@@ -18,4 +18,4 @@ private:
     unsigned int key_{};
 };
 
-} // namespace solar::rtos
+} // namespace solar::kernel

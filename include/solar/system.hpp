@@ -126,8 +126,8 @@ template <typename T>
 concept HasServiceThread = requires {
     typename T::Thread;
     typename T::Thread::Name;
-    { T::Thread::stack_words } -> std::convertible_to<std::size_t>;
-    { T::Thread::priority } -> std::convertible_to<rtos::Priority>;
+    { T::Thread::stack_bytes } -> std::convertible_to<std::size_t>;
+    { T::Thread::priority } -> std::convertible_to<kernel::Priority>;
 };
 
 template <typename T, typename ContextT>
@@ -261,7 +261,7 @@ public:
     using Spec = typename ServiceT::Thread;
 
     ServiceThreadRuntime()
-        : thread_{Spec::Name::c_str(), Spec::priority, static_cast<std::uint32_t>(Spec::stack_words), &ServiceThreadRuntime::entry, this}
+        : thread_{Spec::Name::c_str(), Spec::priority, static_cast<std::uint32_t>(Spec::stack_bytes), &ServiceThreadRuntime::entry, this}
     {
     }
 
@@ -281,10 +281,16 @@ public:
     Status stop()
     {
         thread_.request_stop();
-        return thread_.is_running() ? thread_.terminate() : Status::Ok;
+        const Status status = thread_.join(kernel::Timeout::after(Spec::stop_timeout));
+        if (status == Status::Timeout)
+        {
+            const Status abort_status = thread_.abort();
+            return abort_status == Status::Ok ? Status::Timeout : abort_status;
+        }
+        return status;
     }
 
-    rtos::Thread &thread()
+    kernel::Thread &thread()
     {
         return thread_;
     }
@@ -299,7 +305,7 @@ private:
         }
 
         Context<SystemT> ctx{*self->system_};
-        StopToken stop_token{&self->thread_};
+        StopToken stop_token = self->thread_.stop_token();
 
         (void)call_run(*self->service_, ctx, stop_token);
     }
@@ -319,8 +325,8 @@ private:
 
     ServiceT *service_ = nullptr;
     SystemT *system_ = nullptr;
-    rtos::Thread thread_;
-    rtos::ThreadStorage<Spec::stack_words> storage_{};
+    kernel::Thread thread_;
+    kernel::ThreadStorage<Spec::stack_bytes> storage_{};
 };
 
 using SolarLogSource = solar::Name<"solar">;
@@ -525,7 +531,7 @@ public:
      * @brief Boot the graph in deterministic order.
      *
      * Boot initializes/starts board, peripherals, facilities, devices, services,
-     * and tasks. Services are started as their own RTOS threads after their
+     * and tasks. Services are started as their own Kernel threads after their
      * `init(ctx)` and optional `start(ctx)` phases succeed.
      */
     Status Boot()

@@ -20,7 +20,7 @@ architecture settles.
 - Active threaded services under `solar::services`.
 - Static contribution catalogs for metrics, events, and Remote vocabulary.
 - Fixed-capacity runtime structures and no registry-driven architecture.
-- Zephyr-backed RTOS primitives exposed through `solar::rtos`.
+- Zephyr-backed Kernel primitives exposed through `solar::kernel`.
 
 ## Example Shape
 
@@ -109,7 +109,7 @@ Important sections:
 - [Events](docs/observability/events.md)
 - [Metrics](docs/observability/metrics.md)
 - [Remote](docs/remote.md)
-- [RTOS](docs/rtos.md)
+- [Kernel](docs/kernel.md)
 - [Zephyr](docs/zephyr.md)
 
 ## Repository Layout

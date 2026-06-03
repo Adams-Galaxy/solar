@@ -6,9 +6,9 @@
 #include <zephyr/kernel.h>
 
 #include "solar/core/status.hpp"
-#include "solar/rtos/deadline.hpp"
+#include "solar/kernel/deadline.hpp"
 
-namespace solar::rtos
+namespace solar::kernel
 {
 
 template <typename T, std::size_t Depth>
@@ -58,4 +58,4 @@ private:
     k_msgq queue_{};
 };
 
-} // namespace solar::rtos
+} // namespace solar::kernel

@@ -9,7 +9,7 @@
 #include "solar/log.hpp"
 #include "solar/metrics.hpp"
 #include "solar/remote.hpp"
-#include "solar/rtos/rtos.hpp"
+#include "solar/kernel/kernel.hpp"
 #include "solar/service.hpp"
 #include "solar/services.hpp"
 #include "solar/system.hpp"

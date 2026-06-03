@@ -3,7 +3,7 @@
 #include <cstddef>
 
 #include "solar/core.hpp"
-#include "solar/rtos/queue.hpp"
+#include "solar/kernel/queue.hpp"
 
 namespace solar::services
 {
@@ -51,7 +51,7 @@ public:
     }
 
 private:
-    rtos::Queue<PayloadT, Depth> queue_{};
+    kernel::Queue<PayloadT, Depth> queue_{};
 };
 
 } // namespace solar::services

@@ -9,8 +9,8 @@
 #include "solar/core.hpp"
 #include "solar/metrics/policy.hpp"
 #include "solar/metrics/value.hpp"
-#include "solar/rtos/critical_section.hpp"
-#include "solar/rtos/time.hpp"
+#include "solar/kernel/critical_section.hpp"
+#include "solar/kernel/time.hpp"
 
 namespace solar::metrics
 {
@@ -138,7 +138,7 @@ public:
     static void inc(typename MetricT::Value amount = static_cast<typename MetricT::Value>(1))
     {
         static_assert(MetricT::kind == Kind::Counter, "inc() can only be used with Counter metrics");
-        rtos::CriticalSection guard;
+        kernel::CriticalSection guard;
         storage<MetricT>().add(amount);
     }
 
@@ -157,7 +157,7 @@ public:
      */
     static void set(typename MetricT::Value value)
     {
-        rtos::CriticalSection guard;
+        kernel::CriticalSection guard;
         if constexpr (MetricT::kind == Kind::Counter)
         {
             storage<MetricT>().set(value);
@@ -175,7 +175,7 @@ public:
     static void observe(typename MetricT::Value value)
     {
         static_assert(MetricT::kind != Kind::Counter, "observe() is for Sample/Gauge/Timer metrics; use inc/add for counters");
-        rtos::CriticalSection guard;
+        kernel::CriticalSection guard;
         storage<MetricT>().observe(value);
     }
 
@@ -207,7 +207,7 @@ public:
     class ScopedTimer
     {
     public:
-        ScopedTimer() : start_(rtos::now()) {}
+        ScopedTimer() : start_(kernel::now()) {}
 
         ScopedTimer(const ScopedTimer &) = delete;
         ScopedTimer &operator=(const ScopedTimer &) = delete;
@@ -241,7 +241,7 @@ public:
                 return;
             }
             active_ = false;
-            const auto elapsed = rtos::now() - start_;
+            const auto elapsed = kernel::now() - start_;
             Facility::template record<MetricT>(elapsed);
         }
 
@@ -266,7 +266,7 @@ public:
      */
     static auto get() -> Result<typename detail::StorageForT<MetricT>::Output>
     {
-        rtos::CriticalSection guard;
+        kernel::CriticalSection guard;
         return storage<MetricT>().value();
     }
 
@@ -276,7 +276,7 @@ public:
      */
     static Snapshot snapshot()
     {
-        rtos::CriticalSection guard;
+        kernel::CriticalSection guard;
         return make_snapshot<MetricT>();
     }
 
@@ -352,7 +352,7 @@ private:
     template <typename... MetricTypes>
     static void reset_list_impl(List<MetricTypes...> *)
     {
-        rtos::CriticalSection guard;
+        kernel::CriticalSection guard;
         (storage<MetricTypes>().reset(), ...);
     }
 

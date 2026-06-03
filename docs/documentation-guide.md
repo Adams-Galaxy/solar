@@ -23,7 +23,7 @@ Good:
 /**
  * @brief Active service thread policy.
  *
- * Services own their run loop. Solar starts the RTOS thread and provides a
+ * Services own their run loop. Solar starts the Kernel thread and provides a
  * cooperative stop token; it does not poll services.
  */
 ```

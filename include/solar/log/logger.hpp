@@ -10,7 +10,7 @@
 #include "solar/core.hpp"
 #include "solar/log/sink.hpp"
 #include "solar/log/source.hpp"
-#include "solar/rtos/time.hpp"
+#include "solar/kernel/time.hpp"
 
 namespace solar::log
 {
@@ -179,7 +179,7 @@ public:
     {
         if (record.timestamp_us == 0)
         {
-            record.timestamp_us = static_cast<std::uint64_t>(rtos::to_milliseconds(rtos::now_ticks()).count()) * 1000ULL;
+            record.timestamp_us = static_cast<std::uint64_t>(kernel::to_milliseconds(kernel::now_ticks()).count()) * 1000ULL;
         }
 
         Status status = Status::Ok;

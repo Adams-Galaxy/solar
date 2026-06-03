@@ -12,7 +12,7 @@
 #include "solar/remote/generated/core.hpp"
 #include "solar/remote/protocol.hpp"
 #include "solar/remote/schema.hpp"
-#include "solar/rtos/this_thread.hpp"
+#include "solar/kernel/this_thread.hpp"
 #include "solar/service.hpp"
 
 namespace solar::services
@@ -144,7 +144,7 @@ class Remote
 {
 public:
     using Name = solar::Name<"remote">;
-    using Thread = solar::ServiceSpec<Name, 2048, rtos::Priority::Normal>;
+    using Thread = solar::ServiceSpec<Name, 2048, kernel::Priority::Normal>;
     using Transport = TransportT;
     using Methods = MethodListT;
     using Topics = TopicListT;
@@ -171,7 +171,7 @@ public:
         while (!stop.stop_requested())
         {
             (void)drain(ctx);
-            rtos::ThisThread::sleep_for(Milliseconds{1});
+            kernel::ThisThread::sleep_for(Milliseconds{1});
         }
     }
 

@@ -40,7 +40,7 @@ struct Services : TypeList<Types...>
 };
 
 /**
- * @brief Explicit RTOS task graph entries.
+ * @brief Explicit Kernel task graph entries.
  */
 template <typename... Types>
 struct Tasks : TypeList<Types...>

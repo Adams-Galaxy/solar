@@ -2,9 +2,9 @@
 
 #include <cstdint>
 
-#include "solar/rtos/config.hpp"
+#include "solar/kernel/config.hpp"
 
-namespace solar::rtos
+namespace solar::kernel
 {
 
 /**
@@ -81,4 +81,4 @@ constexpr Priority from_native_priority(NativePriority native_priority)
     return static_cast<Priority>(scaled);
 }
 
-} // namespace solar::rtos
+} // namespace solar::kernel

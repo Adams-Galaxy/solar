@@ -1,0 +1,16 @@
+#pragma once
+
+#include "solar/kernel/config.hpp"
+#include "solar/kernel/critical_section.hpp"
+#include "solar/kernel/deadline.hpp"
+#include "solar/kernel/event_flags.hpp"
+#include "solar/kernel/mutex.hpp"
+#include "solar/kernel/notify.hpp"
+#include "solar/kernel/priority.hpp"
+#include "solar/kernel/queue.hpp"
+#include "solar/kernel/scheduler.hpp"
+#include "solar/kernel/semaphore.hpp"
+#include "solar/kernel/this_thread.hpp"
+#include "solar/kernel/thread.hpp"
+#include "solar/kernel/time.hpp"
+#include "solar/kernel/timer.hpp"

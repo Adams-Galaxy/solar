@@ -2,9 +2,9 @@
 
 #include <cstdint>
 
-#include "solar/rtos/time.hpp"
+#include "solar/kernel/time.hpp"
 
-namespace solar::rtos
+namespace solar::kernel
 {
 
 enum class DeadlineStatus : std::uint8_t
@@ -87,4 +87,4 @@ private:
     Tick grace_ticks_ = 0;
 };
 
-} // namespace solar::rtos
+} // namespace solar::kernel

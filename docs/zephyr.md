@@ -21,7 +21,7 @@ Solar provides:
 ## Boundary
 
 Solar has no custom platform-switching layer. Code that needs kernel
-behavior uses `solar::rtos`, which wraps Zephyr primitives. Code that needs
+behavior uses `solar::kernel`, which wraps Zephyr primitives. Code that needs
 hardware should use Zephyr devices directly or project-owned typed adapters
 built from Zephyr devicetree and driver APIs.
 

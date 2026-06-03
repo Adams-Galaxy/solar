@@ -3,7 +3,7 @@
 #include <cstddef>
 
 #include "solar/core.hpp"
-#include "solar/rtos/rtos.hpp"
+#include "solar/kernel/kernel.hpp"
 
 namespace solar
 {
@@ -14,29 +14,30 @@ namespace solar
  * Tasks are lower-level than services: they bind directly to a free function
  * entry point and do not receive a Solar context or stop token.
  */
-template <typename NameT, std::size_t StackWords, rtos::Priority PriorityValue = rtos::Priority::Normal>
+template <typename NameT, std::size_t StackBytes, kernel::Priority PriorityValue = kernel::Priority::Normal>
 struct TaskSpec
 {
     using Name = NameT;
 
-    static_assert(StackWords > 0, "Solar task stacks require a non-zero word count");
+    static_assert(StackBytes > 0, "Solar task stacks require a non-zero byte count");
 
-    static constexpr std::size_t stack_words = StackWords;
+    static constexpr std::size_t stack_bytes = StackBytes;
     static constexpr auto priority = PriorityValue;
+    static constexpr kernel::Milliseconds stop_timeout = kernel::Milliseconds{100};
 };
 
 /**
- * @brief Graph entry that owns an RTOS thread and static task storage.
+ * @brief Graph entry that owns a Kernel thread and static task storage.
  */
-template <typename SpecT, rtos::Thread::Entry Entry, typename DependencyList = solar::Dependencies<>>
+template <typename SpecT, kernel::Thread::Entry Entry, typename DependencyList = solar::Dependencies<>>
 class Task
 {
 public:
     using Name = typename SpecT::Name;
     using Dependencies = DependencyList;
 
-    static constexpr std::size_t stack_words = SpecT::stack_words;
-    static constexpr rtos::Priority priority = SpecT::priority;
+    static constexpr std::size_t stack_bytes = SpecT::stack_bytes;
+    static constexpr kernel::Priority priority = SpecT::priority;
 
     template <typename ContextT>
     Status start(ContextT &)
@@ -48,22 +49,22 @@ public:
     Status stop(ContextT &)
     {
         thread_.request_stop();
-        return thread_.terminate();
+        return thread_.join(kernel::Timeout::after(SpecT::stop_timeout));
     }
 
-    rtos::Thread &thread()
+    kernel::Thread &thread()
     {
         return thread_;
     }
 
-    rtos::Thread const &thread() const
+    kernel::Thread const &thread() const
     {
         return thread_;
     }
 
 private:
-    rtos::Thread thread_{Name::c_str(), priority, static_cast<std::uint32_t>(stack_words), Entry};
-    rtos::ThreadStorage<stack_words> storage_{};
+    kernel::Thread thread_{Name::c_str(), priority, static_cast<std::uint32_t>(stack_bytes), Entry};
+    kernel::ThreadStorage<stack_bytes> storage_{};
 };
 
 } // namespace solar

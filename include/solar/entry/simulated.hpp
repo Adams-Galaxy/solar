@@ -3,7 +3,7 @@
 #include <cstddef>
 
 #include "solar/entry/profile.hpp"
-#include "solar/rtos/this_thread.hpp"
+#include "solar/kernel/this_thread.hpp"
 
 namespace solar::entry
 {
@@ -59,7 +59,7 @@ int run(SimulatedRunOptions options = {})
 
         if (options.loop_interval.count() > 0)
         {
-            rtos::ThisThread::sleep_for(options.loop_interval);
+            kernel::ThisThread::sleep_for(options.loop_interval);
         }
     }
 

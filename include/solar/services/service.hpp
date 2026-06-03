@@ -6,15 +6,15 @@ namespace solar::services
 {
 
 /**
- * @brief Legacy include shim for the active service thread specification.
+ * @brief Service thread specification alias for service-local includes.
  */
 template <typename NameT>
 using Service = solar::ServiceSpec<NameT, 1024>;
 
 template <typename NameT,
-          std::size_t StackWords,
-          rtos::Priority PriorityValue = rtos::Priority::Normal>
-using ServiceSpec = solar::ServiceSpec<NameT, StackWords, PriorityValue>;
+          std::size_t StackBytes,
+          kernel::Priority PriorityValue = kernel::Priority::Normal>
+using ServiceSpec = solar::ServiceSpec<NameT, StackBytes, PriorityValue>;
 
 using StopToken = solar::StopToken;
 

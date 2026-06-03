@@ -4,9 +4,9 @@
 
 #include <zephyr/kernel.h>
 
-#include "solar/rtos/time.hpp"
+#include "solar/kernel/time.hpp"
 
-namespace solar::rtos
+namespace solar::kernel
 {
 
 using EventBits = std::uint32_t;
@@ -51,4 +51,4 @@ private:
     k_event event_{};
 };
 
-} // namespace solar::rtos
+} // namespace solar::kernel

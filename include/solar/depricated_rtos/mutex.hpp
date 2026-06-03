@@ -3,9 +3,9 @@
 #include <zephyr/kernel.h>
 
 #include "solar/core/status.hpp"
-#include "solar/rtos/deadline.hpp"
+#include "solar/kernel/deadline.hpp"
 
-namespace solar::rtos
+namespace solar::kernel
 {
 
 class Mutex
@@ -58,4 +58,4 @@ private:
     MutexT &mutex_;
 };
 
-} // namespace solar::rtos
+} // namespace solar::kernel

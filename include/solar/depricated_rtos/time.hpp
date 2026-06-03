@@ -6,7 +6,7 @@
 
 #include "solar/core/time.hpp"
 
-namespace solar::rtos
+namespace solar::kernel
 {
 
 using Tick = std::int64_t;
@@ -17,7 +17,7 @@ using Microseconds = solar::Microseconds;
 using Seconds = solar::Seconds;
 
 /**
- * @brief Convert a chrono duration or native tick count into RTOS ticks.
+ * @brief Convert a chrono duration or native tick count into Kernel ticks.
  */
 constexpr Tick to_ticks(Tick ticks)
 {
@@ -63,4 +63,4 @@ inline Tick ticks_since(Tick start)
     return now_ticks() - start;
 }
 
-} // namespace solar::rtos
+} // namespace solar::kernel

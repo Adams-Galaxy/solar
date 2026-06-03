@@ -4,7 +4,7 @@
 
 #include <zephyr/kernel.h>
 
-namespace solar::rtos
+namespace solar::kernel
 {
 
 constexpr std::uint8_t PriorityStepsPerBand = 6;
@@ -18,7 +18,7 @@ constexpr NativePriority max_native_priority()
     return CONFIG_NUM_PREEMPT_PRIORITIES > 0 ? CONFIG_NUM_PREEMPT_PRIORITIES : 1;
 }
 
-} // namespace solar::rtos
+} // namespace solar::kernel
 
 #ifndef SOLAR_RTOS_ASSERT
 #define SOLAR_RTOS_ASSERT(expr) __ASSERT_NO_MSG(expr)

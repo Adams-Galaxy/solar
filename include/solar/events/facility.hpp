@@ -8,8 +8,8 @@
 
 #include "solar/core.hpp"
 #include "solar/events/sink.hpp"
-#include "solar/rtos/critical_section.hpp"
-#include "solar/rtos/time.hpp"
+#include "solar/kernel/critical_section.hpp"
+#include "solar/kernel/time.hpp"
 
 namespace solar::events
 {
@@ -94,7 +94,7 @@ public:
 
     static void reset()
     {
-        rtos::CriticalSection guard;
+        kernel::CriticalSection guard;
         head_ = 0;
         size_ = 0;
         sequence_ = 0;
@@ -117,8 +117,8 @@ public:
      */
     static Status try_emit(std::int32_t value = 0, std::uint32_t detail = 0)
     {
-        const auto timestamp_us = static_cast<std::uint64_t>(rtos::to_milliseconds(rtos::now_ticks()).count()) * 1000ULL;
-        rtos::CriticalSection guard;
+        const auto timestamp_us = static_cast<std::uint64_t>(kernel::to_milliseconds(kernel::now_ticks()).count()) * 1000ULL;
+        kernel::CriticalSection guard;
         Record record{
             .timestamp_us = timestamp_us,
             .sequence = ++sequence_,
@@ -142,13 +142,13 @@ public:
 
     static std::size_t count()
     {
-        rtos::CriticalSection guard;
+        kernel::CriticalSection guard;
         return size_;
     }
 
     static Stats stats()
     {
-        rtos::CriticalSection guard;
+        kernel::CriticalSection guard;
         return stats_;
     }
 
@@ -159,7 +159,7 @@ public:
             return 0;
         }
 
-        rtos::CriticalSection guard;
+        kernel::CriticalSection guard;
         const std::size_t count = size_ < max_records ? size_ : max_records;
         const std::size_t tail = (head_ + HistoryDepth - size_) % HistoryDepth;
         for (std::size_t i = 0; i < count; ++i)
@@ -171,7 +171,7 @@ public:
 
     static Result<Record> latest()
     {
-        rtos::CriticalSection guard;
+        kernel::CriticalSection guard;
         if (size_ == 0)
         {
             return Status::Empty;

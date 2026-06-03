@@ -1,6 +1,6 @@
 #pragma once
 
-namespace solar::rtos
+namespace solar::kernel
 {
 
 enum class SchedulerState
@@ -20,4 +20,4 @@ inline SchedulerState scheduler_state()
     return SchedulerState::Running;
 }
 
-} // namespace solar::rtos
+} // namespace solar::kernel

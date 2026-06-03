@@ -8,7 +8,7 @@ Solar is a C++20 static-first runtime. Names should make the type graph easy to 
 - `solar::facilities` contains passive runtime capabilities.
 - `solar::services` contains active threaded actors and service-adjacent graph utilities.
 - `solar::metrics`, `solar::events`, `solar::log`, and `solar::remote` contain subsystem-specific vocabulary.
-- `solar::rtos` is the stable RTOS API over Zephyr kernel primitives.
+- `solar::kernel` is the stable Kernel API over Zephyr kernel primitives.
 
 ## Type Names
 

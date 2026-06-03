@@ -22,7 +22,7 @@ using Robot = solar::System<
 - `Devices<...>`: robot devices and sensors.
 - `Facilities<...>`: passive shared capability and state.
 - `Services<...>`: active runtime actors, each with a thread.
-- `Tasks<...>`: lower-level RTOS task entries.
+- `Tasks<...>`: lower-level Kernel task entries.
 - `Channels<...>`: fixed-depth typed queues.
 - `Runtime<...>`: cross-system policy such as logger and config.
 

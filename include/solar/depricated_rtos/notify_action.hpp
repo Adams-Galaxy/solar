@@ -1,6 +1,6 @@
 #pragma once
 
-namespace solar::rtos
+namespace solar::kernel
 {
 
 /**
@@ -14,4 +14,4 @@ enum class NotifyAction
     SetValueWithoutOverwrite,
 };
 
-} // namespace solar::rtos
+} // namespace solar::kernel

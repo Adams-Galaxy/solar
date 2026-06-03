@@ -54,7 +54,7 @@ Services additionally implement:
 run(ctx, stop_token)
 ```
 
-Solar starts each service on its own RTOS thread. There is no Solar polling service model.
+Solar starts each service on its own Kernel thread. There is no Solar polling service model.
 
 See [Facilities And Services](concepts/facilities-services.md).
 
@@ -89,13 +89,13 @@ Solar entry owns construction and boot. Profiles provide the graph and optional 
 
 See [Entry And Profiles](entry-and-profiles.md).
 
-## Zephyr And RTOS
+## Zephyr And Kernel
 
-Solar is built explicitly on Zephyr. `solar::rtos` wraps Zephyr kernel primitives in Solar vocabulary, while application board/peripheral code can use Zephyr drivers directly or through project-owned typed adapters.
+Solar is built explicitly on Zephyr. `solar::kernel` wraps Zephyr kernel primitives in Solar vocabulary, while application board/peripheral code can use Zephyr drivers directly or through project-owned typed adapters.
 
 Zephyr's native simulator is the host simulation path. Solar does not carry a separate platform or simulator switch.
 
-See [Zephyr](zephyr.md) and [RTOS](rtos.md).
+See [Zephyr](zephyr.md) and [Kernel](kernel.md).
 
 ## Conventions
 

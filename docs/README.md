@@ -19,7 +19,7 @@ This documentation set is the working reference for Solar. The code is under act
 - [Events](observability/events.md): typed event descriptors, fixed history, and direct sinks.
 - [Metrics](observability/metrics.md): typed observable state, units, policies, timers, and groups.
 - [Remote](remote.md): binary protocol, generated schema, descriptors, and service shape.
-- [RTOS](rtos.md): stable RTOS API over Zephyr kernel primitives.
+- [Kernel](kernel.md): stable Kernel API over Zephyr kernel primitives.
 
 ## Project Conventions
 

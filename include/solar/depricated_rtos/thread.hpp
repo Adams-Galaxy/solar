@@ -7,9 +7,9 @@
 #include <zephyr/kernel.h>
 
 #include "solar/core/status.hpp"
-#include "solar/rtos/priority.hpp"
+#include "solar/kernel/priority.hpp"
 
-namespace solar::rtos
+namespace solar::kernel
 {
 
 using ThreadId = k_tid_t;
@@ -125,4 +125,4 @@ private:
     std::atomic<bool> running_{false};
 };
 
-} // namespace solar::rtos
+} // namespace solar::kernel

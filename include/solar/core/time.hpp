@@ -8,8 +8,8 @@ namespace solar
 /**
  * @brief Common duration aliases used by Solar public APIs.
  *
- * Platform-specific tick conversion is kept under `solar::rtos`; these aliases
- * are stable application vocabulary.
+ * Platform-specific tick conversion is kept under `solar::kernel`; these
+ * aliases are stable application vocabulary.
  */
 using Duration = std::chrono::milliseconds;
 using Milliseconds = std::chrono::milliseconds;

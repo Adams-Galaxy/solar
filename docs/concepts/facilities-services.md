@@ -18,10 +18,10 @@ Facilities are initialized and started during `System::Boot()` before devices ar
 
 ## Services
 
-Services live under `solar::services`. They are active runtime actors. Every service declares a thread spec:
+Services live under `solar::services`. They are active runtime actors. Every service declares a thread spec with a stack size in bytes:
 
 ```cpp
-using Thread = solar::ServiceSpec<Name, 2048, solar::rtos::Priority::Normal>;
+using Thread = solar::ServiceSpec<Name, 2048, solar::kernel::Priority::Normal>;
 ```
 
 and implements:
@@ -38,7 +38,7 @@ void run(Context& ctx, solar::StopToken stop)
     while (!stop.stop_requested())
     {
         do_work(ctx);
-        solar::rtos::ThisThread::sleep_for(solar::Milliseconds{10});
+        solar::kernel::ThisThread::sleep_for(solar::Milliseconds{10});
     }
 }
 ```

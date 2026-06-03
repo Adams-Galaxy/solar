@@ -5,9 +5,9 @@
 #include <zephyr/kernel.h>
 
 #include "solar/core/status.hpp"
-#include "solar/rtos/deadline.hpp"
+#include "solar/kernel/deadline.hpp"
 
-namespace solar::rtos
+namespace solar::kernel
 {
 
 class Semaphore
@@ -61,4 +61,4 @@ public:
     explicit BinarySemaphore(bool initially_available = false) : Semaphore(initially_available ? 1U : 0U, 1U) {}
 };
 
-} // namespace solar::rtos
+} // namespace solar::kernel

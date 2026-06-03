@@ -2,10 +2,10 @@
 
 #include <zephyr/kernel.h>
 
-#include "solar/rtos/deadline.hpp"
-#include "solar/rtos/priority.hpp"
+#include "solar/kernel/deadline.hpp"
+#include "solar/kernel/priority.hpp"
 
-namespace solar::rtos::ThisThread
+namespace solar::kernel::ThisThread
 {
 
 /**
@@ -82,4 +82,4 @@ inline void suspend()
     k_thread_suspend(k_current_get());
 }
 
-} // namespace solar::rtos::ThisThread
+} // namespace solar::kernel::ThisThread
