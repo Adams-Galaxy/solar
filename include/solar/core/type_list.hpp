@@ -64,10 +64,10 @@ struct Facilities : TypeList<Types...>
 };
 
 /**
- * @brief Compile-time dependencies by component name.
+ * @brief Required compile-time dependencies by component type.
  */
-template <typename... Names>
-struct Dependencies : TypeList<Names...>
+template <typename... ComponentTypes>
+struct Dependencies : TypeList<ComponentTypes...>
 {
 };
 
@@ -136,6 +136,26 @@ struct DependenciesOf<T, std::void_t<typename T::Dependencies>>
 
 template <typename T>
 using DependenciesOfT = typename DependenciesOf<T>::type;
+
+template <typename Needle, typename... Types>
+inline constexpr std::size_t TypeCountV = (std::size_t{0} + ... + (std::is_same_v<Needle, Types> ? 1U : 0U));
+
+template <typename... Types>
+struct UniqueTypes;
+
+template <>
+struct UniqueTypes<> : std::true_type
+{
+};
+
+template <typename Head, typename... Tail>
+struct UniqueTypes<Head, Tail...>
+    : std::bool_constant<(TypeCountV<Head, Head, Tail...> == 1U) && UniqueTypes<Tail...>::value>
+{
+};
+
+template <typename Needle, typename... Types>
+inline constexpr bool ContainsTypeV = (std::is_same_v<Needle, Types> || ...);
 
 template <typename Needle, typename... Types>
 struct CountName;
@@ -267,7 +287,7 @@ struct DependenciesAvailable;
 
 template <typename... Deps, typename... Components>
 struct DependenciesAvailable<Dependencies<Deps...>, Components...>
-    : std::bool_constant<(ContainsName<Deps, Components...>::value && ...)>
+    : std::bool_constant<(ContainsTypeV<Deps, Components...> && ...)>
 {
 };
 
@@ -296,13 +316,15 @@ struct GraphValid;
 /**
  * @brief Compile-time graph validation for Solar component lists.
  *
- * Validation currently checks that every graph entry is named, names are unique
- * across the graph, and declared dependencies refer to existing graph names.
+ * Validation checks concrete type uniqueness, diagnostic-name uniqueness, and
+ * required dependency presence. Cycle validation is performed by `System`,
+ * where the board and complete component set are available.
  */
 template <typename... PeripheralTypes, typename... DeviceTypes, typename... FacilityTypes, typename... ServiceTypes, typename... TaskTypes, typename... ChannelTypes>
 struct GraphValid<Peripherals<PeripheralTypes...>, Devices<DeviceTypes...>, Facilities<FacilityTypes...>, Services<ServiceTypes...>, Tasks<TaskTypes...>, Channels<ChannelTypes...>>
     : std::bool_constant<
           detail::AllNamed<TypeList<PeripheralTypes..., DeviceTypes..., FacilityTypes..., ServiceTypes..., TaskTypes..., ChannelTypes...>>::value &&
+          detail::UniqueTypes<PeripheralTypes..., DeviceTypes..., FacilityTypes..., ServiceTypes..., TaskTypes..., ChannelTypes...>::value &&
           detail::UniqueNames<PeripheralTypes..., DeviceTypes..., FacilityTypes..., ServiceTypes..., TaskTypes..., ChannelTypes...>::value &&
           detail::AllDependenciesAvailable<TypeList<PeripheralTypes..., DeviceTypes..., FacilityTypes..., ServiceTypes..., TaskTypes..., ChannelTypes...>,
                                            PeripheralTypes..., DeviceTypes..., FacilityTypes..., ServiceTypes..., TaskTypes..., ChannelTypes...>::value>

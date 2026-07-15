@@ -1,3 +1,4 @@
 name: solar
 build:
   cmake: .
+  kconfig: zephyr/Kconfig

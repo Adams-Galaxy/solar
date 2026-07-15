@@ -7,6 +7,7 @@
 #include "solar/entry.hpp"
 #include "solar/facilities.hpp"
 #include "solar/log.hpp"
+#include "solar/lifecycle.hpp"
 #include "solar/metrics.hpp"
 #include "solar/remote.hpp"
 #include "solar/kernel/kernel.hpp"

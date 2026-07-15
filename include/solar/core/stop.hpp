@@ -1,7 +1,6 @@
 #pragma once
 
 #include <cstddef>
-#include <cstdint>
 
 #include "solar/core/lifecycle.hpp"
 #include "solar/core/status.hpp"
@@ -9,30 +8,8 @@
 namespace solar
 {
 
-enum class BootPhase : std::uint8_t
+struct StopFailure
 {
-    None,
-    BoardInit,
-    BoardStart,
-    PeripheralInit,
-    PeripheralStart,
-    FacilityInit,
-    FacilityStart,
-    DeviceInit,
-    DeviceStart,
-    ChannelInit,
-    ChannelStart,
-    ServiceInit,
-    ServiceStart,
-    TaskInit,
-    TaskStart,
-    ExecutionStart,
-    App,
-};
-
-struct BootFailure
-{
-    BootPhase phase = BootPhase::None;
     LifecycleOperation operation = LifecycleOperation::None;
     Status status = Status::Ok;
     ComponentDescriptor component{};
@@ -43,10 +20,11 @@ struct BootFailure
     }
 };
 
-struct BootReport
+struct StopReport
 {
     Status status = Status::Ok;
-    BootFailure failure{};
+    StopFailure first_failure{};
+    std::size_t failure_count = 0;
     std::size_t completed_operations = 0;
 
     constexpr bool ok() const
@@ -54,23 +32,26 @@ struct BootReport
         return status == Status::Ok;
     }
 
-    constexpr void record_success()
-    {
-        ++completed_operations;
-    }
-
     constexpr void record_failure(ComponentDescriptor component,
-                                  BootPhase phase,
                                   LifecycleOperation operation,
                                   Status failure_status)
     {
-        if (failure_status == Status::Ok || failure.present())
+        if (failure_status == Status::Ok)
         {
             return;
         }
 
-        status = failure_status;
-        failure = {phase, operation, failure_status, component};
+        if (failure_count == 0)
+        {
+            status = failure_status;
+            first_failure = {operation, failure_status, component};
+        }
+        ++failure_count;
+    }
+
+    constexpr void record_success()
+    {
+        ++completed_operations;
     }
 };
 

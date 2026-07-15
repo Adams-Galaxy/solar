@@ -500,7 +500,7 @@ private:
     template <typename SourceT, typename CategoryNameT, typename... Args>
     static Status emit_format(Level level, std::uint16_t id, const char *format, Args... args)
     {
-        std::array<char, configSOLAR_LOG_RECORD_BYTES> message{};
+        std::array<char, CONFIG_SOLAR_LOG_RECORD_BYTES> message{};
         if (format == nullptr)
         {
             message[0] = '\0';

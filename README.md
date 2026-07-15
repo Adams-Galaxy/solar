@@ -37,9 +37,7 @@ using Robot = solar::System<
         solar::services::Remote<RemoteTransport>>,
     solar::Tasks<>,
     solar::Channels<>,
-    solar::Runtime<
-        solar::Logging<Logger>,
-        solar::Config<AppConfig>>>;
+    solar::Runtime<solar::Logging<Logger>>>;
 ```
 
 ## Zephyr Package Use
@@ -48,8 +46,8 @@ Solar can be included directly from a Zephyr application or loaded as a Zephyr
 module. The package exposes headers under `include/solar` and expects Zephyr to
 provide kernel, driver, devicetree, board, and simulator support.
 
-If Solar is vendored into an application, add the include path in the app
-`CMakeLists.txt`:
+If Solar is vendored into an application, register it as an extra Zephyr module
+before `find_package(Zephyr ...)`:
 
 ```cmake
 target_include_directories(app PRIVATE lib/solar/include)

@@ -28,7 +28,7 @@ public:
     template <typename SystemT>
     static constexpr std::size_t component_count()
     {
-        return SystemT::SnapshotCapacity();
+        return SystemT::graph::components().size();
     }
 
     template <typename LoggerT>

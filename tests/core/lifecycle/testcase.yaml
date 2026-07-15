@@ -1,0 +1,7 @@
+tests:
+  solar.core.lifecycle:
+    platform_allow:
+      - native_sim/native/64
+    tags:
+      - solar
+      - lifecycle

@@ -35,24 +35,60 @@ still using the Zephyr kernel model.
 
 Solar is a Zephyr package. It can be consumed in two clean ways:
 
-- vendored or symlinked inside an app, with `target_include_directories`;
-- listed as a west module, where `zephyr/module.yml` adds Solar's include path.
+- added through `ZEPHYR_EXTRA_MODULES` when vendored or symlinked inside an app;
+- listed as a west module in the workspace manifest.
 
 When Zephyr loads Solar as a module, Solar's `CMakeLists.txt` calls
-`zephyr_include_directories(include)`. Outside Zephyr, the same `CMakeLists.txt`
-exposes an interface target for editor tooling and lightweight package checks.
+`zephyr_include_directories(include)` and its module metadata includes Solar's
+Kconfig tree. Outside Zephyr, the same `CMakeLists.txt` exposes an interface
+target for editor tooling and lightweight package checks.
 
 ## Application Build
 
 A Solar firmware app is a Zephyr application:
 
 ```cmake
+list(APPEND ZEPHYR_EXTRA_MODULES ${CMAKE_CURRENT_SOURCE_DIR}/lib/solar)
+
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(robot_firmware LANGUAGES CXX)
 
 target_sources(app PRIVATE src/main.cpp)
-target_include_directories(app PRIVATE include lib/solar/include)
+target_include_directories(app PRIVATE include)
 ```
+
+The module must be registered before `find_package(Zephyr ...)` so Zephyr can
+load both its CMake integration and Kconfig symbols.
+
+## Kconfig
+
+Solar provides firmware-wide defaults through normal Zephyr Kconfig options:
+
+```ini
+CONFIG_SOLAR=y
+CONFIG_SOLAR_KERNEL=y
+CONFIG_SOLAR_KERNEL_DIAGNOSTICS=y
+CONFIG_SOLAR_SERVICE_STOP_TIMEOUT_MS=100
+CONFIG_SOLAR_SERVICE_ABORT_ON_STOP_TIMEOUT=y
+```
+
+`CONFIG_SOLAR_KERNEL_RUNTIME_STATS` enables Solar's runtime-stat query support,
+but the application must also enable the corresponding Zephyr thread runtime
+statistics options.
+
+Execution-policy types may override values documented as defaults, such as the
+service stop timeout. Kconfig options that exclude code or prohibit a capability
+are hard gates and cannot be re-enabled by a C++ type policy.
+
+The precedence for overridable defaults is:
+
+```text
+explicit component or execution policy
+    overrides Kconfig default
+```
+
+Solar does not provide non-Zephyr configuration fallbacks. Public Solar headers
+expect Zephyr's generated Kconfig definitions.
 
 ## Native Simulator
 

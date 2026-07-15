@@ -1,0 +1,98 @@
+menuconfig SOLAR
+	bool "Solar firmware orchestration"
+	default y
+	help
+	  Enable the Solar compile-time system graph and Zephyr orchestration layer.
+
+if SOLAR
+
+config SOLAR_KERNEL
+	bool "Solar kernel wrappers"
+	default y
+	help
+	  Enable Solar's typed C++ wrappers around Zephyr kernel primitives.
+
+config SOLAR_KERNEL_DIAGNOSTICS
+	bool "Solar-owned thread diagnostics"
+	depends on SOLAR_KERNEL
+	default y
+	help
+	  Allow Solar to report diagnostics for threads and execution infrastructure
+	  that Solar owns. Individual values may still be unavailable when the
+	  corresponding Zephyr feature is disabled.
+
+config SOLAR_KERNEL_RUNTIME_STATS
+	bool "Solar kernel runtime statistics"
+	depends on SOLAR_KERNEL_DIAGNOSTICS
+	default n
+	help
+	  Enable Solar query surfaces for Zephyr thread runtime statistics. The
+	  application must also enable the required Zephyr runtime-stat options.
+
+config SOLAR_SERVICE_STOP_TIMEOUT_MS
+	int "Default service stop timeout (milliseconds)"
+	range 0 60000
+	default 100
+	help
+	  Default time Solar waits for a service thread to exit after requesting
+	  cooperative stop. A service execution policy may override this value.
+
+config SOLAR_SERVICE_ABORT_ON_STOP_TIMEOUT
+	bool "Abort service thread after stop timeout"
+	default y
+	help
+	  Abort a Solar-owned service thread when it does not exit within its stop
+	  timeout. A service execution policy may override this default. Disable this
+	  only when leaving a timed-out thread running is explicitly acceptable.
+
+config SOLAR_BOOT_LOGS
+	bool "Solar boot logs"
+	default y
+
+config SOLAR_REMOTE_LOGS
+	bool "Solar Remote logs"
+	default y
+
+config SOLAR_ALLOW_DYNAMIC_ALLOCATION
+	bool "Allow dynamic allocation in Solar"
+	default n
+	help
+	  Permit Solar facilities to use dynamic allocation where they explicitly
+	  support it. Core graph, lifecycle, and execution storage remain static.
+
+config SOLAR_REMOTE_PAYLOAD_BYTES
+	int "Remote payload capacity (bytes)"
+	range 64 65535
+	default 1024
+
+config SOLAR_REMOTE_FRAME_BUFFER_BYTES
+	int "Remote frame buffer capacity (bytes)"
+	range 64 65535
+	default 1152
+
+config SOLAR_REMOTE_HEARTBEAT_MS
+	int "Remote heartbeat interval (milliseconds)"
+	range 1 60000
+	default 1000
+
+config SOLAR_REMOTE_SESSION_TIMEOUT_MS
+	int "Remote session timeout (milliseconds)"
+	range 1 60000
+	default 5000
+
+config SOLAR_LOG_FORMAT_BUFFER_BYTES
+	int "Log sink format buffer size (bytes)"
+	range 32 4096
+	default 192
+
+config SOLAR_LOG_RECORD_BYTES
+	int "Log record buffer size (bytes)"
+	range 32 4096
+	default 128
+
+config SOLAR_EVENT_FORMAT_BUFFER_BYTES
+	int "Event sink format buffer size (bytes)"
+	range 32 4096
+	default 160
+
+endif # SOLAR

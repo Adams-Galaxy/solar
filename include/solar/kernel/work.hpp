@@ -38,6 +38,12 @@ public:
         return status_from_native(k_work_cancel(&work_));
     }
 
+    Status cancel_sync(k_work_sync &sync)
+    {
+        (void)k_work_cancel_sync(&work_, &sync);
+        return Status::Ok;
+    }
+
     bool pending() const
     {
         return k_work_is_pending(&work_);
@@ -104,6 +110,12 @@ public:
     Status cancel()
     {
         return status_from_native(k_work_cancel_delayable(&work_));
+    }
+
+    Status cancel_sync(k_work_sync &sync)
+    {
+        (void)k_work_cancel_delayable_sync(&work_, &sync);
+        return Status::Ok;
     }
 
     bool pending() const

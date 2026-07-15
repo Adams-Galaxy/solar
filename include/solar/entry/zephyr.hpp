@@ -36,14 +36,13 @@ int run_zephyr()
         return static_cast<int>(status);
     }
 
-    static typename Profile::System system{};
-    status = boot<Profile>(system);
+    status = boot<Profile>();
     if (status != Status::Ok)
     {
-        return exit_code<Profile>(system);
+        return exit_code<Profile>();
     }
 
-    return exit_code<Profile>(system);
+    return exit_code<Profile>();
 }
 
 } // namespace solar::entry

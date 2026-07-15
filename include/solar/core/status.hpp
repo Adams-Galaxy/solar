@@ -63,6 +63,14 @@ namespace solar
 #else
 #define SOLAR_STATUS_OVERFLOW_ERRNO ERANGE
 #endif
+
+#ifndef SOLAR_STATUS_UNEXPECTED_EXIT_ERRNO
+#ifdef EPIPE
+#define SOLAR_STATUS_UNEXPECTED_EXIT_ERRNO EPIPE
+#else
+#define SOLAR_STATUS_UNEXPECTED_EXIT_ERRNO EIO
+#endif
+#endif
 #endif
 
 /**
@@ -96,6 +104,7 @@ enum class Status : int
     ProtocolError = SOLAR_STATUS_PROTOCOL_ERRNO,
     Overflow = SOLAR_STATUS_OVERFLOW_ERRNO,
     DependencyFailed = SOLAR_STATUS_DEPENDENCY_FAILED_ERRNO,
+    UnexpectedExit = SOLAR_STATUS_UNEXPECTED_EXIT_ERRNO,
 };
 
 /**
@@ -311,6 +320,12 @@ constexpr Status status_from_errno(int error)
     if (code == SOLAR_STATUS_DEPENDENCY_FAILED_ERRNO)
     {
         return Status::DependencyFailed;
+    }
+#endif
+#if SOLAR_STATUS_UNEXPECTED_EXIT_ERRNO != EIO
+    if (code == SOLAR_STATUS_UNEXPECTED_EXIT_ERRNO)
+    {
+        return Status::UnexpectedExit;
     }
 #endif
 

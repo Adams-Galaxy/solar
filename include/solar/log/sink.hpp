@@ -4,7 +4,6 @@
 #include <concepts>
 #include <cstddef>
 
-#include "solar/SolarConfig_default.h"
 #include "solar/core.hpp"
 #include "solar/log/filter.hpp"
 #include "solar/log/format.hpp"
@@ -95,7 +94,7 @@ public:
             return Status::Ok;
         }
 
-        std::array<char, configSOLAR_LOG_FORMAT_BUFFER_BYTES> formatted{};
+        std::array<char, CONFIG_SOLAR_LOG_FORMAT_BUFFER_BYTES> formatted{};
         const std::size_t len = FormatT::format(record, formatted.data(), formatted.size());
         if (len == 0)
         {

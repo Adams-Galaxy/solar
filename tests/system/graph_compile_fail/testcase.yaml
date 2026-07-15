@@ -1,0 +1,21 @@
+tests:
+  solar.graph.missing_dependency:
+    build_only: true
+    build_error: true
+    extra_args: CASE=MISSING_DEPENDENCY
+    platform_allow: native_sim/native/64
+  solar.graph.duplicate_component:
+    build_only: true
+    build_error: true
+    extra_args: CASE=DUPLICATE_COMPONENT
+    platform_allow: native_sim/native/64
+  solar.graph.duplicate_service:
+    build_only: true
+    build_error: true
+    extra_args: CASE=DUPLICATE_SERVICE
+    platform_allow: native_sim/native/64
+  solar.graph.dependency_cycle:
+    build_only: true
+    build_error: true
+    extra_args: CASE=DEPENDENCY_CYCLE
+    platform_allow: native_sim/native/64

@@ -5,7 +5,6 @@
 #include <cstddef>
 #include <cstdint>
 
-#include "solar/SolarConfig_default.h"
 #include "solar/core.hpp"
 #include "solar/events/filter.hpp"
 #include "solar/events/format.hpp"
@@ -101,7 +100,7 @@ public:
             return Status::Ok;
         }
 
-        std::array<char, configSOLAR_EVENT_FORMAT_BUFFER_BYTES> formatted{};
+        std::array<char, CONFIG_SOLAR_EVENT_FORMAT_BUFFER_BYTES> formatted{};
         const std::size_t len = FormatT::format(record, formatted.data(), formatted.size());
         if (len == 0)
         {

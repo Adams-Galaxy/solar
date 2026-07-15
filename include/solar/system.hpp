@@ -8,16 +8,17 @@
 #include <type_traits>
 #include <utility>
 
+#include <zephyr/sys/util_macro.h>
+
 #include "solar/contribution.hpp"
 #include "solar/core.hpp"
+#include "solar/lifecycle/service_execution.hpp"
+#include "solar/lifecycle/storage.hpp"
 #include "solar/log/logger.hpp"
 #include "solar/service.hpp"
 
 namespace solar
 {
-
-template <typename SystemT>
-class Context;
 
 template <typename LoggerT = log::NullLogger>
 struct Logging
@@ -25,59 +26,42 @@ struct Logging
     using Logger = LoggerT;
 };
 
-/**
- * @brief Default system policy values used when a robot omits overrides.
- */
-struct DefaultConfig
-{
-    static constexpr bool EnableBootLogs = true;
-    static constexpr bool EnableRemoteLogs = true;
-    static constexpr bool AllowDynamicAllocation = false;
-
-    static constexpr std::size_t RemotePayloadBytes = 1024;
-    static constexpr std::size_t RemoteFrameBufferBytes = 1152;
-    static constexpr std::uint16_t RemoteHeartbeatMs = 1000;
-    static constexpr std::uint16_t RemoteSessionTimeoutMs = 5000;
-};
-
-/**
- * @brief Runtime config wrapper.
- *
- * `Config<T>` lets a robot provide only the policy fields it cares about while
- * Solar resolves missing fields from `DefaultConfig`.
- */
-template <typename ConfigT = DefaultConfig>
-struct Config
-{
-    using Settings = ConfigT;
-};
-
-template <typename LoggingGroup = Logging<>, typename ConfigGroup = Config<>>
+template <typename LoggingGroup = Logging<>>
 struct Runtime;
 
 /**
  * @brief Runtime policy group carried by `System`.
  */
-template <typename LoggerT, typename ConfigT>
-struct Runtime<Logging<LoggerT>, Config<ConfigT>>
+template <typename LoggerT>
+struct Runtime<Logging<LoggerT>>
 {
     using Logging = solar::Logging<LoggerT>;
     using Logger = LoggerT;
-    using Config = ConfigT;
-};
-
-/**
- * @brief Lightweight static graph snapshot entry.
- */
-struct ComponentSnapshot
-{
-    const char *name = "";
-    const char *kind = "";
-    LifecycleState state = LifecycleState::Registered;
 };
 
 namespace detail
 {
+
+template <typename Needle, typename... Types>
+struct TypeIndex;
+
+template <typename Needle, typename... Tail>
+struct TypeIndex<Needle, Needle, Tail...> : std::integral_constant<std::size_t, 0>
+{
+};
+
+template <typename Needle, typename Head, typename... Tail>
+struct TypeIndex<Needle, Head, Tail...>
+    : std::integral_constant<std::size_t, 1 + TypeIndex<Needle, Tail...>::value>
+{
+};
+
+template <typename Needle>
+struct TypeIndex<Needle>
+{
+    static_assert(!std::is_same_v<Needle, Needle>,
+                  "Requested component type is not registered in this Solar system");
+};
 
 template <typename NameT, typename... Types>
 struct TypeWithName;
@@ -99,27 +83,24 @@ struct TypeWithName<NameT>
 template <typename NameT, typename... Types>
 using TypeWithNameT = typename TypeWithName<NameT, Types...>::type;
 
-template <typename T, typename ContextT>
-concept HasContextInit = requires(T object, ContextT &ctx) {
-    object.init(ctx);
+template <typename T>
+concept HasInit = requires {
+    T::init();
 };
 
 template <typename T>
-concept HasBareInit = requires(T object) {
-    object.init();
+concept HasStart = requires {
+    T::start();
 };
 
-template <typename T, typename ContextT>
-concept HasInit = HasContextInit<T, ContextT> || HasBareInit<T>;
-
-template <typename T, typename ContextT>
-concept HasStart = requires(T object, ContextT &ctx) {
-    object.start(ctx);
+template <typename T>
+concept HasStop = requires {
+    T::stop();
 };
 
-template <typename T, typename ContextT>
-concept HasStop = requires(T object, ContextT &ctx) {
-    object.stop(ctx);
+template <typename T>
+concept HasDeinit = requires {
+    T::deinit();
 };
 
 template <typename T>
@@ -130,9 +111,9 @@ concept HasServiceThread = requires {
     { T::Thread::priority } -> std::convertible_to<kernel::Priority>;
 };
 
-template <typename T, typename ContextT>
-concept HasRun = requires(T object, ContextT &ctx, StopToken token) {
-    object.run(ctx, token);
+template <typename T>
+concept HasRun = requires(StopToken token) {
+    T::run(token);
 };
 
 template <typename ReturnT>
@@ -157,31 +138,19 @@ constexpr Status normalize_status(ReturnT &&value)
     }
 }
 
-template <typename T, typename ContextT>
-Status call_init(T &object, ContextT &ctx)
+template <typename T>
+Status call_init()
 {
-    if constexpr (HasContextInit<T, ContextT>)
+    if constexpr (HasInit<T>)
     {
-        if constexpr (std::is_void_v<decltype(object.init(ctx))>)
+        if constexpr (std::is_void_v<decltype(T::init())>)
         {
-            object.init(ctx);
+            T::init();
             return Status::Ok;
         }
         else
         {
-            return normalize_status(object.init(ctx));
-        }
-    }
-    else if constexpr (HasBareInit<T>)
-    {
-        if constexpr (std::is_void_v<decltype(object.init())>)
-        {
-            object.init();
-            return Status::Ok;
-        }
-        else
-        {
-            return normalize_status(object.init());
+            return normalize_status(T::init());
         }
     }
     else
@@ -190,19 +159,19 @@ Status call_init(T &object, ContextT &ctx)
     }
 }
 
-template <typename T, typename ContextT>
-Status call_start(T &object, ContextT &ctx)
+template <typename T>
+Status call_start()
 {
-    if constexpr (HasStart<T, ContextT>)
+    if constexpr (HasStart<T>)
     {
-        if constexpr (std::is_void_v<decltype(object.start(ctx))>)
+        if constexpr (std::is_void_v<decltype(T::start())>)
         {
-            object.start(ctx);
+            T::start();
             return Status::Ok;
         }
         else
         {
-            return normalize_status(object.start(ctx));
+            return normalize_status(T::start());
         }
     }
     else
@@ -211,19 +180,19 @@ Status call_start(T &object, ContextT &ctx)
     }
 }
 
-template <typename T, typename ContextT>
-Status call_stop(T &object, ContextT &ctx)
+template <typename T>
+Status call_stop()
 {
-    if constexpr (HasStop<T, ContextT>)
+    if constexpr (HasStop<T>)
     {
-        if constexpr (std::is_void_v<decltype(object.stop(ctx))>)
+        if constexpr (std::is_void_v<decltype(T::stop())>)
         {
-            object.stop(ctx);
+            T::stop();
             return Status::Ok;
         }
         else
         {
-            return normalize_status(object.stop(ctx));
+            return normalize_status(T::stop());
         }
     }
     else
@@ -232,22 +201,25 @@ Status call_stop(T &object, ContextT &ctx)
     }
 }
 
-template <typename TupleT, typename ContextT, typename PhaseT>
-Status for_each_status(TupleT &tuple, ContextT &ctx, PhaseT phase)
+template <typename T>
+Status call_deinit()
 {
-    Status status = Status::Ok;
-    std::apply(
-        [&](auto &...items) {
-            ((status == Status::Ok ? status = phase(items, ctx) : status), ...);
-        },
-        tuple);
-    return status;
-}
-
-template <typename TupleT, typename ContextT, typename PhaseT>
-void for_each_void(TupleT &tuple, ContextT &ctx, PhaseT phase)
-{
-    std::apply([&](auto &...items) { (phase(items, ctx), ...); }, tuple);
+    if constexpr (HasDeinit<T>)
+    {
+        if constexpr (std::is_void_v<decltype(T::deinit())>)
+        {
+            T::deinit();
+            return Status::Ok;
+        }
+        else
+        {
+            return normalize_status(T::deinit());
+        }
+    }
+    else
+    {
+        return Status::Ok;
+    }
 }
 
 template <typename ServiceT, typename SystemT>
@@ -255,8 +227,8 @@ class ServiceThreadRuntime
 {
 public:
     static_assert(HasServiceThread<ServiceT>, "Solar services must declare using Thread = solar::ServiceSpec<...>");
-    static_assert(HasRun<ServiceT, Context<SystemT>>,
-                  "Solar services must implement run(ctx, stop_token); polling is intentionally not a service model");
+    static_assert(HasRun<ServiceT>,
+                  "Solar services must implement static run(stop_token); polling is intentionally not a service model");
 
     using Spec = typename ServiceT::Thread;
 
@@ -265,29 +237,101 @@ public:
     {
     }
 
-    Status start(ServiceT &service, SystemT &system)
+    Status start(ComponentDescriptor service_descriptor)
     {
-        service_ = &service;
-        system_ = &system;
-        Context<SystemT> ctx{system};
-        const Status status = call_start(service, ctx);
+        service_id_ = service_descriptor.id;
+        reset_record(service_descriptor);
+
+        const Status status = call_start<ServiceT>();
         if (status != Status::Ok)
         {
             return status;
         }
-        return thread_.start(storage_);
+
+        const Status thread_status = thread_.start(storage_);
+        if (thread_status == Status::Ok)
+        {
+            const kernel::LockGuard lock{record_mutex_};
+            record_.thread_created = true;
+            record_.running = !record_.exited && thread_.running();
+            record_.native_id = thread_.native_handle();
+        }
+        return thread_status;
     }
 
-    Status stop()
+    void request_stop()
     {
+        const kernel::LockGuard lock{record_mutex_};
+        if (!record_.thread_created)
+        {
+            return;
+        }
+        record_.stop_requested = true;
         thread_.request_stop();
+    }
+
+    Status join()
+    {
+        {
+            const kernel::LockGuard lock{record_mutex_};
+            if (!record_.thread_created)
+            {
+                return Status::Ok;
+            }
+        }
+
         const Status status = thread_.join(kernel::Timeout::after(Spec::stop_timeout));
         if (status == Status::Timeout)
         {
-            const Status abort_status = thread_.abort();
-            return abort_status == Status::Ok ? Status::Timeout : abort_status;
+            {
+                const kernel::LockGuard lock{record_mutex_};
+                record_.join_timed_out = true;
+            }
+
+            if constexpr (Spec::abort_on_stop_timeout)
+            {
+                const Status abort_status = thread_.abort();
+                const kernel::LockGuard lock{record_mutex_};
+                record_.abort_attempted = true;
+                record_.abort_status = abort_status;
+                record_.aborted = abort_status == Status::Ok;
+                record_.running = false;
+                if (record_.aborted)
+                {
+                    record_.exited = true;
+                    record_.exit_after_stop_request = true;
+                    record_.run_status = Status::Cancelled;
+                }
+                return abort_status == Status::Ok ? Status::Timeout : abort_status;
+            }
+        }
+
+        if (status == Status::Ok)
+        {
+            const kernel::LockGuard lock{record_mutex_};
+            record_.running = false;
         }
         return status;
+    }
+
+    ServiceExecutionRecord record()
+    {
+        ServiceExecutionRecord copy{};
+        {
+            const kernel::LockGuard lock{record_mutex_};
+            copy = record_;
+        }
+
+        if constexpr (IS_ENABLED(CONFIG_THREAD_STACK_INFO) &&
+                      IS_ENABLED(CONFIG_INIT_STACKS))
+        {
+            const auto diagnostics =
+                kernel::snapshot_thread(copy.service.name, thread_, Spec::stack_bytes);
+            copy.stack_usage_available = diagnostics.stack_available;
+            copy.stack_unused_bytes = diagnostics.stack_unused;
+            copy.stack_used_bytes = diagnostics.stack_used;
+        }
+        return copy;
     }
 
     kernel::Thread &thread()
@@ -299,34 +343,57 @@ private:
     static void entry(void *self_ptr)
     {
         auto *self = static_cast<ServiceThreadRuntime *>(self_ptr);
-        if (self == nullptr || self->service_ == nullptr || self->system_ == nullptr)
+        if (self == nullptr)
         {
             return;
         }
 
-        Context<SystemT> ctx{*self->system_};
         StopToken stop_token = self->thread_.stop_token();
+        const Status run_status = call_run(stop_token);
+        const bool stopped = stop_token.stop_requested();
+        const Status lifecycle_status =
+            run_status != Status::Ok ? run_status
+                                     : (stopped ? Status::Ok : Status::UnexpectedExit);
 
-        (void)call_run(*self->service_, ctx, stop_token);
+        {
+            const kernel::LockGuard lock{self->record_mutex_};
+            self->record_.running = false;
+            self->record_.exited = true;
+            self->record_.exit_after_stop_request = stopped;
+            self->record_.run_status = run_status;
+        }
+        SystemT::record_service_exit(self->service_id_, lifecycle_status, stopped);
     }
 
-    static Status call_run(ServiceT &service, Context<SystemT> &ctx, StopToken stop_token)
+    static Status call_run(StopToken stop_token)
     {
-        if constexpr (std::is_void_v<decltype(service.run(ctx, stop_token))>)
+        if constexpr (std::is_void_v<decltype(ServiceT::run(stop_token))>)
         {
-            service.run(ctx, stop_token);
+            ServiceT::run(stop_token);
             return Status::Ok;
         }
         else
         {
-            return normalize_status(service.run(ctx, stop_token));
+            return normalize_status(ServiceT::run(stop_token));
         }
     }
 
-    ServiceT *service_ = nullptr;
-    SystemT *system_ = nullptr;
+    void reset_record(ComponentDescriptor descriptor)
+    {
+        const kernel::LockGuard lock{record_mutex_};
+        record_ = {
+            .service = descriptor,
+            .abort_configured = Spec::abort_on_stop_timeout,
+            .stop_timeout_ms = static_cast<std::uint32_t>(Spec::stop_timeout.count()),
+            .configured_stack_bytes = Spec::stack_bytes,
+        };
+    }
+
+    ComponentId service_id_{};
     kernel::Thread thread_;
     kernel::ThreadStorage<Spec::stack_bytes> storage_{};
+    kernel::Mutex record_mutex_{};
+    ServiceExecutionRecord record_{};
 };
 
 using SolarLogSource = solar::Name<"solar">;
@@ -337,87 +404,6 @@ template <typename LoggerT>
 using SolarInternalLog = typename LoggerT::template Log<
     SolarLogSource,
     solar::log::Categories<BootLogCategory, LifecycleLogCategory>>;
-
-template <typename ConfigT>
-struct ResolvedConfig
-{
-    static constexpr bool EnableBootLogs = [] {
-        if constexpr (requires { ConfigT::EnableBootLogs; })
-        {
-            return static_cast<bool>(ConfigT::EnableBootLogs);
-        }
-        else
-        {
-            return DefaultConfig::EnableBootLogs;
-        }
-    }();
-
-    static constexpr bool EnableRemoteLogs = [] {
-        if constexpr (requires { ConfigT::EnableRemoteLogs; })
-        {
-            return static_cast<bool>(ConfigT::EnableRemoteLogs);
-        }
-        else
-        {
-            return DefaultConfig::EnableRemoteLogs;
-        }
-    }();
-
-    static constexpr bool AllowDynamicAllocation = [] {
-        if constexpr (requires { ConfigT::AllowDynamicAllocation; })
-        {
-            return static_cast<bool>(ConfigT::AllowDynamicAllocation);
-        }
-        else
-        {
-            return DefaultConfig::AllowDynamicAllocation;
-        }
-    }();
-
-    static constexpr std::size_t RemotePayloadBytes = [] {
-        if constexpr (requires { ConfigT::RemotePayloadBytes; })
-        {
-            return static_cast<std::size_t>(ConfigT::RemotePayloadBytes);
-        }
-        else
-        {
-            return DefaultConfig::RemotePayloadBytes;
-        }
-    }();
-
-    static constexpr std::size_t RemoteFrameBufferBytes = [] {
-        if constexpr (requires { ConfigT::RemoteFrameBufferBytes; })
-        {
-            return static_cast<std::size_t>(ConfigT::RemoteFrameBufferBytes);
-        }
-        else
-        {
-            return DefaultConfig::RemoteFrameBufferBytes;
-        }
-    }();
-
-    static constexpr std::uint16_t RemoteHeartbeatMs = [] {
-        if constexpr (requires { ConfigT::RemoteHeartbeatMs; })
-        {
-            return static_cast<std::uint16_t>(ConfigT::RemoteHeartbeatMs);
-        }
-        else
-        {
-            return DefaultConfig::RemoteHeartbeatMs;
-        }
-    }();
-
-    static constexpr std::uint16_t RemoteSessionTimeoutMs = [] {
-        if constexpr (requires { ConfigT::RemoteSessionTimeoutMs; })
-        {
-            return static_cast<std::uint16_t>(ConfigT::RemoteSessionTimeoutMs);
-        }
-        else
-        {
-            return DefaultConfig::RemoteSessionTimeoutMs;
-        }
-    }();
-};
 
 } // namespace detail
 
@@ -432,11 +418,7 @@ template <typename BoardT,
 class System;
 
 /**
- * @brief Tuple-owned runtime instance of a static Solar graph.
- *
- * `System` is the central object created by firmware/simulation entry code. The
- * graph shape is entirely encoded in template arguments, while runtime objects
- * are owned in tuples and reached through typed accessors or `Context`.
+ * @brief Static owner of a compile-time Solar graph.
  */
 template <typename BoardT,
           typename... PeripheralTypes,
@@ -445,8 +427,7 @@ template <typename BoardT,
           typename... ServiceTypes,
           typename... TaskTypes,
           typename... ChannelTypes,
-          typename LoggerT,
-          typename ConfigT>
+          typename LoggerT>
 class System<BoardT,
              Peripherals<PeripheralTypes...>,
              Devices<DeviceTypes...>,
@@ -454,24 +435,25 @@ class System<BoardT,
              Services<ServiceTypes...>,
              Tasks<TaskTypes...>,
              Channels<ChannelTypes...>,
-             Runtime<Logging<LoggerT>, Config<ConfigT>>>
+             Runtime<Logging<LoggerT>>>
 {
 public:
     using Board = BoardT;
-    using Runtime = solar::Runtime<solar::Logging<LoggerT>, solar::Config<ConfigT>>;
+    using Runtime = solar::Runtime<solar::Logging<LoggerT>>;
     using Logger = LoggerT;
     using EntryFacilities = solar::Facilities<LoggerT>;
     using Logging = typename Runtime::Logging;
-    using UserConfig = ConfigT;
-    using Config = detail::ResolvedConfig<ConfigT>;
     using PeripheralList = Peripherals<PeripheralTypes...>;
     using DeviceList = Devices<DeviceTypes...>;
     using FacilityList = solar::Facilities<FacilityTypes...>;
     using ServiceList = Services<ServiceTypes...>;
     using TaskList = Tasks<TaskTypes...>;
     using ChannelList = Channels<ChannelTypes...>;
+    using AllComponents = TypeList<BoardT, PeripheralTypes..., DeviceTypes..., FacilityTypes...,
+                                   ServiceTypes..., TaskTypes..., ChannelTypes...>;
+    using AllComponentsTuple = std::tuple<BoardT, PeripheralTypes..., DeviceTypes..., FacilityTypes...,
+                                          ServiceTypes..., TaskTypes..., ChannelTypes...>;
     using ThisSystem = System<BoardT, PeripheralList, DeviceList, FacilityList, ServiceList, TaskList, ChannelList, Runtime>;
-    using ContextType = Context<ThisSystem>;
 
     /**
      * @brief Metrics owned by all graph components and the board.
@@ -506,8 +488,18 @@ public:
     template <typename SourceNameT, typename CategoryListT = log::Categories<>>
     using Log = typename LoggerT::template Log<SourceNameT, CategoryListT>;
 
-    static_assert(GraphValidV<PeripheralList, DeviceList, FacilityList, ServiceList, TaskList, ChannelList>,
-                  "Solar graph must have unique component names and resolvable dependencies");
+    static_assert(detail::UniqueTypes<BoardT, PeripheralTypes..., DeviceTypes..., FacilityTypes...,
+                                      ServiceTypes..., TaskTypes..., ChannelTypes...>::value,
+                  "Solar graph contains a duplicate component type");
+    static_assert(detail::UniqueTypes<ServiceTypes...>::value,
+                  "Solar service list contains a duplicate service type");
+    static_assert(detail::UniqueNames<BoardT, PeripheralTypes..., DeviceTypes..., FacilityTypes...,
+                                      ServiceTypes..., TaskTypes..., ChannelTypes...>::value,
+                  "Solar component names must be unique for diagnostics and protocol stability");
+    static_assert(detail::AllDependenciesAvailable<AllComponents, BoardT, PeripheralTypes...,
+                                                    DeviceTypes..., FacilityTypes..., ServiceTypes...,
+                                                    TaskTypes..., ChannelTypes...>::value,
+                  "Solar component declares a required dependency type that is not registered");
     static_assert(detail::UniqueNamesInListV<MetricsCatalog>, "Solar metric contribution names must be unique");
     static_assert(detail::UniqueNamesInListV<EventsCatalog>, "Solar event contribution names must be unique");
     static_assert(detail::UniqueTypeIdsInListV<RemoteTypesCatalog>, "Solar Remote type ids must be unique");
@@ -521,11 +513,79 @@ public:
     static constexpr std::size_t ServiceCount = sizeof...(ServiceTypes);
     static constexpr std::size_t TaskCount = sizeof...(TaskTypes);
     static constexpr std::size_t ChannelCount = sizeof...(ChannelTypes);
+    static constexpr std::size_t ComponentCount =
+        1 + PeripheralCount + DeviceCount + FacilityCount + ServiceCount + TaskCount + ChannelCount;
+    static_assert(ComponentCount < ComponentId::InvalidValue,
+                  "Solar component count exceeds the lifecycle ComponentId range");
 
-    ~System()
+    static constexpr std::size_t BoardOffset = 0;
+    static constexpr std::size_t PeripheralOffset = 1;
+    static constexpr std::size_t DeviceOffset = PeripheralOffset + PeripheralCount;
+    static constexpr std::size_t FacilityOffset = DeviceOffset + DeviceCount;
+    static constexpr std::size_t ServiceOffset = FacilityOffset + FacilityCount;
+    static constexpr std::size_t TaskOffset = ServiceOffset + ServiceCount;
+    static constexpr std::size_t ChannelOffset = TaskOffset + TaskCount;
+
+    using LifecycleStorage = solar::lifecycle::Storage<ComponentCount>;
+    using LifecycleRecords = typename LifecycleStorage::Records;
+    using ComponentDescriptors = std::array<ComponentDescriptor, ComponentCount>;
+
+    struct lifecycle
     {
-        (void)Stop();
-    }
+        static Result<SystemState> state()
+        {
+            return lifecycle_storage_.system_state();
+        }
+
+        static Result<LifecycleRecords> components()
+        {
+            return lifecycle_storage_.records();
+        }
+
+        template <typename ComponentT>
+        static Result<LifecycleRecord> record()
+        {
+            return lifecycle_storage_.record(component_id<ComponentT>());
+        }
+    };
+
+    struct kernel
+    {
+        static auto service_threads()
+        {
+            return service_execution_records(
+                std::index_sequence_for<ServiceTypes...>{});
+        }
+
+        template <typename ServiceT>
+        static ServiceExecutionRecord thread()
+        {
+            constexpr std::size_t index = service_index<ServiceT>();
+            return std::get<index>(service_threads_).record();
+        }
+    };
+
+    struct graph
+    {
+        static constexpr ComponentDescriptors components()
+        {
+            return component_descriptors();
+        }
+
+        template <typename ComponentT>
+        static constexpr ComponentDescriptor component()
+        {
+            return component_descriptors()[component_id<ComponentT>().value()];
+        }
+
+        template <typename ComponentT>
+        static constexpr auto dependencies()
+        {
+            return dependency_descriptors<ComponentT>(detail::DependenciesOfT<ComponentT>{});
+        }
+    };
+
+    System() = delete;
 
     /**
      * @brief Boot the graph in deterministic order.
@@ -534,390 +594,831 @@ public:
      * and tasks. Services are started as their own Kernel threads after their
      * `init(ctx)` and optional `start(ctx)` phases succeed.
      */
-    Status Boot()
+    static Result<BootReport> boot()
     {
-        ContextType ctx{*this};
-        if constexpr (Config::EnableBootLogs)
+        const auto current_state = lifecycle_storage_.system_state();
+        if (!current_state)
+        {
+            return current_state.status();
+        }
+        if (current_state.value() != SystemState::Dormant)
+        {
+            return Status::Already;
+        }
+
+        boot_report_ = {};
+        Status status = lifecycle_storage_.transition_system(SystemState::Booting);
+        if (status != Status::Ok)
+        {
+            return status;
+        }
+
+        if constexpr (IS_ENABLED(CONFIG_SOLAR_BOOT_LOGS))
         {
             SolarLog::template info<detail::BootLogCategory>("boot begin");
         }
 
-        if constexpr (detail::HasInit<BoardT, ContextType>)
+        for (const std::size_t index : topology().order)
         {
-            const Status board_status = detail::call_init(board_, ctx);
-            if (board_status != Status::Ok)
-            {
-                return fail(BootPhase::BoardInit, board_status, "board");
-            }
+            status = initialize_index(index);
+            if (status != Status::Ok) return boot_failed(status);
         }
 
-        Status status = detail::for_each_status(peripherals_, ctx, [](auto &item, auto &context) {
-            return detail::call_init(item, context);
-        });
+        status = lifecycle_storage_.transition_system(SystemState::Initialized);
         if (status != Status::Ok)
         {
-            return fail(BootPhase::PeripheralInit, status, "peripheral");
+            return boot_failed(fail_system(status));
         }
 
-        status = detail::for_each_status(peripherals_, ctx, [](auto &item, auto &context) {
-            return detail::call_start(item, context);
-        });
+        status = lifecycle_storage_.transition_system(SystemState::Starting);
         if (status != Status::Ok)
         {
-            return fail(BootPhase::PeripheralStart, status, "peripheral");
+            return boot_failed(fail_system(status));
         }
 
-        status = detail::for_each_status(facilities_, ctx, [](auto &item, auto &context) {
-            return detail::call_init(item, context);
-        });
+        for (const std::size_t index : topology().order)
+        {
+            status = start_index(index);
+            if (status != Status::Ok) return boot_failed(status);
+        }
+
+        status = lifecycle_storage_.transition_system(SystemState::Running);
         if (status != Status::Ok)
         {
-            return fail(BootPhase::ServiceInit, status, "facility");
+            return boot_failed(fail_system(status));
         }
 
-        status = detail::for_each_status(facilities_, ctx, [](auto &item, auto &context) {
-            return detail::call_start(item, context);
-        });
-        if (status != Status::Ok)
-        {
-            return fail(BootPhase::ServiceStart, status, "facility");
-        }
-
-        status = detail::for_each_status(devices_, ctx, [](auto &item, auto &context) {
-            return detail::call_init(item, context);
-        });
-        if (status != Status::Ok)
-        {
-            return fail(BootPhase::DeviceInit, status, "device");
-        }
-
-        status = detail::for_each_status(services_, ctx, [](auto &item, auto &context) {
-            return detail::call_init(item, context);
-        });
-        if (status != Status::Ok)
-        {
-            return fail(BootPhase::ServiceInit, status, "service");
-        }
-
-        status = detail::for_each_status(devices_, ctx, [](auto &item, auto &context) {
-            return detail::call_start(item, context);
-        });
-        if (status != Status::Ok)
-        {
-            return fail(BootPhase::DeviceStart, status, "device");
-        }
-
-        status = start_service_threads(std::index_sequence_for<ServiceTypes...>{});
-        if (status != Status::Ok)
-        {
-            return fail(BootPhase::ServiceStart, status, "service");
-        }
-
-        status = detail::for_each_status(tasks_, ctx, [](auto &item, auto &context) {
-            return detail::call_init(item, context);
-        });
-        if (status != Status::Ok)
-        {
-            return fail(BootPhase::TaskInit, status, "task");
-        }
-
-        status = detail::for_each_status(tasks_, ctx, [](auto &item, auto &context) {
-            return detail::call_start(item, context);
-        });
-        if (status != Status::Ok)
-        {
-            return fail(BootPhase::TaskStart, status, "task");
-        }
-
-        boot_report_ = {};
         boot_report_.status = Status::Ok;
-        if constexpr (Config::EnableBootLogs)
+        if constexpr (IS_ENABLED(CONFIG_SOLAR_BOOT_LOGS))
         {
             SolarLog::template info<detail::BootLogCategory>("boot complete");
         }
-        return Status::Ok;
+        return boot_report_;
     }
 
     /**
      * @brief Request shutdown for service threads and call service stop hooks.
      */
-    Status Stop()
+    static Status stop()
     {
-        Status status = stop_service_threads(std::index_sequence_for<ServiceTypes...>{});
-        ContextType ctx{*this};
-        const Status service_status = detail::for_each_status(services_, ctx, [](auto &item, auto &context) {
-            return detail::call_stop(item, context);
-        });
-        return status == Status::Ok ? service_status : status;
+        const auto state = lifecycle_storage_.system_state();
+        if (!state)
+        {
+            return state.status();
+        }
+        if (state.value() == SystemState::Dormant)
+        {
+            return Status::Ok;
+        }
+        if (shutdown_complete_)
+        {
+            return stop_report_.status;
+        }
+        return shutdown(false);
     }
 
     /**
      * @brief Report from the last boot attempt.
      */
-    BootReport const &Report() const
+    static BootReport const &boot_report()
     {
         return boot_report_;
     }
 
-    /**
-     * @brief Access the board object owned by this system.
-     */
-    BoardT &BoardObject()
+    static StopReport const &stop_report()
     {
-        return board_;
+        return stop_report_;
     }
 
-    template <typename DeviceT>
-    /**
-     * @brief Access a device by concrete type.
-     */
-    DeviceT &Device()
+    static void record_service_exit(ComponentId id, Status status, bool stop_requested)
     {
-        return std::get<DeviceT>(devices_);
-    }
-
-    template <typename PeripheralT>
-    /**
-     * @brief Access a peripheral by concrete type.
-     */
-    PeripheralT &Peripheral()
-    {
-        return std::get<PeripheralT>(peripherals_);
-    }
-
-    template <typename ServiceT>
-    /**
-     * @brief Access a service by concrete type.
-     */
-    ServiceT &Service()
-    {
-        return std::get<ServiceT>(services_);
-    }
-
-    template <typename FacilityT>
-    /**
-     * @brief Access a facility by concrete type.
-     */
-    FacilityT &Facility()
-    {
-        return std::get<FacilityT>(facilities_);
-    }
-
-    template <typename ChannelT>
-    /**
-     * @brief Access a channel by concrete type.
-     */
-    ChannelT &Channel()
-    {
-        return std::get<ChannelT>(channels_);
-    }
-
-    template <typename TaskT>
-    /**
-     * @brief Access a task by concrete type.
-     */
-    TaskT &Task()
-    {
-        return std::get<TaskT>(tasks_);
-    }
-
-    template <typename NameT>
-    /**
-     * @brief Access a graph component by `solar::Name<"...">`.
-     *
-     * Lookup is compile-time checked across peripherals, devices, facilities,
-     * services, tasks, and channels. A missing name fails compilation.
-     */
-    decltype(auto) Get()
-    {
-        using PeripheralT = detail::TypeWithNameT<NameT, PeripheralTypes...>;
-        if constexpr (!std::is_void_v<PeripheralT>)
+        if (status == Status::Ok && stop_requested)
         {
-            return std::get<PeripheralT>(peripherals_);
+            return;
         }
-        else
-        {
-            using DeviceT = detail::TypeWithNameT<NameT, DeviceTypes...>;
-            if constexpr (!std::is_void_v<DeviceT>)
-            {
-                return std::get<DeviceT>(devices_);
-            }
-            else
-            {
-                using FacilityT = detail::TypeWithNameT<NameT, FacilityTypes...>;
-                if constexpr (!std::is_void_v<FacilityT>)
-                {
-                    return std::get<FacilityT>(facilities_);
-                }
-                else
-                {
-                    using ServiceT = detail::TypeWithNameT<NameT, ServiceTypes...>;
-                    if constexpr (!std::is_void_v<ServiceT>)
-                    {
-                        return std::get<ServiceT>(services_);
-                    }
-                    else
-                    {
-                        using TaskT = detail::TypeWithNameT<NameT, TaskTypes...>;
-                        if constexpr (!std::is_void_v<TaskT>)
-                        {
-                            return std::get<TaskT>(tasks_);
-                        }
-                        else
-                        {
-                            using ChannelT = detail::TypeWithNameT<NameT, ChannelTypes...>;
-                            static_assert(!std::is_void_v<ChannelT>, "No component with requested Solar name exists in this system");
-                            return std::get<ChannelT>(channels_);
-                        }
-                    }
-                }
-            }
-        }
-    }
 
-    /**
-     * @brief Number of graph entries included in static snapshots.
-     */
-    static constexpr std::size_t SnapshotCapacity()
-    {
-        return PeripheralCount + DeviceCount + FacilityCount + ServiceCount + TaskCount + ChannelCount;
-    }
-
-    /**
-     * @brief Return static component snapshots for Remote/inspection.
-     */
-    auto Snapshots() const
-    {
-        std::array<ComponentSnapshot, SnapshotCapacity()> snapshots{};
-        std::size_t index = 0;
-        ((snapshots[index++] = {PeripheralTypes::Name::c_str(), "peripheral", LifecycleState::Registered}), ...);
-        ((snapshots[index++] = {DeviceTypes::Name::c_str(), "device", LifecycleState::Registered}), ...);
-        ((snapshots[index++] = {FacilityTypes::Name::c_str(), "facility", LifecycleState::Registered}), ...);
-        ((snapshots[index++] = {ServiceTypes::Name::c_str(), "service", LifecycleState::Registered}), ...);
-        ((snapshots[index++] = {TaskTypes::Name::c_str(), "task", LifecycleState::Registered}), ...);
-        ((snapshots[index++] = {ChannelTypes::Name::c_str(), "channel", LifecycleState::Registered}), ...);
-        return snapshots;
+        (void)lifecycle_storage_.transition(id,
+                                            LifecycleState::Failed,
+                                            LifecycleOperation::Run,
+                                            status);
+        (void)lifecycle_storage_.transition_system(SystemState::Failed);
     }
 
 private:
     using SolarLog = detail::SolarInternalLog<LoggerT>;
 
-    template <std::size_t... Indices>
-    Status start_service_threads(std::index_sequence<Indices...>)
+    template <typename ComponentT>
+    static constexpr const char *component_name(ComponentKind kind)
     {
-        Status status = Status::Ok;
-        ((status == Status::Ok
-              ? status = std::get<Indices>(service_threads_).start(std::get<Indices>(services_), *this)
-              : status),
-         ...);
-        return status;
+        if constexpr (requires { typename ComponentT::Name; ComponentT::Name::c_str(); })
+        {
+            return ComponentT::Name::c_str();
+        }
+        else
+        {
+            return kind == ComponentKind::Board ? "board" : "unnamed";
+        }
     }
 
-    template <std::size_t... Indices>
-    Status stop_service_threads(std::index_sequence<Indices...>)
+    template <typename ComponentT>
+    static constexpr ComponentDescriptor descriptor(ComponentId id, ComponentKind kind)
     {
-        Status status = Status::Ok;
-        ((status == Status::Ok
-              ? status = std::get<Indices>(service_threads_).stop()
-              : status),
-         ...);
-        return status;
+        return {id, component_name<ComponentT>(kind), kind};
     }
 
-    Status fail(BootPhase phase, Status status, const char *component)
+    template <typename ComponentT>
+    static constexpr LifecycleHooks hooks()
     {
-        boot_report_.status = status;
-        boot_report_.failure = {phase, status, component};
-        if constexpr (Config::EnableBootLogs)
+        return {
+            .init = detail::HasInit<ComponentT>,
+            .start = detail::HasStart<ComponentT>,
+            .run = detail::HasRun<ComponentT>,
+            .stop = detail::HasStop<ComponentT>,
+            .deinit = detail::HasDeinit<ComponentT>,
+        };
+    }
+
+    template <typename ComponentT>
+    static consteval ComponentId component_id()
+    {
+        if constexpr (std::is_same_v<ComponentT, BoardT>)
+        {
+            return ComponentId{BoardOffset};
+        }
+        else if constexpr (detail::ContainsTypeV<ComponentT, PeripheralTypes...>)
+        {
+            return ComponentId{static_cast<ComponentId::Value>(
+                PeripheralOffset + detail::TypeIndex<ComponentT, PeripheralTypes...>::value)};
+        }
+        else if constexpr (detail::ContainsTypeV<ComponentT, DeviceTypes...>)
+        {
+            return ComponentId{static_cast<ComponentId::Value>(
+                DeviceOffset + detail::TypeIndex<ComponentT, DeviceTypes...>::value)};
+        }
+        else if constexpr (detail::ContainsTypeV<ComponentT, FacilityTypes...>)
+        {
+            return ComponentId{static_cast<ComponentId::Value>(
+                FacilityOffset + detail::TypeIndex<ComponentT, FacilityTypes...>::value)};
+        }
+        else if constexpr (detail::ContainsTypeV<ComponentT, ServiceTypes...>)
+        {
+            return ComponentId{static_cast<ComponentId::Value>(
+                ServiceOffset + detail::TypeIndex<ComponentT, ServiceTypes...>::value)};
+        }
+        else if constexpr (detail::ContainsTypeV<ComponentT, TaskTypes...>)
+        {
+            return ComponentId{static_cast<ComponentId::Value>(
+                TaskOffset + detail::TypeIndex<ComponentT, TaskTypes...>::value)};
+        }
+        else if constexpr (detail::ContainsTypeV<ComponentT, ChannelTypes...>)
+        {
+            return ComponentId{static_cast<ComponentId::Value>(
+                ChannelOffset + detail::TypeIndex<ComponentT, ChannelTypes...>::value)};
+        }
+        else
+        {
+            static_assert(!std::is_same_v<ComponentT, ComponentT>,
+                          "Requested component type is not registered in this Solar system");
+        }
+    }
+
+    template <typename ServiceT>
+    static consteval std::size_t service_index()
+    {
+        static_assert(detail::ContainsTypeV<ServiceT, ServiceTypes...>,
+                      "Requested service type is not registered in this Solar system");
+        return detail::TypeIndex<ServiceT, ServiceTypes...>::value;
+    }
+
+    template <typename ComponentT, typename... DependencyTypes>
+    static constexpr auto dependency_descriptors(Dependencies<DependencyTypes...>)
+    {
+        static_assert((detail::ContainsTypeV<DependencyTypes, BoardT, PeripheralTypes...,
+                                             DeviceTypes..., FacilityTypes..., ServiceTypes...,
+                                             TaskTypes..., ChannelTypes...> && ...),
+                      "Requested dependency metadata contains an unregistered type");
+        return std::array<ComponentDescriptor, sizeof...(DependencyTypes)>{
+            descriptor<DependencyTypes>(component_id<DependencyTypes>(),
+                                        component_kind(component_id<DependencyTypes>().value()))...};
+    }
+
+    static constexpr ComponentKind component_kind(std::size_t index)
+    {
+        if (index == BoardOffset) return ComponentKind::Board;
+        if (index < DeviceOffset) return ComponentKind::Peripheral;
+        if (index < FacilityOffset) return ComponentKind::Device;
+        if (index < ServiceOffset) return ComponentKind::Facility;
+        if (index < TaskOffset) return ComponentKind::Service;
+        if (index < ChannelOffset) return ComponentKind::Task;
+        return ComponentKind::Channel;
+    }
+
+    template <typename ComponentT, typename... DependencyTypes>
+    static constexpr void add_dependency_edges(
+        std::array<std::array<bool, ComponentCount>, ComponentCount> &edges,
+        Dependencies<DependencyTypes...>)
+    {
+        if constexpr ((detail::ContainsTypeV<DependencyTypes, BoardT, PeripheralTypes...,
+                                             DeviceTypes..., FacilityTypes..., ServiceTypes...,
+                                             TaskTypes..., ChannelTypes...> && ...))
+        {
+            constexpr std::size_t component = component_id<ComponentT>().value();
+            ((edges[component][component_id<DependencyTypes>().value()] = true), ...);
+        }
+    }
+
+    static constexpr auto dependency_edges()
+    {
+        std::array<std::array<bool, ComponentCount>, ComponentCount> edges{};
+        auto add = [&]<typename ComponentT>() {
+            add_dependency_edges<ComponentT>(edges, detail::DependenciesOfT<ComponentT>{});
+        };
+        add.template operator()<BoardT>();
+        (add.template operator()<PeripheralTypes>(), ...);
+        (add.template operator()<DeviceTypes>(), ...);
+        (add.template operator()<FacilityTypes>(), ...);
+        (add.template operator()<ServiceTypes>(), ...);
+        (add.template operator()<TaskTypes>(), ...);
+        (add.template operator()<ChannelTypes>(), ...);
+        return edges;
+    }
+
+    struct Topology
+    {
+        std::array<std::size_t, ComponentCount> order{};
+        bool valid = false;
+    };
+
+    static constexpr Topology topology()
+    {
+        const auto edges = dependency_edges();
+        Topology result{};
+        std::array<bool, ComponentCount> emitted{};
+        for (std::size_t position = 0; position < ComponentCount; ++position)
+        {
+            bool found = false;
+            for (std::size_t candidate = 0; candidate < ComponentCount; ++candidate)
+            {
+                if (emitted[candidate]) continue;
+                bool ready = true;
+                for (std::size_t dependency = 0; dependency < ComponentCount; ++dependency)
+                {
+                    if (edges[candidate][dependency] && !emitted[dependency]) ready = false;
+                }
+                if (ready)
+                {
+                    result.order[position] = candidate;
+                    emitted[candidate] = true;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) return result;
+        }
+        result.valid = true;
+        return result;
+    }
+
+    static_assert(topology().valid,
+                  "Solar graph contains a required dependency cycle");
+
+    static constexpr LifecycleRecords initial_lifecycle_records()
+    {
+        LifecycleRecords records{};
+        std::size_t index = 0;
+
+        auto add = [&]<typename ComponentT>(ComponentKind kind) {
+            records[index] = {
+                .component = descriptor<ComponentT>(ComponentId{static_cast<ComponentId::Value>(index)}, kind),
+                .hooks = hooks<ComponentT>(),
+            };
+            ++index;
+        };
+
+        add.template operator()<BoardT>(ComponentKind::Board);
+        (add.template operator()<PeripheralTypes>(ComponentKind::Peripheral), ...);
+        (add.template operator()<DeviceTypes>(ComponentKind::Device), ...);
+        (add.template operator()<FacilityTypes>(ComponentKind::Facility), ...);
+        (add.template operator()<ServiceTypes>(ComponentKind::Service), ...);
+        (add.template operator()<TaskTypes>(ComponentKind::Task), ...);
+        (add.template operator()<ChannelTypes>(ComponentKind::Channel), ...);
+        return records;
+    }
+
+    static constexpr ComponentDescriptors component_descriptors()
+    {
+        ComponentDescriptors descriptors{};
+        const LifecycleRecords records = initial_lifecycle_records();
+        for (std::size_t index = 0; index < records.size(); ++index)
+        {
+            descriptors[index] = records[index].component;
+        }
+        return descriptors;
+    }
+
+    static Status fail_component(ComponentDescriptor component,
+                                 BootPhase phase,
+                                 LifecycleOperation operation,
+                                 Status status)
+    {
+        (void)lifecycle_storage_.transition(component.id,
+                                            LifecycleState::Failed,
+                                            operation,
+                                            status);
+        boot_report_.record_failure(component, phase, operation, status);
+        (void)lifecycle_storage_.transition_system(SystemState::Failed);
+
+        if constexpr (IS_ENABLED(CONFIG_SOLAR_BOOT_LOGS))
         {
             SolarLog::template error<detail::BootLogCategory>(
                 "boot failed phase=%u status=%u component=%s",
                 static_cast<unsigned>(phase),
                 static_cast<unsigned>(status),
-                component == nullptr ? "" : component);
+                component.name);
         }
         return status;
     }
 
-    BoardT board_{};
-    std::tuple<PeripheralTypes...> peripherals_{};
-    std::tuple<DeviceTypes...> devices_{};
-    std::tuple<FacilityTypes...> facilities_{};
-    std::tuple<ServiceTypes...> services_{};
-    std::tuple<detail::ServiceThreadRuntime<ServiceTypes, ThisSystem>...> service_threads_{};
-    std::tuple<TaskTypes...> tasks_{};
-    std::tuple<ChannelTypes...> channels_{};
-    BootReport boot_report_{};
-};
-
-template <typename SystemT>
-class Context
-{
-public:
-    using SystemType = SystemT;
-
-    /**
-     * @brief Construct a lightweight typed view over a system.
-     */
-    explicit Context(SystemT &system) : system_(system) {}
-
-    /**
-     * @brief Access the owning system object.
-     */
-    SystemT &System()
+    static Status fail_system(Status status)
     {
-        return system_;
+        boot_report_.record_failure({}, BootPhase::None, LifecycleOperation::None, status);
+        (void)lifecycle_storage_.transition_system(SystemState::Failed);
+        return status;
     }
 
-    /**
-     * @brief Access the owning board.
-     */
-    auto &Board()
+    static Result<BootReport> boot_failed(Status status)
     {
-        return system_.BoardObject();
+        (void)shutdown(true);
+        return status;
     }
 
-    template <typename NameT>
-    /**
-     * @brief Forwarding name lookup into the owning system.
-     */
-    decltype(auto) Get()
+    static void record_shutdown_failure(ComponentDescriptor component,
+                                        LifecycleOperation operation,
+                                        Status status)
     {
-        return system_.template Get<NameT>();
+        stop_report_.record_failure(component, operation, status);
+        (void)lifecycle_storage_.transition(component.id,
+                                            LifecycleState::Failed,
+                                            operation,
+                                            status);
     }
 
-    template <typename ServiceT>
-    ServiceT &Service()
+    template <typename ComponentT>
+    static void stop_one(ComponentId id, ComponentKind kind)
     {
-        return system_.template Service<ServiceT>();
+        const auto before = lifecycle_storage_.record(id);
+        if (!before || !before.value().started_successfully)
+        {
+            return;
+        }
+
+        const ComponentDescriptor component_descriptor = descriptor<ComponentT>(id, kind);
+        const bool preserve_failed_state = before.value().has_failure();
+        Status status = lifecycle_storage_.transition(id,
+                                                      LifecycleState::Stopping,
+                                                      LifecycleOperation::Stop);
+        if (status != Status::Ok)
+        {
+            stop_report_.record_failure(component_descriptor,
+                                        LifecycleOperation::Stop,
+                                        status);
+            return;
+        }
+
+        status = detail::call_stop<ComponentT>();
+        if (status != Status::Ok)
+        {
+            record_shutdown_failure(component_descriptor, LifecycleOperation::Stop, status);
+            return;
+        }
+
+        const LifecycleState final_state = preserve_failed_state
+                                               ? LifecycleState::Failed
+                                               : LifecycleState::Stopped;
+        status = lifecycle_storage_.transition(id,
+                                               final_state,
+                                               LifecycleOperation::Stop);
+        if (status != Status::Ok)
+        {
+            stop_report_.record_failure(component_descriptor,
+                                        LifecycleOperation::Stop,
+                                        status);
+            return;
+        }
+        stop_report_.record_success();
     }
 
-    template <typename FacilityT>
-    FacilityT &Facility()
+    template <typename ComponentT>
+    static void deinit_one(ComponentId id, ComponentKind kind)
     {
-        return system_.template Facility<FacilityT>();
+        const auto before = lifecycle_storage_.record(id);
+        if (!before || !before.value().initialized_successfully ||
+            before.value().deinitialized_successfully)
+        {
+            return;
+        }
+
+        const ComponentDescriptor component_descriptor = descriptor<ComponentT>(id, kind);
+        const bool preserve_failed_state = before.value().has_failure();
+        Status status = lifecycle_storage_.transition(id,
+                                                      LifecycleState::Deinitializing,
+                                                      LifecycleOperation::Deinit);
+        if (status != Status::Ok)
+        {
+            stop_report_.record_failure(component_descriptor,
+                                        LifecycleOperation::Deinit,
+                                        status);
+            return;
+        }
+
+        status = detail::call_deinit<ComponentT>();
+        if (status != Status::Ok)
+        {
+            record_shutdown_failure(component_descriptor, LifecycleOperation::Deinit, status);
+            return;
+        }
+
+        const LifecycleState final_state = preserve_failed_state
+                                               ? LifecycleState::Failed
+                                               : LifecycleState::Deinitialized;
+        status = lifecycle_storage_.transition(id,
+                                               final_state,
+                                               LifecycleOperation::Deinit);
+        if (status != Status::Ok)
+        {
+            stop_report_.record_failure(component_descriptor,
+                                        LifecycleOperation::Deinit,
+                                        status);
+            return;
+        }
+        stop_report_.record_success();
     }
 
-    template <typename DeviceT>
-    DeviceT &Device()
+    template <ComponentKind Kind,
+              std::size_t Offset,
+              typename... Types,
+              std::size_t... Indices>
+    static void stop_group_reverse(TypeList<Types...>, std::index_sequence<Indices...>)
     {
-        return system_.template Device<DeviceT>();
+        constexpr std::size_t count = sizeof...(Indices);
+        (stop_one<std::tuple_element_t<count - 1 - Indices, std::tuple<Types...>>>(
+             ComponentId{static_cast<ComponentId::Value>(Offset + count - 1 - Indices)}, Kind),
+         ...);
     }
 
-    template <typename PeripheralT>
-    PeripheralT &Peripheral()
+    template <ComponentKind Kind,
+              std::size_t Offset,
+              typename... Types,
+              std::size_t... Indices>
+    static void deinit_group_reverse(TypeList<Types...>, std::index_sequence<Indices...>)
     {
-        return system_.template Peripheral<PeripheralT>();
+        constexpr std::size_t count = sizeof...(Indices);
+        (deinit_one<std::tuple_element_t<count - 1 - Indices, std::tuple<Types...>>>(
+             ComponentId{static_cast<ComponentId::Value>(Offset + count - 1 - Indices)}, Kind),
+         ...);
     }
 
-    template <typename TaskT>
-    TaskT &Task()
+    static Status shutdown(bool rollback)
     {
-        return system_.template Task<TaskT>();
+        stop_report_ = {};
+        const auto current = lifecycle_storage_.system_state();
+        if (!current)
+        {
+            return current.status();
+        }
+
+        if (current.value() != SystemState::Failed)
+        {
+            const Status transition_status =
+                lifecycle_storage_.transition_system(SystemState::Stopping);
+            if (transition_status != Status::Ok)
+            {
+                stop_report_.status = transition_status;
+                return transition_status;
+            }
+        }
+
+        request_service_stops(std::index_sequence_for<ServiceTypes...>{});
+        bool active_service_remains = false;
+        const auto order = topology().order;
+        for (std::size_t position = ComponentCount; position > 0; --position)
+        {
+            const std::size_t index = order[position - 1];
+            stop_index(index);
+            if (component_kind(index) == ComponentKind::Service)
+            {
+                active_service_remains = service_thread_running(
+                    std::index_sequence_for<ServiceTypes...>{});
+                if (active_service_remains) break;
+            }
+        }
+
+        if (!active_service_remains)
+        {
+            for (std::size_t position = ComponentCount; position > 0; --position)
+            {
+                deinit_index(order[position - 1]);
+            }
+        }
+
+        shutdown_complete_ = true;
+        if (!rollback && current.value() != SystemState::Failed)
+        {
+            const SystemState final_state = stop_report_.ok()
+                                                ? SystemState::Stopped
+                                                : SystemState::Failed;
+            const Status transition_status =
+                lifecycle_storage_.transition_system(final_state);
+            if (transition_status != Status::Ok && stop_report_.ok())
+            {
+                stop_report_.status = transition_status;
+            }
+        }
+        return stop_report_.status;
     }
 
-private:
-    SystemT &system_;
+    static constexpr BootPhase boot_phase(ComponentKind kind, LifecycleOperation operation)
+    {
+        const bool start = operation == LifecycleOperation::Start;
+        switch (kind)
+        {
+        case ComponentKind::Board: return start ? BootPhase::BoardStart : BootPhase::BoardInit;
+        case ComponentKind::Peripheral: return start ? BootPhase::PeripheralStart : BootPhase::PeripheralInit;
+        case ComponentKind::Device: return start ? BootPhase::DeviceStart : BootPhase::DeviceInit;
+        case ComponentKind::Facility: return start ? BootPhase::FacilityStart : BootPhase::FacilityInit;
+        case ComponentKind::Service: return start ? BootPhase::ServiceStart : BootPhase::ServiceInit;
+        case ComponentKind::Task: return start ? BootPhase::TaskStart : BootPhase::TaskInit;
+        case ComponentKind::Channel: return start ? BootPhase::ChannelStart : BootPhase::ChannelInit;
+        case ComponentKind::Unknown: return BootPhase::None;
+        }
+        return BootPhase::None;
+    }
+
+    template <typename Visitor, std::size_t... Indices>
+    static Status visit_component(std::size_t index,
+                                  Visitor &&visitor,
+                                  std::index_sequence<Indices...>)
+    {
+        Status status = Status::NotFound;
+        ((index == Indices
+              ? (status = visitor.template operator()<
+                     std::tuple_element_t<Indices, AllComponentsTuple>>(), true)
+              : false) || ...);
+        return status;
+    }
+
+    static Status initialize_index(std::size_t index)
+    {
+        const ComponentKind kind = component_kind(index);
+        return visit_component(index, [&]<typename ComponentT>() {
+            return initialize_one<ComponentT>(
+                ComponentId{static_cast<ComponentId::Value>(index)},
+                kind,
+                boot_phase(kind, LifecycleOperation::Init));
+        }, std::make_index_sequence<ComponentCount>{});
+    }
+
+    static Status start_index(std::size_t index)
+    {
+        const ComponentKind kind = component_kind(index);
+        return visit_component(index, [&]<typename ComponentT>() {
+            if constexpr (detail::ContainsTypeV<ComponentT, ServiceTypes...>)
+            {
+                return start_service_thread<service_index<ComponentT>()>();
+            }
+            else
+            {
+                return start_one<ComponentT>(
+                    ComponentId{static_cast<ComponentId::Value>(index)},
+                    kind,
+                    boot_phase(kind, LifecycleOperation::Start));
+            }
+        }, std::make_index_sequence<ComponentCount>{});
+    }
+
+    static void stop_index(std::size_t index)
+    {
+        const ComponentKind kind = component_kind(index);
+        (void)visit_component(index, [&]<typename ComponentT>() {
+            if constexpr (detail::ContainsTypeV<ComponentT, ServiceTypes...>)
+            {
+                join_service_thread<service_index<ComponentT>()>();
+            }
+            stop_one<ComponentT>(ComponentId{static_cast<ComponentId::Value>(index)}, kind);
+            return Status::Ok;
+        }, std::make_index_sequence<ComponentCount>{});
+    }
+
+    static void deinit_index(std::size_t index)
+    {
+        const ComponentKind kind = component_kind(index);
+        (void)visit_component(index, [&]<typename ComponentT>() {
+            deinit_one<ComponentT>(ComponentId{static_cast<ComponentId::Value>(index)}, kind);
+            return Status::Ok;
+        }, std::make_index_sequence<ComponentCount>{});
+    }
+
+    template <typename ComponentT>
+    static Status initialize_one(ComponentId id, ComponentKind kind, BootPhase phase)
+    {
+        const ComponentDescriptor component_descriptor = descriptor<ComponentT>(id, kind);
+        Status status = lifecycle_storage_.transition(id,
+                                                      LifecycleState::Initializing,
+                                                      LifecycleOperation::Init);
+        if (status != Status::Ok)
+        {
+            return fail_system(status);
+        }
+
+        status = detail::call_init<ComponentT>();
+        if (status != Status::Ok)
+        {
+            return fail_component(component_descriptor, phase, LifecycleOperation::Init, status);
+        }
+
+        status = lifecycle_storage_.transition(id,
+                                               LifecycleState::Initialized,
+                                               LifecycleOperation::Init);
+        if (status != Status::Ok)
+        {
+            return fail_system(status);
+        }
+        boot_report_.record_success();
+        return Status::Ok;
+    }
+
+    template <typename ComponentT>
+    static Status start_one(ComponentId id, ComponentKind kind, BootPhase phase)
+    {
+        const ComponentDescriptor component_descriptor = descriptor<ComponentT>(id, kind);
+        Status status = lifecycle_storage_.transition(id,
+                                                      LifecycleState::Starting,
+                                                      LifecycleOperation::Start);
+        if (status != Status::Ok)
+        {
+            return fail_system(status);
+        }
+
+        status = detail::call_start<ComponentT>();
+        if (status != Status::Ok)
+        {
+            return fail_component(component_descriptor, phase, LifecycleOperation::Start, status);
+        }
+
+        status = lifecycle_storage_.transition(id,
+                                               LifecycleState::Running,
+                                               LifecycleOperation::Start);
+        if (status != Status::Ok)
+        {
+            return fail_system(status);
+        }
+        boot_report_.record_success();
+        return Status::Ok;
+    }
+
+    template <ComponentKind Kind,
+              BootPhase Phase,
+              std::size_t Offset,
+              typename... Types,
+              std::size_t... Indices>
+    static Status initialize_tuple(TypeList<Types...>, std::index_sequence<Indices...>)
+    {
+        Status status = Status::Ok;
+        ((status == Status::Ok
+              ? status = initialize_one<std::tuple_element_t<Indices, std::tuple<Types...>>>(
+                    ComponentId{static_cast<ComponentId::Value>(Offset + Indices)}, Kind, Phase)
+              : status),
+         ...);
+        return status;
+    }
+
+    template <ComponentKind Kind,
+              BootPhase Phase,
+              std::size_t Offset,
+              typename... Types,
+              std::size_t... Indices>
+    static Status start_tuple(TypeList<Types...>, std::index_sequence<Indices...>)
+    {
+        Status status = Status::Ok;
+        ((status == Status::Ok
+              ? status = start_one<std::tuple_element_t<Indices, std::tuple<Types...>>>(
+                    ComponentId{static_cast<ComponentId::Value>(Offset + Indices)}, Kind, Phase)
+              : status),
+         ...);
+        return status;
+    }
+
+    template <std::size_t... Indices>
+    static Status start_service_threads(std::index_sequence<Indices...>)
+    {
+        Status status = Status::Ok;
+        ((status == Status::Ok
+              ? status = start_service_thread<Indices>()
+              : status),
+         ...);
+        return status;
+    }
+
+    template <std::size_t Index>
+    static Status start_service_thread()
+    {
+        using ServiceT = std::tuple_element_t<Index, std::tuple<ServiceTypes...>>;
+        constexpr ComponentId id{static_cast<ComponentId::Value>(ServiceOffset + Index)};
+        const ComponentDescriptor component_descriptor = descriptor<ServiceT>(id, ComponentKind::Service);
+
+        Status status = lifecycle_storage_.transition(id,
+                                                      LifecycleState::Starting,
+                                                      LifecycleOperation::Start);
+        if (status != Status::Ok)
+        {
+            return fail_system(status);
+        }
+
+        status = std::get<Index>(service_threads_).start(component_descriptor);
+        if (status != Status::Ok)
+        {
+            return fail_component(component_descriptor,
+                                  BootPhase::ServiceStart,
+                                  LifecycleOperation::Start,
+                                  status);
+        }
+
+        const ServiceExecutionRecord execution =
+            std::get<Index>(service_threads_).record();
+        if (execution.exited &&
+            (execution.run_status != Status::Ok || !execution.exit_after_stop_request))
+        {
+            const Status exit_status = execution.run_status != Status::Ok
+                                           ? execution.run_status
+                                           : Status::UnexpectedExit;
+            return fail_component(component_descriptor,
+                                  BootPhase::ExecutionStart,
+                                  LifecycleOperation::Run,
+                                  exit_status);
+        }
+
+        status = lifecycle_storage_.transition(id,
+                                               LifecycleState::Running,
+                                               LifecycleOperation::Start);
+        if (status != Status::Ok)
+        {
+            return fail_system(status);
+        }
+        boot_report_.record_success();
+        return Status::Ok;
+    }
+
+    template <std::size_t... Indices>
+    static auto service_execution_records(std::index_sequence<Indices...>)
+    {
+        return std::array<ServiceExecutionRecord, ServiceCount>{
+            std::get<Indices>(service_threads_).record()...};
+    }
+
+    template <std::size_t... Indices>
+    static void request_service_stops(std::index_sequence<Indices...>)
+    {
+        (std::get<Indices>(service_threads_).request_stop(), ...);
+    }
+
+    template <std::size_t... Indices>
+    static void join_service_threads_reverse(std::index_sequence<Indices...>)
+    {
+        constexpr std::size_t count = sizeof...(Indices);
+        (join_service_thread<count - 1 - Indices>(), ...);
+    }
+
+    template <std::size_t Index>
+    static void join_service_thread()
+    {
+        using ServiceT = std::tuple_element_t<Index, std::tuple<ServiceTypes...>>;
+        constexpr ComponentId id{static_cast<ComponentId::Value>(ServiceOffset + Index)};
+        const ServiceExecutionRecord before = std::get<Index>(service_threads_).record();
+        if (!before.thread_created)
+        {
+            return;
+        }
+
+        const Status status = std::get<Index>(service_threads_).join();
+        if (status != Status::Ok)
+        {
+            record_shutdown_failure(descriptor<ServiceT>(id, ComponentKind::Service),
+                                    LifecycleOperation::Stop,
+                                    status);
+        }
+    }
+
+    template <std::size_t... Indices>
+    static bool service_thread_running(std::index_sequence<Indices...>)
+    {
+        return (false || ... || std::get<Indices>(service_threads_).record().running);
+    }
+
+    static inline std::tuple<detail::ServiceThreadRuntime<ServiceTypes, ThisSystem>...> service_threads_{};
+    static inline LifecycleStorage lifecycle_storage_{initial_lifecycle_records()};
+    static inline BootReport boot_report_{};
+    static inline StopReport stop_report_{};
+    static inline bool shutdown_complete_ = false;
 };
 
 } // namespace solar

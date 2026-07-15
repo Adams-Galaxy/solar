@@ -17,23 +17,23 @@ concept HasPreflight = requires {
 };
 
 template <typename Profile>
-concept HasAwake = requires(typename Profile::System &system, BootReport const &report) {
-    Profile::awake(system, report);
+concept HasAwake = requires(BootReport const &report) {
+    Profile::awake(report);
 };
 
 template <typename Profile>
-concept HasFailed = requires(typename Profile::System &system, BootReport const &report) {
-    Profile::failed(system, report);
+concept HasFailed = requires(BootReport const &report) {
+    Profile::failed(report);
 };
 
 template <typename Profile>
-concept HasFinished = requires(typename Profile::System &system) {
-    { Profile::finished(system) } -> std::convertible_to<bool>;
+concept HasFinished = requires {
+    { Profile::finished() } -> std::convertible_to<bool>;
 };
 
 template <typename Profile>
-concept HasExitCode = requires(typename Profile::System const &system) {
-    { Profile::exit_code(system) } -> std::convertible_to<int>;
+concept HasExitCode = requires {
+    { Profile::exit_code() } -> std::convertible_to<int>;
 };
 
 template <typename Profile, typename = void>
@@ -261,22 +261,24 @@ template <typename Profile>
 /**
  * @brief Boot a constructed profile system and dispatch awake/failed hooks.
  */
-Status boot(typename Profile::System &system)
+Status boot()
 {
-    const Status status = system.Boot();
-    const BootReport &report = system.Report();
+    using System = typename Profile::System;
+    const Result<BootReport> result = System::boot();
+    const Status status = result.status();
+    const BootReport &report = System::boot_report();
     if (status == Status::Ok)
     {
         if constexpr (detail::HasAwake<Profile>)
         {
-            Profile::awake(system, report);
+            Profile::awake(report);
         }
     }
     else
     {
         if constexpr (detail::HasFailed<Profile>)
         {
-            Profile::failed(system, report);
+            Profile::failed(report);
         }
     }
     return status;
@@ -286,15 +288,14 @@ template <typename Profile>
 /**
  * @brief Query an optional profile completion policy.
  */
-bool finished(typename Profile::System &system)
+bool finished()
 {
     if constexpr (detail::HasFinished<Profile>)
     {
-        return Profile::finished(system);
+        return Profile::finished();
     }
     else
     {
-        (void)system;
         return false;
     }
 }
@@ -303,15 +304,15 @@ template <typename Profile>
 /**
  * @brief Query an optional profile exit code policy.
  */
-int exit_code(typename Profile::System const &system)
+int exit_code()
 {
     if constexpr (detail::HasExitCode<Profile>)
     {
-        return Profile::exit_code(system);
+        return Profile::exit_code();
     }
     else
     {
-        return system.Report().ok() ? 0 : 1;
+        return Profile::System::boot_report().ok() ? 0 : 1;
     }
 }
 

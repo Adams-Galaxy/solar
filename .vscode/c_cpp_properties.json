@@ -4,7 +4,7 @@
         {
             "name": "Zephyr teensy40",
             "compileCommands": "${workspaceFolder}/../ENMT301-RoboCup/zephyrproject/build-teensy40/compile_commands.json",
-            "compilerPath": "/home/adam/zephyr-sdk-1.0.1/gnu/arm-zephyr-eabi/bin/arm-zephyr-eabi-g++",
+            "compilerPath": "/opt/toolchains/zephyr-sdk-1.0.1/gnu/arm-zephyr-eabi/bin/arm-zephyr-eabi-gcc",
             "cStandard": "gnu11",
             "cppStandard": "gnu++20",
             "intelliSenseMode": "linux-gcc-arm",

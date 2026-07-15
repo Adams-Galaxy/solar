@@ -290,7 +290,8 @@ private:
             response.topics = static_cast<std::uint16_t>(topics.size());
             response.observables = static_cast<std::uint16_t>(observables.size());
             response.types = static_cast<std::uint16_t>(CoreTypeCount + types.size());
-            response.components = static_cast<std::uint16_t>(ctx.System().SnapshotCapacity());
+            response.components = static_cast<std::uint16_t>(
+                ContextT::SystemType::graph::components().size());
             send_response(frame, response);
             return;
         }
@@ -346,13 +347,13 @@ private:
             {
                 return;
             }
-            send_components(frame, request, ctx.System());
+            send_components<typename ContextT::SystemType>(frame, request);
             return;
         }
 
         if (frame.target_id == BootReportId)
         {
-            send_boot_report(frame, ctx.System().Report());
+            send_boot_report(frame, ContextT::SystemType::boot_report());
             return;
         }
 
@@ -363,7 +364,7 @@ private:
     template <typename ContextT, typename... Args>
     static void log_warn(ContextT &, const char *format, Args... args)
     {
-        if constexpr (ContextT::SystemType::Config::EnableRemoteLogs)
+        if constexpr (IS_ENABLED(CONFIG_SOLAR_REMOTE_LOGS))
         {
             using RemoteLog = typename ContextT::SystemType::template Log<
                 solar::Name<"solar">,
@@ -396,8 +397,8 @@ private:
         response.observable_count = static_cast<std::uint16_t>(observables.size());
         response.type_count = static_cast<std::uint16_t>(CoreTypeCount + types.size());
         response.frame_max_bytes = static_cast<std::uint16_t>(payload_limit<ContextT>());
-        response.heartbeat_ms = ContextT::SystemType::Config::RemoteHeartbeatMs;
-        response.session_timeout_ms = ContextT::SystemType::Config::RemoteSessionTimeoutMs;
+        response.heartbeat_ms = CONFIG_SOLAR_REMOTE_HEARTBEAT_MS;
+        response.session_timeout_ms = CONFIG_SOLAR_REMOTE_SESSION_TIMEOUT_MS;
         (void)ctx;
         send_payload(request.sequence, request.correlation, request.target_id, remote::FrameKind::HelloAck, response);
     }
@@ -405,7 +406,7 @@ private:
     template <typename ContextT>
     static constexpr std::size_t payload_limit()
     {
-        constexpr std::size_t configured = ContextT::SystemType::Config::RemotePayloadBytes;
+        constexpr std::size_t configured = CONFIG_SOLAR_REMOTE_PAYLOAD_BYTES;
         return configured < PayloadBytes ? configured : PayloadBytes;
     }
 
@@ -473,20 +474,32 @@ private:
     }
 
     template <typename SystemT>
-    void send_components(remote::Frame const &request, remote::generated::ListRequest const &list, SystemT const &system)
+    void send_components(remote::Frame const &request, remote::generated::ListRequest const &list)
     {
         remote::generated::ComponentListResponse response{};
-        const auto snapshots = system.Snapshots();
-        const std::size_t begin = std::min<std::size_t>(list.offset, snapshots.size());
+        const auto records = SystemT::lifecycle::components();
+        if (!records)
+        {
+            send_error(request.sequence,
+                       request.correlation,
+                       request.target_id,
+                       remote::ErrorCode::InternalError,
+                       records.status(),
+                       "lifecycle unavailable");
+            return;
+        }
+
+        const auto &components = records.value();
+        const std::size_t begin = std::min<std::size_t>(list.offset, components.size());
         const std::size_t max_count = std::min<std::size_t>(list.limit, response.components.data.size());
-        const std::size_t end = std::min<std::size_t>(snapshots.size(), begin + max_count);
+        const std::size_t end = std::min<std::size_t>(components.size(), begin + max_count);
 
         for (std::size_t i = begin; i < end; ++i)
         {
             auto &out = response.components.data[response.components.size++];
-            (void)out.name.assign(snapshots[i].name);
-            (void)out.kind.assign(snapshots[i].kind);
-            out.state = static_cast<std::uint8_t>(snapshots[i].state);
+            (void)out.name.assign(components[i].component.name);
+            (void)out.kind.assign(component_kind_name(components[i].component.kind));
+            out.state = static_cast<std::uint8_t>(components[i].state);
         }
         send_response(request, response);
     }
@@ -498,7 +511,7 @@ private:
         if (report.status != Status::Ok)
         {
             response.phase = static_cast<std::uint8_t>(report.failure.phase);
-            (void)response.component.assign(report.failure.component == nullptr ? "" : report.failure.component);
+            (void)response.component.assign(report.failure.component.name);
         }
         send_response(request, response);
     }
