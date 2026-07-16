@@ -2,12 +2,10 @@
 
 #include <zephyr/kernel.h>
 
-#include "solar/kernel/critical_section.hpp"
-
 namespace solar::kernel
 {
 
-inline bool in_interrupt()
+[[nodiscard]] inline bool in_isr() noexcept
 {
     return k_is_in_isr();
 }

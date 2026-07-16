@@ -1,84 +1,162 @@
 #pragma once
 
 #include <cstdint>
+#include <limits>
 
 #include <zephyr/kernel.h>
 
-#include "solar/kernel/time.hpp"
+#include "solar/core/status.hpp"
+#include "solar/kernel/deadline.hpp"
 
 namespace solar::kernel
 {
 
 using EventBits = std::uint32_t;
+inline constexpr bool event_flags_available = IS_ENABLED(CONFIG_EVENTS);
 
-class Event
+enum class ResetBeforeWait : bool
 {
-public:
-    Event()
+    No = false,
+    Yes = true,
+};
+
+#if defined(CONFIG_EVENTS)
+
+class EventFlags
+{
+  public:
+    EventFlags() noexcept
     {
         k_event_init(&event_);
     }
 
-    EventBits set(EventBits bits)
+    EventFlags(const EventFlags&) = delete;
+    EventFlags& operator=(const EventFlags&) = delete;
+    EventFlags(EventFlags&&) = delete;
+    EventFlags& operator=(EventFlags&&) = delete;
+
+    [[nodiscard]] EventBits post(EventBits bits) noexcept
     {
-        k_event_post(&event_, bits);
-        return k_event_test(&event_, 0xFFFFFFFFu);
+        return k_event_post(&event_, bits);
     }
 
-    EventBits set_isr(EventBits bits)
+    [[nodiscard]] EventBits post_isr(EventBits bits) noexcept
+    {
+        return post(bits);
+    }
+
+    [[nodiscard]] EventBits set(EventBits bits) noexcept
+    {
+        return k_event_set(&event_, bits);
+    }
+
+    [[nodiscard]] EventBits set_isr(EventBits bits) noexcept
     {
         return set(bits);
     }
 
-    EventBits clear(EventBits bits)
+    [[nodiscard]] EventBits clear(EventBits bits) noexcept
     {
-        k_event_clear(&event_, bits);
-        return k_event_test(&event_, 0xFFFFFFFFu);
+        return k_event_clear(&event_, bits);
     }
 
-    EventBits wait(EventBits bits,
-                   bool clear_on_exit = true,
-                   bool wait_all = false,
-                   Timeout timeout = Timeout::forever())
+    [[nodiscard]] EventBits clear_isr(EventBits bits) noexcept
     {
-        return wait_all ? k_event_wait_all(&event_, bits, clear_on_exit, timeout.native())
-                        : k_event_wait(&event_, bits, clear_on_exit, timeout.native());
+        return clear(bits);
     }
 
-    EventBits wait(EventBits bits, bool clear_on_exit, bool wait_all, Tick timeout_ticks)
+    [[nodiscard]] EventBits test(EventBits mask = std::numeric_limits<EventBits>::max()) noexcept
     {
-        return wait(bits, clear_on_exit, wait_all, Timeout::after_ticks(timeout_ticks));
+        return k_event_test(&event_, mask);
     }
 
-    EventBits wait_any(EventBits bits, Timeout timeout = Timeout::forever(), bool clear_on_exit = true)
+    [[nodiscard]] Result<EventBits> wait_any(EventBits mask, Timeout timeout = Timeout::forever(),
+                                             ResetBeforeWait reset = ResetBeforeWait::No) noexcept
     {
-        return wait(bits, clear_on_exit, false, timeout);
+        return wait(mask, timeout, reset, false, false);
     }
 
-    EventBits wait_any(EventBits bits, Tick timeout_ticks, bool clear_on_exit = true)
+    [[nodiscard]] Result<EventBits> wait_all(EventBits mask, Timeout timeout = Timeout::forever(),
+                                             ResetBeforeWait reset = ResetBeforeWait::No) noexcept
     {
-        return wait_any(bits, Timeout::after_ticks(timeout_ticks), clear_on_exit);
+        return wait(mask, timeout, reset, true, false);
     }
 
-    EventBits wait_all(EventBits bits, Timeout timeout = Timeout::forever(), bool clear_on_exit = true)
+    [[nodiscard]] Result<EventBits> take_any(EventBits mask, Timeout timeout = Timeout::forever(),
+                                             ResetBeforeWait reset = ResetBeforeWait::No) noexcept
     {
-        return wait(bits, clear_on_exit, true, timeout);
+        return wait(mask, timeout, reset, false, true);
     }
 
-    EventBits wait_all(EventBits bits, Tick timeout_ticks, bool clear_on_exit = true)
+    [[nodiscard]] Result<EventBits> take_all(EventBits mask, Timeout timeout = Timeout::forever(),
+                                             ResetBeforeWait reset = ResetBeforeWait::No) noexcept
     {
-        return wait_all(bits, Timeout::after_ticks(timeout_ticks), clear_on_exit);
+        return wait(mask, timeout, reset, true, true);
     }
 
-    k_event *native_handle()
+    [[nodiscard]] Result<EventBits> try_wait_any_isr(EventBits mask) noexcept
+    {
+        return wait_any(mask, Timeout::no_wait());
+    }
+
+    [[nodiscard]] Result<EventBits> try_take_any_isr(EventBits mask) noexcept
+    {
+        return take_any(mask, Timeout::no_wait());
+    }
+
+    [[nodiscard]] k_event* native_handle() noexcept
     {
         return &event_;
     }
 
-private:
+    [[nodiscard]] const k_event* native_handle() const noexcept
+    {
+        return &event_;
+    }
+
+  private:
+    [[nodiscard]] Result<EventBits> wait(EventBits mask, Timeout timeout, ResetBeforeWait reset,
+                                         bool all, bool consume) noexcept
+    {
+        if (mask == 0) {
+            return fail(Status::Invalid);
+        }
+
+        const bool reset_before = reset == ResetBeforeWait::Yes;
+        EventBits received{};
+        if (consume) {
+            received =
+                all ? k_event_wait_all_safe(&event_, mask, reset_before, timeout.native_handle())
+                    : k_event_wait_safe(&event_, mask, reset_before, timeout.native_handle());
+        } else {
+            received = all ? k_event_wait_all(&event_, mask, reset_before, timeout.native_handle())
+                           : k_event_wait(&event_, mask, reset_before, timeout.native_handle());
+        }
+
+        if (received == 0) {
+            return fail(timeout.is_no_wait() ? Status::WouldBlock : Status::Timeout);
+        }
+        return received;
+    }
+
     k_event event_{};
 };
 
-using EventFlags = Event;
+#else
+
+template <typename> inline constexpr bool event_flags_dependent_false = false;
+
+class EventFlags
+{
+  public:
+    template <typename Disabled = void> EventFlags()
+    {
+        static_assert(event_flags_dependent_false<Disabled>,
+                      "SOLAR_DIAGNOSTIC_EVENTS_DISABLED: enable CONFIG_EVENTS before using Solar "
+                      "event flags");
+    }
+};
+
+#endif
 
 } // namespace solar::kernel

@@ -1,0 +1,7 @@
+tests:
+  solar.metrics.disabled:
+    tags:
+      - solar
+      - metrics
+    platform_allow:
+      - native_sim/native/64

@@ -1,95 +1,76 @@
 #pragma once
 
-#include <cstdint>
+#include <compare>
+
+#include <zephyr/sys/clock.h>
 
 #include "solar/kernel/time.hpp"
 
 namespace solar::kernel
 {
 
-enum class DeadlineStatus : std::uint8_t
-{
-    Met,
-    Late,
-    Missed,
-};
-
-/**
- * @brief Absolute tick deadline with optional grace period.
- *
- * Deadlines are used by blocking wrappers so code can pass one budget through
- * multiple waits instead of recalculating independent timeouts.
- */
 class Deadline
 {
-public:
-    Deadline() = default;
-    explicit Deadline(Tick deadline_ticks, Tick grace_ticks = 0)
-        : deadline_ticks_(deadline_ticks), grace_ticks_(grace_ticks) {}
+  public:
+    Deadline() noexcept : value_(sys_timepoint_calc(K_NO_WAIT)) {}
 
-    template <class Rep, class Period>
-    static Deadline after(std::chrono::duration<Rep, Period> duration, Tick grace_ticks = 0)
+    [[nodiscard]] static Deadline after(Timeout timeout) noexcept
     {
-        return Deadline(now_ticks() + to_ticks(duration), grace_ticks);
+        return Deadline{sys_timepoint_calc(timeout.native_handle())};
     }
 
-    static Deadline at_ticks(Tick deadline_ticks, Tick grace_ticks = 0)
+    template <typename Rep, typename Period>
+    [[nodiscard]] static Deadline after(std::chrono::duration<Rep, Period> duration) noexcept
     {
-        return Deadline(deadline_ticks, grace_ticks);
+        return after(Timeout::after(duration));
     }
 
-    Tick ticks() const
+    [[nodiscard]] static Deadline forever() noexcept
     {
-        return deadline_ticks_;
+        return after(Timeout::forever());
     }
 
-    Tick grace_ticks() const
+    [[nodiscard]] static Deadline from_native(k_timepoint_t timepoint) noexcept
     {
-        return grace_ticks_;
+        return Deadline{timepoint};
     }
 
-    void set_grace_ticks(Tick grace_ticks)
+    [[nodiscard]] Timeout remaining() const noexcept
     {
-        grace_ticks_ = grace_ticks;
+        return Timeout::from_native(sys_timepoint_timeout(value_));
     }
 
-    Tick remaining_ticks() const
+    [[nodiscard]] bool expired() const noexcept
     {
-        const Tick current = now_ticks();
-        return deadline_ticks_ <= current ? 0 : deadline_ticks_ - current;
+        return sys_timepoint_expired(value_);
     }
 
-    bool expired() const
+    [[nodiscard]] k_timepoint_t native_handle() const noexcept
     {
-        return remaining_ticks() == 0;
+        return value_;
     }
 
-    Timeout remaining_timeout() const
+    friend std::strong_ordering operator<=>(const Deadline& left, const Deadline& right) noexcept
     {
-        return Timeout::after_ticks(remaining_ticks());
-    }
-
-    DeadlineStatus status() const
-    {
-        return status_at(now_ticks());
-    }
-
-    DeadlineStatus status_at(Tick current) const
-    {
-        if (current <= deadline_ticks_)
-        {
-            return DeadlineStatus::Met;
+        const int comparison = sys_timepoint_cmp(left.value_, right.value_);
+        if (comparison < 0) {
+            return std::strong_ordering::less;
         }
-        if (current <= deadline_ticks_ + grace_ticks_)
-        {
-            return DeadlineStatus::Late;
+        if (comparison > 0) {
+            return std::strong_ordering::greater;
         }
-        return DeadlineStatus::Missed;
+        return std::strong_ordering::equal;
     }
 
-private:
-    Tick deadline_ticks_ = 0;
-    Tick grace_ticks_ = 0;
+    friend bool operator==(const Deadline& left, const Deadline& right) noexcept
+    {
+        return sys_timepoint_cmp(left.value_, right.value_) == 0;
+    }
+
+  private:
+    explicit Deadline(k_timepoint_t value) noexcept : value_(value) {}
+
+    k_timepoint_t value_{};
 };
 
 } // namespace solar::kernel

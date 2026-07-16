@@ -1,5 +1,11 @@
 # Solar Documentation
 
+> **Pre-reform reference:** This documentation describes the removed positional
+> System architecture. It is not the API contract for the active static-system
+> implementation. Public documentation will be rebuilt after implementation
+> closure from the accepted specifications, landed summaries, final headers,
+> and executable tests.
+
 Solar is a static-first C++20 runtime package for Zephyr robotics firmware. A robot is declared as a compile-time graph, validated by concepts and static assertions, then instantiated as tuple-owned runtime objects.
 
 This documentation set is the working reference for Solar. The code is under active development, so these documents describe the current intended shape and should evolve with each architectural slice.

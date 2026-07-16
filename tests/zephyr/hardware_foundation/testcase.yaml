@@ -1,0 +1,18 @@
+tests:
+  solar.hardware.foundation.native:
+    tags:
+      - solar
+      - hardware
+      - gpio
+    platform_allow:
+      - native_sim/native/64
+    integration_platforms:
+      - native_sim/native/64
+  solar.hardware.foundation.teensy40:
+    tags:
+      - solar
+      - hardware
+      - devicetree
+    platform_allow:
+      - teensy40
+    build_only: true

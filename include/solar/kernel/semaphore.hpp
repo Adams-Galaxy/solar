@@ -3,73 +3,89 @@
 #include <cstdint>
 
 #include <zephyr/kernel.h>
+#include <zephyr/sys/__assert.h>
 
 #include "solar/core/status.hpp"
-#include "solar/kernel/config.hpp"
 #include "solar/kernel/deadline.hpp"
+#include "solar/kernel/error.hpp"
 
 namespace solar::kernel
 {
 
 class Semaphore
 {
-public:
-    explicit Semaphore(std::uint32_t initial_count = 0, std::uint32_t max_count = 1)
+  public:
+    explicit Semaphore(std::uint32_t initial_count = 0, std::uint32_t limit = 1) noexcept
     {
-        k_sem_init(&sem_, initial_count, max_count);
+        __ASSERT_NO_MSG(k_sem_init(&semaphore_, initial_count, limit) == 0);
     }
 
-    Status give()
+    Semaphore(const Semaphore&) = delete;
+    Semaphore& operator=(const Semaphore&) = delete;
+    Semaphore(Semaphore&&) = delete;
+    Semaphore& operator=(Semaphore&&) = delete;
+
+    void give() noexcept
     {
-        k_sem_give(&sem_);
-        return Status::Ok;
+        k_sem_give(&semaphore_);
     }
 
-    Status take(Timeout timeout = Timeout::forever())
+    void give_isr() noexcept
     {
-        return status_from_native_wait(k_sem_take(&sem_, timeout.native()));
+        k_sem_give(&semaphore_);
     }
 
-    Status take(Tick timeout_ticks)
+    [[nodiscard]] Status take(Timeout timeout = Timeout::forever()) noexcept
     {
-        return take(Timeout::after_ticks(timeout_ticks));
+        return detail::map_wait(k_sem_take(&semaphore_, timeout.native_handle()), timeout,
+                                Status::WouldBlock);
     }
 
-    template <class Rep, class Period>
-    Status take(std::chrono::duration<Rep, Period> timeout)
+    [[nodiscard]] Status take(const Deadline& deadline) noexcept
     {
-        return take(Timeout::after(timeout));
+        return take(deadline.remaining());
     }
 
-    Status take(const Deadline &deadline)
+    [[nodiscard]] Status try_take() noexcept
     {
-        return take(deadline.remaining_timeout());
+        return take(Timeout::no_wait());
     }
 
-    Status try_take()
+    [[nodiscard]] Status try_take_isr() noexcept
     {
-        return take(0);
+        return take(Timeout::no_wait());
     }
 
-    Status give_from_isr(bool &higher_priority_woken)
+    void reset() noexcept
     {
-        higher_priority_woken = false;
-        return give();
+        k_sem_reset(&semaphore_);
     }
 
-    k_sem *native_handle()
+    [[nodiscard]] std::uint32_t count() const noexcept
     {
-        return &sem_;
+        return k_sem_count_get(const_cast<k_sem*>(&semaphore_));
     }
 
-private:
-    k_sem sem_{};
+    [[nodiscard]] k_sem* native_handle() noexcept
+    {
+        return &semaphore_;
+    }
+
+    [[nodiscard]] const k_sem* native_handle() const noexcept
+    {
+        return &semaphore_;
+    }
+
+  private:
+    k_sem semaphore_{};
 };
 
 class BinarySemaphore : public Semaphore
 {
-public:
-    explicit BinarySemaphore(bool initially_available = false) : Semaphore(initially_available ? 1U : 0U, 1U) {}
+  public:
+    explicit BinarySemaphore(bool initially_available = false) noexcept
+        : Semaphore(initially_available ? 1U : 0U, 1U)
+    {}
 };
 
 } // namespace solar::kernel

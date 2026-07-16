@@ -1,0 +1,5 @@
+description: Solar addressed I2C endpoint fixture
+
+compatible: "vnd,solar-i2c-fixture"
+
+include: i2c-device.yaml

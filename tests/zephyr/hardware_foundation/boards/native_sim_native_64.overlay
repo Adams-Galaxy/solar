@@ -1,0 +1,21 @@
+#include <zephyr/dt-bindings/gpio/gpio.h>
+
+/ {
+	aliases {
+		solar-output = &solar_output;
+		solar-input = &solar_input;
+		solar-input-copy = &solar_input;
+	};
+
+	solar_gpio_fixture {
+		compatible = "gpio-leds";
+
+		solar_output: output {
+			gpios = <&gpio0 1 GPIO_ACTIVE_LOW>;
+		};
+
+		solar_input: input {
+			gpios = <&gpio0 2 GPIO_ACTIVE_HIGH>;
+		};
+	};
+};

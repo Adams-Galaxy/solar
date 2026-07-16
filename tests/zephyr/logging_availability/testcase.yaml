@@ -1,0 +1,17 @@
+tests:
+  solar.logging.availability.relaxed:
+    tags:
+      - solar
+      - logging
+    platform_allow:
+      - native_sim/native/64
+    integration_platforms:
+      - native_sim/native/64
+  solar.logging.availability.strict:
+    tags:
+      - solar
+      - logging
+    platform_allow:
+      - native_sim/native/64
+    extra_configs:
+      - CONFIG_SOLAR_STRICT_CATALOG_BINDING=y

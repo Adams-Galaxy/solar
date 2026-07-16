@@ -1,0 +1,17 @@
+tests:
+  solar.system.relaxed:
+    platform_allow:
+      - native_sim/native/64
+    tags:
+      - solar
+      - system
+      - relaxed
+  solar.system.strict:
+    extra_configs:
+      - CONFIG_SOLAR_STRICT_CATALOG_BINDING=y
+    platform_allow:
+      - native_sim/native/64
+    tags:
+      - solar
+      - system
+      - strict

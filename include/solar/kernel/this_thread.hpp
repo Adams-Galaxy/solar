@@ -1,90 +1,72 @@
 #pragma once
 
+#include <chrono>
+#include <cstdint>
+#include <limits>
+
 #include <zephyr/kernel.h>
 
+#include "solar/core/status.hpp"
 #include "solar/kernel/deadline.hpp"
+#include "solar/kernel/native.hpp"
 #include "solar/kernel/priority.hpp"
 
-namespace solar::kernel::ThisThread
+namespace solar::kernel::this_thread
 {
 
-/**
- * @brief Sleep the current thread for a chrono duration.
- */
-template <class Rep, class Period>
-inline void sleep_for(std::chrono::duration<Rep, Period> duration)
-{
-    k_sleep(to_timeout(to_ticks(duration)));
-}
-
-inline void sleep_for(Tick ticks)
-{
-    k_sleep(to_timeout(ticks));
-}
-
-inline void sleep_for(Timeout timeout)
-{
-    k_sleep(timeout.native());
-}
-
-inline void sleep_until(Tick deadline_ticks)
-{
-    const Tick now = now_ticks();
-    if (deadline_ticks > now)
-    {
-        sleep_for(deadline_ticks - now);
-    }
-}
-
-inline DeadlineStatus wait_until(const Deadline &deadline)
-{
-    sleep_until(deadline.ticks());
-    return deadline.status();
-}
-
-inline DeadlineStatus wait_until(Tick deadline_ticks, Tick grace_ticks = 0)
-{
-    return wait_until(Deadline(deadline_ticks, grace_ticks));
-}
-
-inline void yield()
-{
-    k_yield();
-}
-
-inline ThreadId get_id()
+[[nodiscard]] inline NativeThread id() noexcept
 {
     return k_current_get();
 }
 
-inline ThreadId id()
+[[nodiscard]] inline Priority priority() noexcept
 {
-    return get_id();
+    return *Priority::from_native(k_thread_priority_get(k_current_get()));
 }
 
-inline NativePriority priority()
+inline void set_priority(Priority priority) noexcept
 {
-    return k_thread_priority_get(k_current_get());
+    k_thread_priority_set(k_current_get(), priority.native_handle());
 }
 
-inline void set_priority(NativePriority priority_value)
+[[nodiscard]] inline Milliseconds sleep_for(Timeout timeout) noexcept
 {
-    k_thread_priority_set(k_current_get(), priority_value);
+    return Milliseconds{k_sleep(timeout.native_handle())};
 }
 
-inline void set_priority(Priority priority_value)
+template <typename Rep, typename Period>
+[[nodiscard]] inline Milliseconds sleep_for(std::chrono::duration<Rep, Period> duration) noexcept
 {
-    set_priority(to_native_priority(priority_value));
+    return sleep_for(Timeout::after(duration));
 }
 
-inline Priority priority_enum()
+[[nodiscard]] inline Milliseconds sleep_until(const Deadline& deadline) noexcept
 {
-    return from_native_priority(priority());
+    return sleep_for(deadline.remaining());
 }
 
-inline void suspend()
+[[nodiscard]] inline Status yield() noexcept
 {
-    k_thread_suspend(k_current_get());
+    if (!k_can_yield()) {
+        return Status::NotReady;
+    }
+    k_yield();
+    return Status::Ok;
 }
 
-} // namespace solar::kernel::ThisThread
+template <typename Rep, typename Period>
+[[nodiscard]] inline Status busy_wait_for(std::chrono::duration<Rep, Period> duration) noexcept
+{
+    if (duration <= std::chrono::duration<Rep, Period>::zero()) {
+        return Status::Ok;
+    }
+
+    const auto microseconds = std::chrono::ceil<Microseconds>(duration).count();
+    if (microseconds > std::numeric_limits<std::uint32_t>::max()) {
+        return Status::Invalid;
+    }
+    k_busy_wait(static_cast<std::uint32_t>(microseconds));
+    return Status::Ok;
+}
+
+} // namespace solar::kernel::this_thread

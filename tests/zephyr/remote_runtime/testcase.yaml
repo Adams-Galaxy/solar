@@ -1,0 +1,35 @@
+tests:
+  solar.remote.runtime.relaxed:
+    platform_allow:
+      - native_sim/native/64
+    integration_platforms:
+      - native_sim/native/64
+    tags:
+      - solar
+      - remote
+      - runtime
+  solar.remote.runtime.strict:
+    platform_allow:
+      - native_sim/native/64
+    integration_platforms:
+      - native_sim/native/64
+    extra_configs:
+      - CONFIG_SOLAR_STRICT_CATALOG_BINDING=y
+    tags:
+      - solar
+      - remote
+      - runtime
+      - strict
+  solar.remote.runtime.introspection:
+    platform_allow:
+      - native_sim/native/64
+    integration_platforms:
+      - native_sim/native/64
+    extra_configs:
+      - CONFIG_SOLAR_REMOTE_RUNTIME_INTROSPECTION=y
+      - CONFIG_SOLAR_INSPECTION=y
+    tags:
+      - solar
+      - remote
+      - runtime
+      - introspection

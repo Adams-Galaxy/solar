@@ -19,6 +19,8 @@ cmake_install.cmake
 # Local editor/OS noise
 .DS_Store
 .cache/
+twister-out*/
+Testing/
 
 # Misc
 .solar_old/

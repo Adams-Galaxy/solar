@@ -1,0 +1,15 @@
+tests:
+  solar.metrics.availability.relaxed:
+    tags:
+      - solar
+      - metrics
+    platform_allow:
+      - native_sim/native/64
+  solar.metrics.availability.strict:
+    tags:
+      - solar
+      - metrics
+    platform_allow:
+      - native_sim/native/64
+    extra_configs:
+      - CONFIG_SOLAR_STRICT_CATALOG_BINDING=y

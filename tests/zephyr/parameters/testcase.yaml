@@ -1,0 +1,25 @@
+tests:
+  solar.parameters.relaxed:
+    tags:
+      - solar
+      - parameters
+    platform_allow:
+      - native_sim/native/64
+  solar.parameters.strict:
+    tags:
+      - solar
+      - parameters
+    platform_allow:
+      - native_sim/native/64
+    extra_configs:
+      - CONFIG_SOLAR_STRICT_CATALOG_BINDING=y
+  solar.parameters.settings-adapter:
+    tags:
+      - solar
+      - parameters
+      - settings
+    platform_allow:
+      - native_sim/native/64
+    extra_configs:
+      - CONFIG_SETTINGS=y
+      - CONFIG_SOLAR_PARAMETERS_ZEPHYR_SETTINGS=y

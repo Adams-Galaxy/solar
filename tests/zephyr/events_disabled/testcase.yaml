@@ -1,0 +1,7 @@
+tests:
+  solar.events.disabled:
+    tags:
+      - solar
+      - events
+    platform_allow:
+      - native_sim/native/64

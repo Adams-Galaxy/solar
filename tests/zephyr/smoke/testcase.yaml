@@ -1,0 +1,23 @@
+tests:
+  solar.foundation.relaxed:
+    platform_allow:
+      - native_sim/native/64
+    tags:
+      - solar
+      - foundation
+  solar.foundation.strict:
+    extra_configs:
+      - CONFIG_SOLAR_STRICT_CATALOG_BINDING=y
+    platform_allow:
+      - native_sim/native/64
+    tags:
+      - solar
+      - foundation
+  solar.foundation.disabled:
+    extra_configs:
+      - CONFIG_SOLAR=n
+    platform_allow:
+      - native_sim/native/64
+    tags:
+      - solar
+      - foundation

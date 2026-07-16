@@ -1,0 +1,8 @@
+tests:
+  solar.kernel.diagnostics_disabled:
+    platform_allow:
+      - native_sim/native/64
+    tags:
+      - solar
+      - kernel
+      - disabled

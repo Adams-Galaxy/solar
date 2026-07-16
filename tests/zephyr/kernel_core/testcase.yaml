@@ -1,0 +1,8 @@
+tests:
+  solar.kernel.core:
+    platform_allow:
+      - native_sim/native/64
+    tags:
+      - solar
+      - kernel
+      - isr

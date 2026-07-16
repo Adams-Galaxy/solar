@@ -1,0 +1,16 @@
+tests:
+  solar.supervisor.relaxed:
+    platform_allow:
+      - native_sim/native/64
+    tags:
+      - solar
+      - supervisor
+  solar.supervisor.strict:
+    extra_configs:
+      - CONFIG_SOLAR_STRICT_CATALOG_BINDING=y
+    platform_allow:
+      - native_sim/native/64
+    tags:
+      - solar
+      - supervisor
+      - strict

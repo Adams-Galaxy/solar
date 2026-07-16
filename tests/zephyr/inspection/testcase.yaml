@@ -1,0 +1,16 @@
+tests:
+  solar.inspection.relaxed:
+    tags:
+      - solar
+      - inspection
+    platform_allow:
+      - native_sim/native/64
+  solar.inspection.strict:
+    tags:
+      - solar
+      - inspection
+    platform_allow:
+      - native_sim/native/64
+    extra_configs:
+      - CONFIG_SOLAR_STRICT_CATALOG_BINDING=y
+

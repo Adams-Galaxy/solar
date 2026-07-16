@@ -1,126 +1,53 @@
 # Solar
 
-Solar is a static-first C++20 runtime package for robotics firmware built on Zephyr.
+Solar is a C++23 firmware framework and Zephyr module under active architectural
+reform.
 
-The robot shape is declared as a compile-time graph: boards, peripherals, devices,
-facilities, services, tasks, channels, logging, metrics, events, and Remote
-vocabulary are all named types that Solar can validate before runtime.
+The former positional `System`, entry Profile, Channel, task, observability, and
+Remote APIs have been removed. New subsystem APIs are landing progressively
+against the accepted static-system design. Until the implementation closes,
+the repository may intentionally expose only the capabilities completed by the
+current reform stage.
 
 Current version: `0.1.0`
 
-Solar is under active development. APIs are expected to evolve quickly while the
-architecture settles.
+## Zephyr Module
 
-## Core Ideas
-
-- Static graph declaration with `solar::System<...>`.
-- Type-level names with `solar::Name<"...">`.
-- Tuple-owned runtime objects with checked lookup through `solar::Context`.
-- Passive facilities under `solar::facilities`.
-- Active threaded services under `solar::services`.
-- Static contribution catalogs for metrics, events, and Remote vocabulary.
-- Fixed-capacity runtime structures and no registry-driven architecture.
-- Zephyr-backed Kernel primitives exposed through `solar::kernel`.
-
-## Example Shape
-
-```cpp
-using Robot = solar::System<
-    Board,
-    solar::Peripherals<Console>,
-    solar::Devices<LeftMotor, Imu>,
-    solar::Facilities<
-        solar::facilities::Events,
-        solar::facilities::Metrics,
-        solar::facilities::Inspection>,
-    solar::Services<
-        solar::services::Remote<RemoteTransport>>,
-    solar::Tasks<>,
-    solar::Channels<>,
-    solar::Runtime<solar::Logging<Logger>>>;
-```
-
-## Zephyr Package Use
-
-Solar can be included directly from a Zephyr application or loaded as a Zephyr
-module. The package exposes headers under `include/solar` and expects Zephyr to
-provide kernel, driver, devicetree, board, and simulator support.
-
-If Solar is vendored into an application, register it as an extra Zephyr module
-before `find_package(Zephyr ...)`:
+Register Solar as a Zephyr module before `find_package(Zephyr ...)`:
 
 ```cmake
-target_include_directories(app PRIVATE lib/solar/include)
+list(APPEND ZEPHYR_EXTRA_MODULES /path/to/solar)
+find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 ```
 
-If Solar is listed as a west module, `zephyr/module.yml` exposes the include path
-to the Zephyr build automatically.
-
-## Zephyr App Entry
-
-Profiles are ordinary C++ types. A Zephyr application can boot one with:
-
-```cpp
-#include "app/robot.hpp"
-
-int main()
-{
-    return solar::entry::run_zephyr<app::Robot>();
-}
-```
-
-Zephyr owns kernel startup, scheduling, board selection, device drivers, and the
-native simulator. Solar owns static graph construction, facility setup, lifecycle
-dispatch, service threads, and observability.
-
-## Native Simulator And Local Smoke Builds
-
-From a configured Zephyr workspace on Linux:
-
-```sh
-west build -p auto -b native_sim/native/64 firmware
-west build -t run
-```
-
-On macOS, use `qemu_x86_64` for a local Zephyr smoke build because Zephyr's
-native simulator is POSIX/Linux-only:
-
-```sh
-west build -p auto -b qemu_x86_64 firmware
-west build -t run
-```
-
-Use a hardware board name, such as `teensy40`, when moving from the native
-simulator to a physical target.
-
-## Documentation
-
-Start with [docs/README.md](docs/README.md).
-
-Important sections:
-
-- [Architecture](docs/architecture.md)
-- [System Graph](docs/concepts/system-graph.md)
-- [Facilities And Services](docs/concepts/facilities-services.md)
-- [Contributions](docs/concepts/contributions.md)
-- [Logging](docs/observability/logging.md)
-- [Events](docs/observability/events.md)
-- [Metrics](docs/observability/metrics.md)
-- [Remote](docs/remote.md)
-- [Kernel](docs/kernel.md)
-- [Zephyr](docs/zephyr.md)
-
-## Repository Layout
+Applications using Solar require:
 
 ```text
-include/solar/      Public Solar headers
-remote/             Built-in Remote schema definitions
-docs/               Architecture and subsystem documentation
-zephyr/module.yml   Zephyr module metadata
-CMakeLists.txt      Zephyr module include setup and standalone interface target
-VERSION             Current package version
+CONFIG_CPP=y
+CONFIG_STD_CPP23=y
+CONFIG_REQUIRES_FULL_LIBCPP=y
+CONFIG_SOLAR=y
 ```
 
-## License
+The current foundation smoke suite runs with:
 
-Solar is licensed under the MIT License. See [LICENSE](LICENSE) for the full text.
+```sh
+west twister \
+  -T tests/zephyr/smoke \
+  -p native_sim/native/64
+```
+
+Host foundation tests run with:
+
+```sh
+cmake -S . -B build/host -DBUILD_TESTING=ON
+cmake --build build/host
+ctest --test-dir build/host --output-on-failure
+```
+
+## Development Architecture
+
+The accepted design specifications and implementation plan live in the
+companion firmware workspace under `development-docs/`. The repository `docs/`
+directory describes the removed pre-reform implementation and is retained only
+as historical development context until the final documentation pass.

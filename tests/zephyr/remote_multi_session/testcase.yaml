@@ -1,0 +1,22 @@
+tests:
+  solar.remote.multi_session.relaxed:
+    platform_allow:
+      - native_sim/native/64
+    integration_platforms:
+      - native_sim/native/64
+    tags:
+      - solar
+      - remote
+      - session
+  solar.remote.multi_session.strict:
+    platform_allow:
+      - native_sim/native/64
+    integration_platforms:
+      - native_sim/native/64
+    extra_configs:
+      - CONFIG_SOLAR_STRICT_CATALOG_BINDING=y
+    tags:
+      - solar
+      - remote
+      - session
+      - strict

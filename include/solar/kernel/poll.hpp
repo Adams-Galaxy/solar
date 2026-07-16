@@ -3,83 +3,179 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 
 #include <zephyr/kernel.h>
 
 #include "solar/core/status.hpp"
-#include "solar/kernel/config.hpp"
-#include "solar/kernel/queue.hpp"
+#include "solar/kernel/error.hpp"
+#include "solar/kernel/message_queue.hpp"
 #include "solar/kernel/semaphore.hpp"
-#include "solar/kernel/thread.hpp"
-#include "solar/kernel/time.hpp"
 
 namespace solar::kernel
 {
 
+inline constexpr bool poll_available = IS_ENABLED(CONFIG_POLL);
+
 #if defined(CONFIG_POLL)
 
-template <std::size_t Capacity>
-class PollSet
+class PollSignal
 {
-public:
-    static_assert(Capacity > 0, "Solar poll sets require a non-zero capacity");
-
-    Status add_signal(k_poll_signal *signal, std::uint8_t tag = 0)
+  public:
+    PollSignal() noexcept
     {
-        return add(K_POLL_TYPE_SIGNAL, signal, tag);
+        k_poll_signal_init(&signal_);
     }
 
-    Status add_stop(StopToken token, std::uint8_t tag = 0)
+    PollSignal(const PollSignal&) = delete;
+    PollSignal& operator=(const PollSignal&) = delete;
+    PollSignal(PollSignal&&) = delete;
+    PollSignal& operator=(PollSignal&&) = delete;
+
+    [[nodiscard]] Status raise(int value = 0) noexcept
     {
-        return add(K_POLL_TYPE_SEM_AVAILABLE, token.native_semaphore(), tag);
+        return detail::map_native(k_poll_signal_raise(&signal_, value));
     }
 
-    Status add_semaphore(Semaphore &semaphore, std::uint8_t tag = 0)
+    void reset() noexcept
     {
-        return add(K_POLL_TYPE_SEM_AVAILABLE, semaphore.native_handle(), tag);
+        k_poll_signal_reset(&signal_);
     }
 
-    template <typename T, std::size_t Depth>
-    Status add_queue(Queue<T, Depth> &queue, std::uint8_t tag = 0)
+    [[nodiscard]] std::optional<int> value() const noexcept
     {
-        return add(K_POLL_TYPE_MSGQ_DATA_AVAILABLE, queue.native_handle(), tag);
+        unsigned int signaled{};
+        int result{};
+        k_poll_signal_check(const_cast<k_poll_signal*>(&signal_), &signaled, &result);
+        if (signaled == 0) {
+            return std::nullopt;
+        }
+        return result;
     }
 
-    Status wait(Timeout timeout = Timeout::forever())
+    [[nodiscard]] k_poll_signal* native_handle() noexcept
     {
+        return &signal_;
+    }
+
+    [[nodiscard]] const k_poll_signal* native_handle() const noexcept
+    {
+        return &signal_;
+    }
+
+  private:
+    k_poll_signal signal_{};
+};
+
+enum class PollState : std::uint8_t
+{
+    NotReady,
+    Signaled,
+    SemaphoreAvailable,
+    MessageAvailable,
+    Cancelled,
+    Unknown,
+};
+
+struct PollEvent
+{
+    std::uint8_t tag{};
+    PollState state{PollState::NotReady};
+};
+
+struct PollResult
+{
+    std::size_t ready{};
+    bool interrupted{};
+};
+
+template <std::size_t Capacity> class PollSet
+{
+    static_assert(Capacity > 0,
+                  "SOLAR_DIAGNOSTIC_POLL_ZERO_CAPACITY: poll capacity must be non-zero");
+
+  public:
+    static constexpr std::size_t capacity = Capacity;
+
+    PollSet() = default;
+
+    PollSet(const PollSet&) = delete;
+    PollSet& operator=(const PollSet&) = delete;
+    PollSet(PollSet&&) = delete;
+    PollSet& operator=(PollSet&&) = delete;
+
+    [[nodiscard]] Status add(PollSignal& signal, std::uint8_t tag = 0) noexcept
+    {
+        return add_native(K_POLL_TYPE_SIGNAL, signal.native_handle(), tag);
+    }
+
+    [[nodiscard]] Status add(Semaphore& semaphore, std::uint8_t tag = 0) noexcept
+    {
+        return add_native(K_POLL_TYPE_SEM_AVAILABLE, semaphore.native_handle(), tag);
+    }
+
+    template <typename Message, std::size_t Depth>
+    [[nodiscard]] Status add(MessageQueue<Message, Depth>& queue, std::uint8_t tag = 0) noexcept
+    {
+        return add_native(K_POLL_TYPE_MSGQ_DATA_AVAILABLE, queue.native_handle(), tag);
+    }
+
+    [[nodiscard]] Result<PollResult> wait(Timeout timeout = Timeout::forever()) noexcept
+    {
+        if (count_ == 0) {
+            return fail(Status::Invalid);
+        }
+
         reset_states();
-        return status_from_native_wait(k_poll(events_.data(), static_cast<int>(count_), timeout.native()));
+        const int result =
+            k_poll(events_.data(), static_cast<int>(count_), timeout.native_handle());
+        if (result == 0 || result == -EINTR) {
+            return PollResult{.ready = ready_count(), .interrupted = result == -EINTR};
+        }
+        return fail(detail::map_wait(result, timeout, Status::WouldBlock));
     }
 
-    std::size_t count() const
+    [[nodiscard]] Result<PollResult> wait(const Deadline& deadline) noexcept
+    {
+        return wait(deadline.remaining());
+    }
+
+    [[nodiscard]] Result<PollResult> try_wait() noexcept
+    {
+        return wait(Timeout::no_wait());
+    }
+
+    [[nodiscard]] Result<PollEvent> event(std::size_t index) const noexcept
+    {
+        if (index >= count_) {
+            return fail(Status::NotFound);
+        }
+        return PollEvent{.tag = static_cast<std::uint8_t>(events_[index].tag),
+                         .state = state_of(events_[index].state)};
+    }
+
+    [[nodiscard]] std::size_t size() const noexcept
     {
         return count_;
     }
 
-    const k_poll_event &event(std::size_t index) const
+    void clear() noexcept
     {
-        return events_[index];
+        count_ = 0;
     }
 
-    bool ready(std::size_t index) const
+    [[nodiscard]] k_poll_event* native_events() noexcept
     {
-        return index < count_ && events_[index].state != K_POLL_STATE_NOT_READY;
+        return events_.data();
     }
 
-    std::uint8_t tag(std::size_t index) const
+  private:
+    [[nodiscard]] Status add_native(std::uint32_t type, void* object, std::uint8_t tag) noexcept
     {
-        return index < count_ ? static_cast<std::uint8_t>(events_[index].tag) : 0;
-    }
-
-private:
-    Status add(std::uint32_t type, void *object, std::uint8_t tag)
-    {
-        if (object == nullptr)
-        {
+        if (object == nullptr) {
             return Status::Invalid;
         }
-        if (count_ >= Capacity)
-        {
+        if (count_ == Capacity) {
             return Status::Full;
         }
 
@@ -89,66 +185,66 @@ private:
         return Status::Ok;
     }
 
-    void reset_states()
+    void reset_states() noexcept
     {
-        for (std::size_t i = 0; i < count_; ++i)
-        {
-            events_[i].state = K_POLL_STATE_NOT_READY;
+        for (std::size_t index = 0; index < count_; ++index) {
+            events_[index].state = K_POLL_STATE_NOT_READY;
         }
     }
 
+    [[nodiscard]] std::size_t ready_count() const noexcept
+    {
+        std::size_t ready{};
+        for (std::size_t index = 0; index < count_; ++index) {
+            ready += events_[index].state != K_POLL_STATE_NOT_READY ? 1U : 0U;
+        }
+        return ready;
+    }
+
+    [[nodiscard]] static PollState state_of(std::uint32_t state) noexcept
+    {
+        if ((state & K_POLL_STATE_CANCELLED) != 0) {
+            return PollState::Cancelled;
+        }
+        if ((state & K_POLL_STATE_SIGNALED) != 0) {
+            return PollState::Signaled;
+        }
+        if ((state & K_POLL_STATE_SEM_AVAILABLE) != 0) {
+            return PollState::SemaphoreAvailable;
+        }
+        if ((state & K_POLL_STATE_MSGQ_DATA_AVAILABLE) != 0) {
+            return PollState::MessageAvailable;
+        }
+        if (state == K_POLL_STATE_NOT_READY) {
+            return PollState::NotReady;
+        }
+        return PollState::Unknown;
+    }
+
     std::array<k_poll_event, Capacity> events_{};
-    std::size_t count_ = 0;
+    std::size_t count_{};
 };
 
 #else
 
-template <std::size_t Capacity>
-class PollSet
+template <typename> inline constexpr bool poll_dependent_false = false;
+
+class PollSignal
 {
-public:
-    static_assert(Capacity > 0, "Solar poll sets require a non-zero capacity");
-
-    Status add_signal(k_poll_signal *, std::uint8_t = 0)
+  public:
+    template <typename Disabled = void> PollSignal()
     {
-        return Status::NotReady;
+        static_assert(poll_dependent_false<Disabled>,
+                      "SOLAR_DIAGNOSTIC_POLL_DISABLED: enable CONFIG_POLL before using Solar poll "
+                      "primitives");
     }
+};
 
-    Status add_stop(StopToken, std::uint8_t = 0)
-    {
-        return Status::NotReady;
-    }
-
-    Status add_semaphore(Semaphore &, std::uint8_t = 0)
-    {
-        return Status::NotReady;
-    }
-
-    template <typename T, std::size_t Depth>
-    Status add_queue(Queue<T, Depth> &, std::uint8_t = 0)
-    {
-        return Status::NotReady;
-    }
-
-    Status wait(Timeout = Timeout::forever())
-    {
-        return Status::NotReady;
-    }
-
-    std::size_t count() const
-    {
-        return 0;
-    }
-
-    bool ready(std::size_t) const
-    {
-        return false;
-    }
-
-    std::uint8_t tag(std::size_t) const
-    {
-        return 0;
-    }
+template <std::size_t Capacity> class PollSet
+{
+    static_assert(Capacity == 0 && Capacity != 0,
+                  "SOLAR_DIAGNOSTIC_POLL_DISABLED: enable CONFIG_POLL before using Solar poll "
+                  "primitives");
 };
 
 #endif

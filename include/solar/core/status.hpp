@@ -1,405 +1,193 @@
 #pragma once
 
 #include <cerrno>
+#include <expected>
 #include <type_traits>
 #include <utility>
+
+#include "solar/core/language.hpp"
 
 namespace solar
 {
 
-#ifndef SOLAR_STATUS_EMPTY_ERRNO
+namespace detail
+{
+
+constexpr int empty_errno =
 #ifdef ENODATA
-#define SOLAR_STATUS_EMPTY_ERRNO ENODATA
+    ENODATA;
 #else
-#define SOLAR_STATUS_EMPTY_ERRNO ENOMSG
-#endif
+    ENOMSG;
 #endif
 
-#ifndef SOLAR_STATUS_DEPENDENCY_FAILED_ERRNO
+constexpr int dependency_failed_errno =
 #ifdef ENOLINK
-#define SOLAR_STATUS_DEPENDENCY_FAILED_ERRNO ENOLINK
+    ENOLINK;
 #else
-#define SOLAR_STATUS_DEPENDENCY_FAILED_ERRNO EIO
-#endif
+    EIO;
 #endif
 
-#ifndef SOLAR_STATUS_PERMISSION_DENIED_ERRNO
-#ifdef EACCES
-#define SOLAR_STATUS_PERMISSION_DENIED_ERRNO EACCES
-#else
-#define SOLAR_STATUS_PERMISSION_DENIED_ERRNO EPERM
-#endif
-#endif
-
-#ifndef SOLAR_STATUS_NO_BUFFER_ERRNO
+constexpr int no_buffer_errno =
 #ifdef ENOBUFS
-#define SOLAR_STATUS_NO_BUFFER_ERRNO ENOBUFS
+    ENOBUFS;
 #else
-#define SOLAR_STATUS_NO_BUFFER_ERRNO ENOMEM
-#endif
+    ENOMEM;
 #endif
 
-#ifndef SOLAR_STATUS_MESSAGE_TOO_LARGE_ERRNO
+constexpr int message_too_large_errno =
 #ifdef EMSGSIZE
-#define SOLAR_STATUS_MESSAGE_TOO_LARGE_ERRNO EMSGSIZE
+    EMSGSIZE;
 #else
-#define SOLAR_STATUS_MESSAGE_TOO_LARGE_ERRNO ENOSPC
-#endif
+    ENOSPC;
 #endif
 
-#ifndef SOLAR_STATUS_PROTOCOL_ERRNO
+constexpr int protocol_errno =
 #ifdef EPROTO
-#define SOLAR_STATUS_PROTOCOL_ERRNO EPROTO
+    EPROTO;
 #elif defined(EBADMSG)
-#define SOLAR_STATUS_PROTOCOL_ERRNO EBADMSG
+    EBADMSG;
 #else
-#define SOLAR_STATUS_PROTOCOL_ERRNO EIO
-#endif
+                    EIO;
 #endif
 
-#ifndef SOLAR_STATUS_OVERFLOW_ERRNO
+constexpr int overflow_errno =
 #ifdef EOVERFLOW
-#define SOLAR_STATUS_OVERFLOW_ERRNO EOVERFLOW
+    EOVERFLOW;
 #else
-#define SOLAR_STATUS_OVERFLOW_ERRNO ERANGE
+    ERANGE;
 #endif
 
-#ifndef SOLAR_STATUS_UNEXPECTED_EXIT_ERRNO
+constexpr int unexpected_exit_errno =
 #ifdef EPIPE
-#define SOLAR_STATUS_UNEXPECTED_EXIT_ERRNO EPIPE
+    EPIPE;
 #else
-#define SOLAR_STATUS_UNEXPECTED_EXIT_ERRNO EIO
-#endif
-#endif
+    EIO;
 #endif
 
-/**
- * @brief Errno-backed status vocabulary shared by Solar core and services.
- *
- * Values intentionally map one-to-one with positive errno values so status
- * codes remain readable and can be converted with a simple integer cast.
- */
+} // namespace detail
+
 enum class Status : int
 {
     Ok = 0,
     Error = EIO,
-    Timeout = ETIMEDOUT,
-    WouldBlock = EAGAIN,
-    NoMemory = ENOMEM,
     Invalid = EINVAL,
-    NoSpace = ENOSPC,
-    Full = NoSpace,
-    Empty = SOLAR_STATUS_EMPTY_ERRNO,
     NotReady = ENODEV,
-    Busy = EBUSY,
-    Already = EALREADY,
     NotFound = ENOENT,
     NotSupported = ENOTSUP,
+    Busy = EBUSY,
+    Already = EALREADY,
+    Timeout = ETIMEDOUT,
     Cancelled = ECANCELED,
+    NoMemory = ENOMEM,
+    NoSpace = ENOSPC,
+    Full = NoSpace,
+    WouldBlock = EAGAIN,
+    Empty = detail::empty_errno,
     Interrupted = EINTR,
     Deadlock = EDEADLK,
-    PermissionDenied = SOLAR_STATUS_PERMISSION_DENIED_ERRNO,
-    NoBuffer = SOLAR_STATUS_NO_BUFFER_ERRNO,
-    MessageTooLarge = SOLAR_STATUS_MESSAGE_TOO_LARGE_ERRNO,
-    ProtocolError = SOLAR_STATUS_PROTOCOL_ERRNO,
-    Overflow = SOLAR_STATUS_OVERFLOW_ERRNO,
-    DependencyFailed = SOLAR_STATUS_DEPENDENCY_FAILED_ERRNO,
-    UnexpectedExit = SOLAR_STATUS_UNEXPECTED_EXIT_ERRNO,
+    PermissionDenied = EACCES,
+    NoBuffer = detail::no_buffer_errno,
+    MessageTooLarge = detail::message_too_large_errno,
+    ProtocolError = detail::protocol_errno,
+    Overflow = detail::overflow_errno,
+    DependencyFailed = detail::dependency_failed_errno,
+    UnexpectedExit = detail::unexpected_exit_errno,
 };
 
-/**
- * @brief Convenience predicate for status-returning APIs.
- */
-constexpr bool ok(Status status)
+[[nodiscard]] constexpr bool ok(Status status) noexcept
 {
     return status == Status::Ok;
 }
 
-constexpr int to_errno(Status status)
+[[nodiscard]] constexpr int to_errno(Status status) noexcept
 {
     return static_cast<std::underlying_type_t<Status>>(status);
 }
 
-constexpr int to_native_errno(Status status)
+[[nodiscard]] constexpr int to_native_errno(Status status) noexcept
 {
-    const int error = to_errno(status);
+    const auto error = to_errno(status);
     return error == 0 ? 0 : -error;
 }
 
-constexpr Status status_from_errno(int error)
+[[nodiscard]] constexpr Status status_from_errno(int error) noexcept
 {
-    const int code = error < 0 ? -error : error;
+    const auto code = error < 0 ? -error : error;
 
-    if (code == 0)
-    {
+    switch (code) {
+    case 0:
         return Status::Ok;
-    }
-    if (code == EIO)
-    {
+    case EIO:
         return Status::Error;
-    }
-    if (code == ETIMEDOUT)
-    {
-        return Status::Timeout;
-    }
-#ifdef ETIME
-    if (code == ETIME)
-    {
-        return Status::Timeout;
-    }
-#endif
-    if (code == EAGAIN)
-    {
-        return Status::WouldBlock;
-    }
-#ifdef EWOULDBLOCK
-    if (code == EWOULDBLOCK)
-    {
-        return Status::WouldBlock;
-    }
-#endif
-    if (code == ENOMEM)
-    {
-        return Status::NoMemory;
-    }
-#ifdef ENOSR
-    if (code == ENOSR)
-    {
-        return Status::NoMemory;
-    }
-#endif
-    if (code == EINVAL)
-    {
+    case EINVAL:
         return Status::Invalid;
-    }
-#ifdef EBADF
-    if (code == EBADF)
-    {
-        return Status::Invalid;
-    }
-#endif
-#ifdef EFAULT
-    if (code == EFAULT)
-    {
-        return Status::Invalid;
-    }
-#endif
-    if (code == ENOSPC)
-    {
-        return Status::NoSpace;
-    }
-#ifdef ENOMSG
-    if (code == ENOMSG)
-    {
-        return Status::Empty;
-    }
-#endif
-#ifdef ENODATA
-    if (code == ENODATA)
-    {
-        return Status::Empty;
-    }
-#endif
-    if (code == ENODEV)
-    {
+    case ENODEV:
         return Status::NotReady;
-    }
-#ifdef ENXIO
-    if (code == ENXIO)
-    {
-        return Status::NotReady;
-    }
-#endif
-    if (code == EBUSY)
-    {
+    case ENOENT:
+        return Status::NotFound;
+    case ENOTSUP:
+    case ENOSYS:
+        return Status::NotSupported;
+    case EBUSY:
         return Status::Busy;
-    }
-    if (code == EALREADY)
-    {
+    case EALREADY:
         return Status::Already;
-    }
-#ifdef EEXIST
-    if (code == EEXIST)
-    {
-        return Status::Already;
-    }
-#endif
-    if (code == ENOENT)
-    {
-        return Status::NotFound;
-    }
-#ifdef ESRCH
-    if (code == ESRCH)
-    {
-        return Status::NotFound;
-    }
-#endif
-    if (code == ENOTSUP)
-    {
-        return Status::NotSupported;
-    }
-#ifdef ENOSYS
-    if (code == ENOSYS)
-    {
-        return Status::NotSupported;
-    }
-#endif
-#ifdef EOPNOTSUPP
-    if (code == EOPNOTSUPP)
-    {
-        return Status::NotSupported;
-    }
-#endif
-    if (code == ECANCELED)
-    {
+    case ETIMEDOUT:
+        return Status::Timeout;
+    case ECANCELED:
         return Status::Cancelled;
-    }
-    if (code == EINTR)
-    {
+    case ENOMEM:
+        return Status::NoMemory;
+    case ENOSPC:
+        return Status::NoSpace;
+    case EAGAIN:
+        return Status::WouldBlock;
+    case EINTR:
         return Status::Interrupted;
-    }
-    if (code == EDEADLK)
-    {
+    case EDEADLK:
         return Status::Deadlock;
-    }
-#ifdef EPERM
-    if (code == EPERM)
-    {
+    case EACCES:
+    case EPERM:
         return Status::PermissionDenied;
+    default:
+        break;
     }
-#endif
-#ifdef EACCES
-    if (code == EACCES)
-    {
-        return Status::PermissionDenied;
+
+    if (code == detail::empty_errno) {
+        return Status::Empty;
     }
-#endif
-#ifdef ENOBUFS
-    if (code == ENOBUFS)
-    {
+    if (code == detail::no_buffer_errno) {
         return Status::NoBuffer;
     }
-#endif
-#ifdef EMSGSIZE
-    if (code == EMSGSIZE)
-    {
+    if (code == detail::message_too_large_errno) {
         return Status::MessageTooLarge;
     }
-#endif
-#ifdef EPROTO
-    if (code == EPROTO)
-    {
+    if (code == detail::protocol_errno) {
         return Status::ProtocolError;
     }
-#endif
-#ifdef EBADMSG
-    if (code == EBADMSG)
-    {
-        return Status::ProtocolError;
-    }
-#endif
-#ifdef EILSEQ
-    if (code == EILSEQ)
-    {
-        return Status::ProtocolError;
-    }
-#endif
-#ifdef ERANGE
-    if (code == ERANGE)
-    {
+    if (code == detail::overflow_errno) {
         return Status::Overflow;
     }
-#endif
-#ifdef EOVERFLOW
-    if (code == EOVERFLOW)
-    {
-        return Status::Overflow;
-    }
-#endif
-#if SOLAR_STATUS_DEPENDENCY_FAILED_ERRNO != EIO
-    if (code == SOLAR_STATUS_DEPENDENCY_FAILED_ERRNO)
-    {
+    if (code == detail::dependency_failed_errno) {
         return Status::DependencyFailed;
     }
-#endif
-#if SOLAR_STATUS_UNEXPECTED_EXIT_ERRNO != EIO
-    if (code == SOLAR_STATUS_UNEXPECTED_EXIT_ERRNO)
-    {
+    if (code == detail::unexpected_exit_errno) {
         return Status::UnexpectedExit;
     }
-#endif
 
     return Status::Error;
 }
 
-/**
- * @brief Deterministic result type for APIs that return either a value or a
- * `Status` without exceptions or heap allocation.
- */
-template <typename T>
-class Result
+template <typename T, typename E = Status> using Result = std::expected<T, E>;
+
+template <typename E> using Failure = std::unexpected<E>;
+
+template <typename E>
+[[nodiscard]] constexpr auto
+fail(E&& error) noexcept(std::is_nothrow_constructible_v<std::decay_t<E>, E&&>)
+    -> Failure<std::decay_t<E>>
 {
-public:
-    constexpr Result(Status status) : status_(status), value_{} {}
-    constexpr Result(const T &value) : status_(Status::Ok), value_(value) {}
-    constexpr Result(T &&value) : status_(Status::Ok), value_(std::move(value)) {}
-
-    constexpr bool has_value() const
-    {
-        return status_ == Status::Ok;
-    }
-
-    constexpr explicit operator bool() const
-    {
-        return has_value();
-    }
-
-    constexpr Status status() const
-    {
-        return status_;
-    }
-
-    constexpr T &value()
-    {
-        return value_;
-    }
-
-    constexpr const T &value() const
-    {
-        return value_;
-    }
-
-private:
-    Status status_;
-    T value_;
-};
-
-/**
- * @brief Void specialization for status-only operations with result semantics.
- */
-template <>
-class Result<void>
-{
-public:
-    constexpr Result(Status status = Status::Ok) : status_(status) {}
-
-    constexpr bool has_value() const
-    {
-        return status_ == Status::Ok;
-    }
-
-    constexpr explicit operator bool() const
-    {
-        return has_value();
-    }
-
-    constexpr Status status() const
-    {
-        return status_;
-    }
-
-private:
-    Status status_;
-};
+    return Failure<std::decay_t<E>>{std::forward<E>(error)};
+}
 
 } // namespace solar

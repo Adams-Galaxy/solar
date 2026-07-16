@@ -2,8 +2,11 @@
 
 #include <chrono>
 #include <cstdint>
+#include <limits>
+#include <ratio>
 
 #include <zephyr/kernel.h>
+#include <zephyr/sys/time_units.h>
 
 #include "solar/core/time.hpp"
 
@@ -11,142 +14,114 @@ namespace solar::kernel
 {
 
 using Tick = std::int64_t;
-inline constexpr Tick WaitForever = -1;
 
 using Duration = solar::Duration;
 using Milliseconds = solar::Milliseconds;
 using Microseconds = solar::Microseconds;
 using Seconds = solar::Seconds;
 
-constexpr Tick to_ticks(Tick ticks);
+struct SteadyClock
+{
+    using rep = Tick;
+    using period = std::ratio<1, CONFIG_SYS_CLOCK_TICKS_PER_SEC>;
+    using duration = std::chrono::duration<rep, period>;
+    using time_point = std::chrono::time_point<SteadyClock>;
 
-template <class Rep, class Period>
-constexpr Tick to_ticks(std::chrono::duration<Rep, Period> duration);
+    static constexpr bool is_steady = true;
 
-inline k_timeout_t to_timeout(Tick ticks);
+    [[nodiscard]] static time_point now() noexcept
+    {
+        return time_point{duration{k_uptime_ticks()}};
+    }
+};
+
+using TickDuration = SteadyClock::duration;
+using TimePoint = SteadyClock::time_point;
+
+template <typename Rep, typename Period>
+[[nodiscard]] constexpr Tick to_ticks_ceil(std::chrono::duration<Rep, Period> duration) noexcept
+{
+    if (duration <= std::chrono::duration<Rep, Period>::zero()) {
+        return 0;
+    }
+
+    const auto nanoseconds = std::chrono::ceil<std::chrono::nanoseconds>(duration).count();
+    const auto clamped = static_cast<std::uint64_t>(nanoseconds);
+    const auto ticks = k_ns_to_ticks_ceil64(clamped);
+    return ticks > static_cast<std::uint64_t>(std::numeric_limits<Tick>::max())
+               ? std::numeric_limits<Tick>::max()
+               : static_cast<Tick>(ticks);
+}
+
+[[nodiscard]] constexpr TickDuration from_ticks(Tick ticks) noexcept
+{
+    return TickDuration{ticks};
+}
+
+[[nodiscard]] inline Tick now_ticks() noexcept
+{
+    return static_cast<Tick>(k_uptime_ticks());
+}
+
+[[nodiscard]] inline TimePoint now() noexcept
+{
+    return SteadyClock::now();
+}
 
 class Timeout
 {
-public:
-    Timeout() = default;
-
-    static Timeout no_wait()
+  public:
+    [[nodiscard]] static constexpr Timeout no_wait() noexcept
     {
-        return Timeout{0};
+        return Timeout{K_NO_WAIT};
     }
 
-    static Timeout forever()
+    [[nodiscard]] static constexpr Timeout forever() noexcept
     {
-        return Timeout{WaitForever};
+        return Timeout{K_FOREVER};
     }
 
-    static Timeout after_ticks(Tick ticks)
+    [[nodiscard]] static constexpr Timeout after_ticks(Tick ticks) noexcept
     {
-        return Timeout{ticks};
+        if (ticks <= 0) {
+            return no_wait();
+        }
+        constexpr Tick max_ticks = static_cast<Tick>(K_TICK_MAX);
+        const auto bounded = ticks > max_ticks ? max_ticks : ticks;
+        return Timeout{K_TICKS(static_cast<k_ticks_t>(bounded))};
     }
 
-    static Timeout after_ms(Tick milliseconds)
+    template <typename Rep, typename Period>
+    [[nodiscard]] static constexpr Timeout
+    after(std::chrono::duration<Rep, Period> duration) noexcept
     {
-        return Timeout{milliseconds};
+        return after_ticks(to_ticks_ceil(duration));
     }
 
-    template <class Rep, class Period>
-    static Timeout after(std::chrono::duration<Rep, Period> duration)
+    [[nodiscard]] static constexpr Timeout from_native(k_timeout_t timeout) noexcept
     {
-        return Timeout{to_ticks(duration)};
+        return Timeout{timeout};
     }
 
-    Tick ticks() const
+    [[nodiscard]] constexpr bool is_no_wait() const noexcept
     {
-        return ticks_;
+        return K_TIMEOUT_EQ(value_, K_NO_WAIT);
     }
 
-    bool is_forever() const
+    [[nodiscard]] constexpr bool is_forever() const noexcept
     {
-        return ticks_ == WaitForever;
+        return K_TIMEOUT_EQ(value_, K_FOREVER);
     }
 
-    k_timeout_t native() const
+    [[nodiscard]] constexpr k_timeout_t native_handle() const noexcept
     {
-        return to_timeout(ticks_);
+        return value_;
     }
 
-private:
-    explicit constexpr Timeout(Tick ticks) : ticks_(ticks) {}
+  private:
+    explicit constexpr Timeout(k_timeout_t value) noexcept : value_(value) {}
 
-    Tick ticks_ = 0;
-};
-
-/**
- * @brief Convert a chrono duration or native tick count into kernel ticks.
- */
-constexpr Tick to_ticks(Tick ticks)
-{
-    return ticks;
-}
-
-template <class Rep, class Period>
-constexpr Tick to_ticks(std::chrono::duration<Rep, Period> duration)
-{
-    return static_cast<Tick>(std::chrono::duration_cast<Milliseconds>(duration).count());
-}
-
-constexpr Milliseconds to_milliseconds(Tick ticks)
-{
-    return Milliseconds{ticks < 0 ? 0 : ticks};
-}
-
-inline k_timeout_t to_timeout(Tick ticks)
-{
-    if (ticks == WaitForever)
-    {
-        return K_FOREVER;
-    }
-    if (ticks <= 0)
-    {
-        return K_NO_WAIT;
-    }
-    return K_MSEC(ticks);
-}
-
-inline k_timeout_t to_timeout(Timeout timeout)
-{
-    return timeout.native();
-}
-
-inline Tick now_ticks()
-{
-    return static_cast<Tick>(k_uptime_get());
-}
-
-inline Milliseconds now()
-{
-    return to_milliseconds(now_ticks());
-}
-
-inline Tick ticks_since(Tick start)
-{
-    return now_ticks() - start;
-}
-
-class TimePoint
-{
-public:
-    TimePoint() = default;
-    explicit constexpr TimePoint(Tick ticks) : ticks_(ticks) {}
-
-    static TimePoint now()
-    {
-        return TimePoint{now_ticks()};
-    }
-
-    Tick ticks() const
-    {
-        return ticks_;
-    }
-
-private:
-    Tick ticks_ = 0;
+    k_timeout_t value_ = K_NO_WAIT;
 };
 
 } // namespace solar::kernel

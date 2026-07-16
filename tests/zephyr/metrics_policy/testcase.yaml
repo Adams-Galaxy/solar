@@ -1,0 +1,16 @@
+tests:
+  solar.metrics.policy.default-kconfig:
+    tags:
+      - solar
+      - metrics
+    platform_allow:
+      - native_sim/native/64
+  solar.metrics.policy.alternate-kconfig:
+    tags:
+      - solar
+      - metrics
+    platform_allow:
+      - native_sim/native/64
+    extra_configs:
+      - CONFIG_SOLAR_METRICS_DEFAULT_CONCURRENCY_SPINLOCKED=y
+      - CONFIG_SOLAR_METRICS_DEFAULT_OVERFLOW_REJECT=y

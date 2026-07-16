@@ -3,250 +3,304 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 
 #include <zephyr/kernel.h>
 
 #include "solar/core/status.hpp"
-#include "solar/kernel/config.hpp"
+#include "solar/kernel/deadline.hpp"
+#include "solar/kernel/error.hpp"
+#include "solar/kernel/interrupt.hpp"
 #include "solar/kernel/priority.hpp"
-#include "solar/kernel/time.hpp"
 
 namespace solar::kernel
 {
 
 using ThreadId = k_tid_t;
 
-template <std::size_t StackBytes>
-struct ThreadStorage
+enum class ThreadExecutionState : std::uint8_t
 {
-    static_assert(StackBytes > 0, "Solar thread stacks require a non-zero byte count");
-
-    alignas(ARCH_STACK_PTR_ALIGN) k_thread_stack_t stack[K_THREAD_STACK_LEN(StackBytes)]{};
-
-    constexpr std::size_t size() const
-    {
-        return K_THREAD_STACK_SIZEOF(stack);
-    }
+    Unknown,
+    Empty,
+    Prepared,
+    Scheduled,
+    Running,
+    Suspended,
+    Exited,
+    Aborted,
 };
 
-class StopToken
+struct ThreadConfiguration
 {
-public:
-    StopToken() = default;
-
-    bool requested() const
-    {
-        return requested_ != nullptr && requested_->load();
-    }
-
-    bool stop_requested() const
-    {
-        return requested();
-    }
-
-    k_sem *native_semaphore() const
-    {
-        return semaphore_;
-    }
-
-private:
-    StopToken(const std::atomic<bool> *requested, k_sem *semaphore)
-        : requested_(requested), semaphore_(semaphore) {}
-
-    const std::atomic<bool> *requested_ = nullptr;
-    k_sem *semaphore_ = nullptr;
-
-    friend class StopSource;
+    Priority priority{};
+    const char* name{};
+    std::uint32_t options{};
 };
 
-class StopSource
+template <std::size_t StackBytes> class Thread
 {
-public:
-    StopSource()
+    static_assert(StackBytes > 0,
+                  "SOLAR_DIAGNOSTIC_THREAD_ZERO_STACK: thread stack must be non-zero");
+
+  public:
+    using Entry = void (*)(void*) noexcept;
+
+    static constexpr std::size_t requested_stack_size = StackBytes;
+
+    Thread() = default;
+
+    ~Thread()
     {
-        k_sem_init(&semaphore_, 0, 1);
+        const auto id = id_.load(std::memory_order_acquire);
+        __ASSERT_NO_MSG(id == nullptr || k_thread_join(&thread_, K_NO_WAIT) == 0);
     }
 
-    StopToken token() const
+    Thread(const Thread&) = delete;
+    Thread& operator=(const Thread&) = delete;
+    Thread(Thread&&) = delete;
+    Thread& operator=(Thread&&) = delete;
+
+    [[nodiscard]] Status prepare(Entry entry, void* argument = nullptr,
+                                 ThreadConfiguration configuration = {}) noexcept
     {
-        return StopToken{&requested_, const_cast<k_sem *>(&semaphore_)};
+        return create(entry, argument, configuration, Timeout::forever(), true);
     }
 
-    void request_stop()
+    [[nodiscard]] Status launch(Entry entry, void* argument = nullptr,
+                                ThreadConfiguration configuration = {},
+                                Timeout delay = Timeout::no_wait()) noexcept
     {
-        requested_.store(true);
-        k_sem_give(&semaphore_);
+        return create(entry, argument, configuration, delay, false);
     }
 
-    void reset()
+    [[nodiscard]] Status start() noexcept
     {
-        requested_.store(false);
-        k_sem_reset(&semaphore_);
-    }
-
-    bool requested() const
-    {
-        return requested_.load();
-    }
-
-    k_sem *native_semaphore()
-    {
-        return &semaphore_;
-    }
-
-private:
-    std::atomic<bool> requested_{false};
-    k_sem semaphore_{};
-};
-
-class Thread
-{
-public:
-    using Entry = void (*)(void *);
-
-    Thread(const char *name, Priority priority, std::uint32_t, Entry entry, void *arg = nullptr)
-        : name_(name), priority_(priority), entry_(entry), arg_(arg) {}
-
-    Thread(const Thread &) = delete;
-    Thread &operator=(const Thread &) = delete;
-
-    template <std::size_t StackBytes>
-    Status start(ThreadStorage<StackBytes> &storage)
-    {
-        if (entry_ == nullptr || tid_ != nullptr)
-        {
-            return Status::Invalid;
+        ThreadExecutionState expected = ThreadExecutionState::Prepared;
+        if (!state_.compare_exchange_strong(expected, ThreadExecutionState::Scheduled,
+                                            std::memory_order_acq_rel)) {
+            return expected == ThreadExecutionState::Scheduled ||
+                           expected == ThreadExecutionState::Running
+                       ? Status::Already
+                       : Status::NotReady;
         }
-
-        stop_source_.reset();
-        running_.store(true);
-
-        tid_ = k_thread_create(
-            &thread_,
-            storage.stack,
-            storage.size(),
-            &Thread::trampoline,
-            this,
-            nullptr,
-            nullptr,
-            to_native_priority(priority_),
-            0,
-            K_NO_WAIT);
-
-        if (tid_ == nullptr)
-        {
-            running_.store(false);
-            return Status::Error;
-        }
-
-        if (name_ != nullptr)
-        {
-            k_thread_name_set(tid_, name_);
-        }
+        k_thread_start(&thread_);
         return Status::Ok;
     }
 
-    void request_stop()
+    [[nodiscard]] Status suspend() noexcept
     {
-        stop_source_.request_stop();
+        const auto id = id_.load(std::memory_order_acquire);
+        if (id == nullptr) {
+            return Status::NotReady;
+        }
+        if (id == k_current_get()) {
+            return Status::Invalid;
+        }
+        if (!active()) {
+            return Status::NotReady;
+        }
+        k_thread_suspend(id);
+        state_.store(ThreadExecutionState::Suspended, std::memory_order_release);
+        return Status::Ok;
     }
 
-    bool stop_requested() const
+    [[nodiscard]] Status resume() noexcept
     {
-        return stop_source_.requested();
+        const auto id = id_.load(std::memory_order_acquire);
+        if (id == nullptr || state() != ThreadExecutionState::Suspended) {
+            return Status::NotReady;
+        }
+        state_.store(ThreadExecutionState::Scheduled, std::memory_order_release);
+        k_thread_resume(id);
+        return Status::Ok;
     }
 
-    StopToken stop_token() const
+    [[nodiscard]] Status join(Timeout timeout = Timeout::forever()) noexcept
     {
-        return stop_source_.token();
-    }
-
-    bool is_running() const
-    {
-        return running_.load();
-    }
-
-    bool running() const
-    {
-        return is_running();
-    }
-
-    Status join(Timeout timeout = Timeout::forever())
-    {
-        if (tid_ == nullptr)
-        {
-            return Status::Ok;
+        if (id_.load(std::memory_order_acquire) == nullptr) {
+            return Status::NotReady;
+        }
+        if (state() == ThreadExecutionState::Prepared) {
+            return Status::NotReady;
+        }
+        if (in_isr() && !timeout.is_no_wait()) {
+            return Status::Invalid;
         }
 
-        const int result = k_thread_join(&thread_, timeout.native());
-        const Status status = status_from_native_wait(result);
-        if (status == Status::Ok)
-        {
-            tid_ = nullptr;
-            running_.store(false);
+        const int result = k_thread_join(&thread_, timeout.native_handle());
+        const auto status = detail::map_wait(result, timeout, Status::WouldBlock);
+        if (status == Status::Ok && state() != ThreadExecutionState::Aborted) {
+            state_.store(ThreadExecutionState::Exited, std::memory_order_release);
         }
         return status;
     }
 
-    Status join(Tick timeout_ticks)
+    [[nodiscard]] Status join(const Deadline& deadline) noexcept
     {
-        return join(Timeout::after_ticks(timeout_ticks));
+        return join(deadline.remaining());
     }
 
-    Status stop(Timeout timeout = Timeout::forever())
+    [[nodiscard]] Result<bool> exited() const noexcept
     {
-        request_stop();
-        return join(timeout);
-    }
-
-    Status abort()
-    {
-        if (tid_ == nullptr)
-        {
-            running_.store(false);
-            return Status::Ok;
+        if (id_.load(std::memory_order_acquire) == nullptr) {
+            return fail(Status::NotReady);
         }
-        k_thread_abort(tid_);
-        tid_ = nullptr;
-        running_.store(false);
+        if (state() == ThreadExecutionState::Prepared) {
+            return false;
+        }
+
+        const int result = k_thread_join(const_cast<k_thread*>(&thread_), K_NO_WAIT);
+        if (result == 0) {
+            return true;
+        }
+        if (result == -EBUSY) {
+            return false;
+        }
+        return fail(status_from_errno(result));
+    }
+
+    [[nodiscard]] Status abort() noexcept
+    {
+        const auto id = id_.load(std::memory_order_acquire);
+        if (id == nullptr) {
+            return Status::NotReady;
+        }
+        if (id == k_current_get()) {
+            return Status::Invalid;
+        }
+        const auto already_exited = exited();
+        if (already_exited && *already_exited) {
+            return Status::Already;
+        }
+        if (!already_exited && already_exited.error() != Status::NotReady) {
+            return already_exited.error();
+        }
+
+        k_thread_abort(id);
+        state_.store(ThreadExecutionState::Aborted, std::memory_order_release);
         return Status::Ok;
     }
 
-    ThreadId native_handle() const
+    [[nodiscard]] ThreadExecutionState state() const noexcept
     {
-        return tid_;
+        return state_.load(std::memory_order_acquire);
     }
 
-    k_thread *native_thread()
+    [[nodiscard]] bool active() const noexcept
+    {
+        const auto current = state();
+        return current == ThreadExecutionState::Prepared ||
+               current == ThreadExecutionState::Scheduled ||
+               current == ThreadExecutionState::Running ||
+               current == ThreadExecutionState::Suspended;
+    }
+
+    [[nodiscard]] ThreadId native_handle() const noexcept
+    {
+        return id_.load(std::memory_order_acquire);
+    }
+
+    [[nodiscard]] k_thread* native_thread() noexcept
     {
         return &thread_;
     }
 
-    const k_thread *native_thread() const
+    [[nodiscard]] const k_thread* native_thread() const noexcept
     {
         return &thread_;
     }
 
-private:
-    static void trampoline(void *self_ptr, void *, void *)
+    [[nodiscard]] k_thread_stack_t* native_stack() noexcept
     {
-        auto *self = static_cast<Thread *>(self_ptr);
-        if (self == nullptr || self->entry_ == nullptr)
-        {
-            return;
+        return stack_;
+    }
+
+    [[nodiscard]] static constexpr std::size_t stack_size() noexcept
+    {
+        return K_KERNEL_STACK_SIZEOF(stack_);
+    }
+
+  private:
+    [[nodiscard]] Status validate(Entry entry, const ThreadConfiguration& configuration) const
+        noexcept
+    {
+        if (entry == nullptr) {
+            return Status::Invalid;
         }
-        self->entry_(self->arg_);
-        self->running_.store(false);
+        if (active()) {
+            return Status::Already;
+        }
+        if (configuration.name != nullptr) {
+            if (!IS_ENABLED(CONFIG_THREAD_NAME)) {
+                return Status::NotSupported;
+            }
+#if defined(CONFIG_THREAD_NAME)
+            if (std::strlen(configuration.name) >= CONFIG_THREAD_MAX_NAME_LEN) {
+                return Status::Invalid;
+            }
+#endif
+        }
+        return Status::Ok;
     }
 
-    const char *name_ = nullptr;
-    Priority priority_ = Priority::Normal;
-    Entry entry_ = nullptr;
-    void *arg_ = nullptr;
+    [[nodiscard]] Status create(Entry entry, void* argument, ThreadConfiguration configuration,
+                                Timeout delay, bool prepared_only) noexcept
+    {
+        const auto valid = validate(entry, configuration);
+        if (valid != Status::Ok) {
+            return valid;
+        }
+        if (!prepared_only && delay.is_forever()) {
+            return Status::Invalid;
+        }
+
+        entry_ = entry;
+        argument_ = argument;
+        state_.store(prepared_only ? ThreadExecutionState::Prepared
+                                   : ThreadExecutionState::Scheduled,
+                     std::memory_order_release);
+
+        const bool controlled_start = prepared_only || delay.is_no_wait();
+        const auto native_delay = controlled_start ? K_FOREVER : delay.native_handle();
+        const auto id = k_thread_create(&thread_, stack_, K_KERNEL_STACK_SIZEOF(stack_),
+                                        &Thread::trampoline, this, nullptr, nullptr,
+                                        configuration.priority.native_handle(),
+                                        configuration.options, native_delay);
+        if (id == nullptr) {
+            state_.store(ThreadExecutionState::Empty, std::memory_order_release);
+            return Status::Error;
+        }
+        id_.store(id, std::memory_order_release);
+
+        if (configuration.name != nullptr) {
+            const auto name_status = detail::map_native(k_thread_name_set(id, configuration.name));
+            if (name_status != Status::Ok) {
+                k_thread_abort(id);
+                state_.store(ThreadExecutionState::Aborted, std::memory_order_release);
+                return name_status;
+            }
+        }
+
+        if (!prepared_only && controlled_start) {
+            k_thread_start(id);
+        }
+        return Status::Ok;
+    }
+
+    static void trampoline(void* self_pointer, void*, void*) noexcept
+    {
+        auto& self = *static_cast<Thread*>(self_pointer);
+        self.state_.store(ThreadExecutionState::Running, std::memory_order_release);
+        self.entry_(self.argument_);
+        self.state_.store(ThreadExecutionState::Exited, std::memory_order_release);
+    }
+
     k_thread thread_{};
-    k_tid_t tid_ = nullptr;
-    StopSource stop_source_{};
-    std::atomic<bool> running_{false};
+    K_KERNEL_STACK_MEMBER(stack_, StackBytes);
+    Entry entry_{};
+    void* argument_{};
+    std::atomic<ThreadId> id_{nullptr};
+    std::atomic<ThreadExecutionState> state_{ThreadExecutionState::Empty};
 };
 
 } // namespace solar::kernel

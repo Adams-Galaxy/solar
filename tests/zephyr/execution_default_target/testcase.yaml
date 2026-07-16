@@ -1,0 +1,7 @@
+tests:
+  solar.execution.default_system_workqueue:
+    tags:
+      - solar
+      - execution
+    platform_allow:
+      - native_sim/native/64

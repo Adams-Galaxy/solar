@@ -1,0 +1,15 @@
+tests:
+  solar.bus.relaxed:
+    tags:
+      - solar
+      - bus
+    platform_allow:
+      - native_sim/native/64
+  solar.bus.strict:
+    tags:
+      - solar
+      - bus
+    platform_allow:
+      - native_sim/native/64
+    extra_configs:
+      - CONFIG_SOLAR_STRICT_CATALOG_BINDING=y

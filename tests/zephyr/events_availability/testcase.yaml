@@ -1,0 +1,15 @@
+tests:
+  solar.events.availability.relaxed:
+    tags:
+      - solar
+      - events
+    platform_allow:
+      - native_sim/native/64
+  solar.events.availability.strict:
+    tags:
+      - solar
+      - events
+    platform_allow:
+      - native_sim/native/64
+    extra_configs:
+      - CONFIG_SOLAR_STRICT_CATALOG_BINDING=y

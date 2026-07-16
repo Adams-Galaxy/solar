@@ -1,0 +1,47 @@
+#include <zephyr/dt-bindings/pwm/pwm.h>
+
+/ {
+	aliases {
+		solar-i2c = &solar_i2c_endpoint;
+		solar-pwm = &solar_pwm_endpoint;
+		solar-spi = &solar_spi_endpoint;
+		solar-watchdog = &wdog0;
+	};
+
+	solar_pwm_fixture {
+		compatible = "pwm-leds";
+
+		solar_pwm_endpoint: solar-pwm-endpoint {
+			pwms = <&flexpwm1_pwm0 0 20000 PWM_POLARITY_NORMAL>;
+		};
+	};
+};
+
+&flexpwm1_pwm0 {
+	status = "okay";
+};
+
+&lpi2c1 {
+	status = "okay";
+
+	solar_i2c_endpoint: fixture@52 {
+		compatible = "vnd,solar-i2c-fixture";
+		reg = <0x52>;
+	};
+};
+
+&lpspi3 {
+	status = "okay";
+	dmas = <&edma0 2 15>, <&edma0 3 16>;
+	dma-names = "rx", "tx";
+
+	solar_spi_endpoint: fixture@0 {
+		compatible = "vnd,solar-spi-fixture";
+		reg = <0>;
+		spi-max-frequency = <1000000>;
+	};
+};
+
+&wdog0 {
+	status = "okay";
+};

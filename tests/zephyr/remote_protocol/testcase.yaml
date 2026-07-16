@@ -1,0 +1,19 @@
+tests:
+  solar.remote.protocol.relaxed:
+    tags:
+      - solar
+      - remote
+      - protocol
+    platform_allow:
+      - native_sim/native/64
+  solar.remote.protocol.strict:
+    tags:
+      - solar
+      - remote
+      - protocol
+    platform_allow:
+      - native_sim/native/64
+    extra_configs:
+      - CONFIG_SOLAR_STRICT_CATALOG_BINDING=y
+    integration_platforms:
+      - native_sim/native/64

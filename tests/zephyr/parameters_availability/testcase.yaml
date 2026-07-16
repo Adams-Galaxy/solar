@@ -1,0 +1,23 @@
+tests:
+  solar.parameters.availability.relaxed:
+    tags:
+      - solar
+      - parameters
+    platform_allow:
+      - native_sim/native/64
+  solar.parameters.availability.strict:
+    tags:
+      - solar
+      - parameters
+    platform_allow:
+      - native_sim/native/64
+    extra_configs:
+      - CONFIG_SOLAR_STRICT_CATALOG_BINDING=y
+  solar.parameters.availability.persistence-disabled:
+    tags:
+      - solar
+      - parameters
+    platform_allow:
+      - native_sim/native/64
+    extra_configs:
+      - CONFIG_SOLAR_PARAMETERS_PERSISTENCE=n

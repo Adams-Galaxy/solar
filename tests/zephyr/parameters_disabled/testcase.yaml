@@ -1,0 +1,7 @@
+tests:
+  solar.parameters.disabled:
+    tags:
+      - solar
+      - parameters
+    platform_allow:
+      - native_sim/native/64

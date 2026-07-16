@@ -1,0 +1,16 @@
+tests:
+  solar.parameters.policy.default-kconfig:
+    tags:
+      - solar
+      - parameters
+    platform_allow:
+      - native_sim/native/64
+  solar.parameters.policy.alternate-kconfig:
+    tags:
+      - solar
+      - parameters
+    platform_allow:
+      - native_sim/native/64
+    extra_configs:
+      - CONFIG_SOLAR_PARAMETERS_DEFAULT_LOAD_FAIL_BOOT=y
+      - CONFIG_SOLAR_PARAMETERS_DEFAULT_STOP_CANCEL=y

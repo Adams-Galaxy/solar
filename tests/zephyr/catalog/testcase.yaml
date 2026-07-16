@@ -1,0 +1,15 @@
+tests:
+  solar.catalog.strings:
+    platform_allow:
+      - native_sim/native/64
+    tags:
+      - solar
+      - catalog
+  solar.catalog.stripped:
+    extra_configs:
+      - CONFIG_SOLAR_DESCRIPTOR_STRINGS=n
+    platform_allow:
+      - native_sim/native/64
+    tags:
+      - solar
+      - catalog

@@ -1,0 +1,22 @@
+tests:
+  solar.remote.push_queue.relaxed:
+    platform_allow:
+      - native_sim/native/64
+    integration_platforms:
+      - native_sim/native/64
+    tags:
+      - solar
+      - remote
+      - queue
+  solar.remote.push_queue.strict:
+    platform_allow:
+      - native_sim/native/64
+    integration_platforms:
+      - native_sim/native/64
+    extra_configs:
+      - CONFIG_SOLAR_STRICT_CATALOG_BINDING=y
+    tags:
+      - solar
+      - remote
+      - queue
+      - strict

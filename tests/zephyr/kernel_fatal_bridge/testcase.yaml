@@ -1,0 +1,13 @@
+tests:
+  solar.kernel.fatal_bridge:
+    platform_allow:
+      - native_sim/native/64
+    harness: console
+    harness_config:
+      type: one_line
+      regex:
+        - "SOLAR_FATAL_BRIDGE_OK"
+    tags:
+      - solar
+      - kernel
+      - fatal

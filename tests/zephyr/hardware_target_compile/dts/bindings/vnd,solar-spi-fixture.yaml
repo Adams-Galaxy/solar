@@ -1,0 +1,5 @@
+description: Solar addressed SPI endpoint fixture
+
+compatible: "vnd,solar-spi-fixture"
+
+include: spi-device.yaml

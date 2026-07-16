@@ -1,0 +1,7 @@
+tests:
+  solar.bus.disabled:
+    tags:
+      - solar
+      - bus
+    platform_allow:
+      - native_sim/native/64

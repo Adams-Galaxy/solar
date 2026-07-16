@@ -1,85 +1,202 @@
 #pragma once
 
+#include <atomic>
+#include <chrono>
 #include <cstddef>
+#include <cstdint>
+#include <limits>
 
 #include <zephyr/kernel.h>
 
 #include "solar/core/status.hpp"
-#include "solar/kernel/config.hpp"
+#include "solar/kernel/deadline.hpp"
+#include "solar/kernel/error.hpp"
+#include "solar/kernel/interrupt.hpp"
 #include "solar/kernel/priority.hpp"
-#include "solar/kernel/thread.hpp"
 #include "solar/kernel/time.hpp"
 
 namespace solar::kernel
 {
 
-template <typename NameT, std::size_t StackBytes, Priority PriorityValue = Priority::Normal>
-class WorkQueue
+struct WorkQueueConfiguration
 {
-public:
-    using Name = NameT;
+    Priority priority{};
+    const char* name{};
+    bool no_yield{};
+    bool essential{};
+    Milliseconds work_timeout{};
+};
 
-    static_assert(StackBytes > 0, "Solar work queues require a non-zero stack");
+class SystemWorkQueue
+{
+  public:
+    [[nodiscard]] k_work_q* native_handle() const noexcept
+    {
+        return &k_sys_work_q;
+    }
 
-    WorkQueue()
+    [[nodiscard]] k_tid_t thread_id() const noexcept
+    {
+        return k_work_queue_thread_get(&k_sys_work_q);
+    }
+};
+
+inline constexpr SystemWorkQueue system_work_queue{};
+
+template <std::size_t StackBytes> class WorkQueue
+{
+    static_assert(StackBytes > 0,
+                  "SOLAR_DIAGNOSTIC_WORK_QUEUE_ZERO_STACK: workqueue stack must be non-zero");
+
+  public:
+    static constexpr std::size_t requested_stack_size = StackBytes;
+
+    WorkQueue() noexcept
     {
         k_work_queue_init(&queue_);
     }
 
-    Status start(bool no_yield = false)
+    ~WorkQueue()
     {
-        if (started_)
-        {
+        __ASSERT_NO_MSG(!started());
+    }
+
+    WorkQueue(const WorkQueue&) = delete;
+    WorkQueue& operator=(const WorkQueue&) = delete;
+    WorkQueue(WorkQueue&&) = delete;
+    WorkQueue& operator=(WorkQueue&&) = delete;
+
+    [[nodiscard]] Status start(WorkQueueConfiguration configuration = {}) noexcept
+    {
+        if (in_isr()) {
             return Status::Invalid;
         }
+        if (started()) {
+            return Status::Already;
+        }
+        if (configuration.name != nullptr && !IS_ENABLED(CONFIG_THREAD_NAME)) {
+            return Status::NotSupported;
+        }
+        if (configuration.work_timeout.count() < 0 ||
+            static_cast<std::uint64_t>(configuration.work_timeout.count()) >
+                std::numeric_limits<std::uint32_t>::max()) {
+            return Status::Invalid;
+        }
+        if (configuration.work_timeout.count() != 0 && !IS_ENABLED(CONFIG_WORKQUEUE_WORK_TIMEOUT)) {
+            return Status::NotSupported;
+        }
 
-        k_work_queue_config config{};
-        config.name = NameT::c_str();
-        config.no_yield = no_yield;
-        k_work_queue_start(&queue_, storage_.stack, storage_.size(), to_native_priority(PriorityValue), &config);
-        started_ = true;
+        const k_work_queue_config native{
+            .name = configuration.name,
+            .no_yield = configuration.no_yield,
+            .essential = configuration.essential,
+            .work_timeout_ms = static_cast<std::uint32_t>(configuration.work_timeout.count()),
+        };
+        k_work_queue_start(&queue_, stack_, K_KERNEL_STACK_SIZEOF(stack_),
+                           configuration.priority.native_handle(), &native);
+        started_.store(true, std::memory_order_release);
         return Status::Ok;
     }
 
-    Status drain(bool plug = false)
+    [[nodiscard]] Result<bool> drain(bool plug = false) noexcept
     {
-        return status_from_native(k_work_queue_drain(&queue_, plug));
-    }
-
-    Status unplug()
-    {
-        return status_from_native(k_work_queue_unplug(&queue_));
-    }
-
-    Status stop(Timeout timeout = Timeout::forever())
-    {
-        const Status status = status_from_native(k_work_queue_stop(&queue_, timeout.native()));
-        if (status == Status::Ok)
-        {
-            started_ = false;
+        if (in_isr()) {
+            return fail(Status::Invalid);
         }
-        return status;
+        if (!started()) {
+            return fail(Status::NotReady);
+        }
+        if (thread_id() == k_current_get()) {
+            return fail(Status::Deadlock);
+        }
+        const int result = k_work_queue_drain(&queue_, plug);
+        if (result < 0) {
+            return fail(status_from_errno(result));
+        }
+        return result != 0;
     }
 
-    bool started() const
+    [[nodiscard]] Status unplug() noexcept
     {
-        return started_;
+        if (!started()) {
+            return Status::NotReady;
+        }
+        return detail::map_native(k_work_queue_unplug(&queue_));
     }
 
-    k_work_q *native_handle()
+    [[nodiscard]] Status stop(Timeout timeout = Timeout::forever()) noexcept
     {
-        return &queue_;
+        if (in_isr()) {
+            return Status::Invalid;
+        }
+        if (!started()) {
+            return Status::Already;
+        }
+        if (thread_id() == k_current_get()) {
+            return Status::Deadlock;
+        }
+        const int result = k_work_queue_stop(&queue_, timeout.native_handle());
+        if (result == 0) {
+            started_.store(false, std::memory_order_release);
+            return Status::Ok;
+        }
+        if (result == -ETIMEDOUT) {
+            return Status::Timeout;
+        }
+        return status_from_errno(result);
     }
 
-    k_tid_t thread_id()
+    [[nodiscard]] Status stop(const Deadline& deadline) noexcept
     {
-        return k_work_queue_thread_get(&queue_);
+        return stop(deadline.remaining());
     }
 
-private:
+    [[nodiscard]] Status abort() noexcept
+    {
+        if (in_isr()) {
+            return Status::Invalid;
+        }
+        if (!started()) {
+            return Status::Already;
+        }
+        const auto id = thread_id();
+        if (id == nullptr || id == k_current_get()) {
+            return Status::Invalid;
+        }
+        k_thread_abort(id);
+        started_.store(false, std::memory_order_release);
+        return Status::Ok;
+    }
+
+    [[nodiscard]] bool started() const noexcept
+    {
+        return started_.load(std::memory_order_acquire);
+    }
+
+    [[nodiscard]] k_work_q* native_handle() const noexcept
+    {
+        return const_cast<k_work_q*>(&queue_);
+    }
+
+    [[nodiscard]] k_tid_t thread_id() const noexcept
+    {
+        return k_work_queue_thread_get(const_cast<k_work_q*>(&queue_));
+    }
+
+    [[nodiscard]] k_thread_stack_t* native_stack() noexcept
+    {
+        return stack_;
+    }
+
+    [[nodiscard]] static constexpr std::size_t stack_size() noexcept
+    {
+        return K_KERNEL_STACK_SIZEOF(stack_);
+    }
+
+  private:
     k_work_q queue_{};
-    ThreadStorage<StackBytes> storage_{};
-    bool started_ = false;
+    K_KERNEL_STACK_MEMBER(stack_, StackBytes);
+    std::atomic_bool started_{false};
 };
 
 } // namespace solar::kernel

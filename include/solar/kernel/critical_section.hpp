@@ -7,17 +7,21 @@ namespace solar::kernel
 
 class InterruptLock
 {
-public:
-    InterruptLock() : key_(irq_lock()) {}
-    ~InterruptLock() { irq_unlock(key_); }
+  public:
+    InterruptLock() noexcept : key_(irq_lock()) {}
 
-    InterruptLock(const InterruptLock &) = delete;
-    InterruptLock &operator=(const InterruptLock &) = delete;
+    ~InterruptLock()
+    {
+        irq_unlock(key_);
+    }
 
-private:
+    InterruptLock(const InterruptLock&) = delete;
+    InterruptLock& operator=(const InterruptLock&) = delete;
+    InterruptLock(InterruptLock&&) = delete;
+    InterruptLock& operator=(InterruptLock&&) = delete;
+
+  private:
     unsigned int key_{};
 };
-
-using CriticalSection = InterruptLock;
 
 } // namespace solar::kernel

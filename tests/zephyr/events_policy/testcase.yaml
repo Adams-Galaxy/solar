@@ -1,0 +1,16 @@
+tests:
+  solar.events.policy.default-kconfig:
+    tags:
+      - solar
+      - events
+    platform_allow:
+      - native_sim/native/64
+  solar.events.policy.alternate-kconfig:
+    tags:
+      - solar
+      - events
+    platform_allow:
+      - native_sim/native/64
+    extra_configs:
+      - CONFIG_SOLAR_EVENTS_DEFAULT_RETENTION_TRANSIENT=y
+      - CONFIG_SOLAR_EVENTS_DEFAULT_STOP_CANCEL=y

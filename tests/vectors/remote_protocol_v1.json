@@ -1,0 +1,31 @@
+{
+  "protocol": [1, 0],
+  "envelope": {
+    "kind": 4,
+    "flags": 2,
+    "session_epoch": 16909060,
+    "frame_sequence": 286397204,
+    "target": 555885348,
+    "request_id": 825373492,
+    "payload_size": 3,
+    "fragment_id": 16706,
+    "fragment_index": 0,
+    "fragment_count": 1
+  },
+  "payload_hex": "a1007f",
+  "envelope_hex": "0100040220000403020114131211242322213433323103004241000100000000",
+  "frame_hex": "020104040220120403020114131211242322213433323103034241020101010102a1067f6f8dfc8500",
+  "crc32c": {
+    "input_hex": "313233343536373839",
+    "value": 3808858755
+  },
+  "cbor": {
+    "value": {"1": 42, "2": -3, "3": 1.5, "4": true},
+    "canonical_hex": "a401182a022203f93e0004f5"
+  },
+  "packed": {
+    "sequence": 4660,
+    "value": 1.5,
+    "hex": "34120000c03f"
+  }
+}

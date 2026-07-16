@@ -1,0 +1,9 @@
+tests:
+  solar.hardware.drivers.teensy40:
+    tags:
+      - solar
+      - hardware
+      - drivers
+    platform_allow:
+      - teensy40
+    build_only: true

@@ -1,37 +1,6 @@
 CompileFlags:
-  CompilationDatabase: ../ENMT301-RoboCup/zephyrproject/build-teensy40
+  CompilationDatabase: build/host
   Add:
-    - -DCPU_MIMXRT1062DVJ6A
-    - -DKERNEL
-    - -D__ZEPHYR__=1
-    - -D__PROGRAM_START
-    - -DXIP_EXTERNAL_FLASH
-    - -DXIP_BOOT_HEADER_ENABLE=1
-    - -DXIP_BOOT_HEADER_DCD_ENABLE=1
-    - -mcpu=cortex-m7
-    - -mthumb
-    - -mabi=aapcs
-    - -mfp16-format=ieee
-    - -mtp=soft
-    - -I/home/adam/dev/solar/include
-    - -I/home/adam/dev/ENMT301-RoboCup/firmware/include
-    - -I/home/adam/dev/ENMT301-RoboCup/zephyrproject/zephyr/include
-    - -I/home/adam/dev/ENMT301-RoboCup/zephyrproject/zephyr/arch/arm/include
-    - -I/home/adam/dev/ENMT301-RoboCup/zephyrproject/zephyr/soc/nxp/common
-    - -I/home/adam/dev/ENMT301-RoboCup/zephyrproject/zephyr/soc/nxp/imxrt
-    - -I/home/adam/dev/ENMT301-RoboCup/zephyrproject/zephyr/soc/nxp/imxrt/imxrt10xx
-    - -I/home/adam/dev/ENMT301-RoboCup/zephyrproject/zephyr/lib/libc/picolibc/include
-    - -I/home/adam/dev/ENMT301-RoboCup/zephyrproject/zephyr/modules/cmsis_6
-    - -I/home/adam/dev/ENMT301-RoboCup/zephyrproject/modules/hal/cmsis_6/CMSIS/Core/Include
-    - -I/home/adam/dev/ENMT301-RoboCup/zephyrproject/modules/hal/nxp/mcux/mcux-sdk-ng/drivers/common
-    - -I/home/adam/dev/ENMT301-RoboCup/zephyrproject/modules/hal/nxp/mcux/mcux-sdk-ng/drivers/gpc_1
-    - -I/home/adam/dev/ENMT301-RoboCup/zephyrproject/modules/hal/nxp/mcux/mcux-sdk-ng/drivers/igpio
-    - -I/home/adam/dev/ENMT301-RoboCup/zephyrproject/modules/hal/nxp/mcux/mcux-sdk-ng/drivers/lpuart
-    - -I/home/adam/dev/ENMT301-RoboCup/zephyrproject/modules/hal/nxp/mcux/mcux-sdk-ng/drivers/ocotp
-    - -I/home/adam/dev/ENMT301-RoboCup/zephyrproject/modules/hal/nxp/mcux/mcux-sdk-ng/drivers/cache/armv7-m7
-    - -I/home/adam/dev/ENMT301-RoboCup/zephyrproject/modules/hal/nxp/mcux/mcux-sdk-ng/devices/RT/RT1060/MIMXRT1062
-    - -I/home/adam/dev/ENMT301-RoboCup/zephyrproject/modules/hal/nxp/mcux/mcux-sdk-ng/devices/RT/RT1060/periph
-    - -I/home/adam/dev/ENMT301-RoboCup/zephyrproject/modules/hal/nxp/mcux/mcux-sdk-ng/devices/RT/RT1050/MIMXRT1052/xip
-    - -I/home/adam/dev/ENMT301-RoboCup/zephyrproject/modules/hal/nxp/mcux/mcux-sdk-ng/devices/RT/RT1060/MIMXRT1062/drivers
-    - -I/home/adam/dev/ENMT301-RoboCup/zephyrproject/build-teensy40/zephyr/include/generated
-    - -I/home/adam/dev/ENMT301-RoboCup/zephyrproject/build-teensy40/zephyr/include/generated/zephyr
+    - -std=c++23
+  Remove:
+    - -std=c++20

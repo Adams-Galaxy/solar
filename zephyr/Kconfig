@@ -2,97 +2,1106 @@ menuconfig SOLAR
 	bool "Solar firmware orchestration"
 	default y
 	help
-	  Enable the Solar compile-time system graph and Zephyr orchestration layer.
+	  Enable the Solar C++23 firmware framework and Zephyr module.
 
 if SOLAR
 
-config SOLAR_KERNEL
-	bool "Solar kernel wrappers"
-	default y
-	help
-	  Enable Solar's typed C++ wrappers around Zephyr kernel primitives.
-
-config SOLAR_KERNEL_DIAGNOSTICS
-	bool "Solar-owned thread diagnostics"
-	depends on SOLAR_KERNEL
-	default y
-	help
-	  Allow Solar to report diagnostics for threads and execution infrastructure
-	  that Solar owns. Individual values may still be unavailable when the
-	  corresponding Zephyr feature is disabled.
-
-config SOLAR_KERNEL_RUNTIME_STATS
-	bool "Solar kernel runtime statistics"
-	depends on SOLAR_KERNEL_DIAGNOSTICS
+config SOLAR_STRICT_CATALOG_BINDING
+	bool "Use strict compile-time catalog binding"
 	default n
 	help
-	  Enable Solar query surfaces for Zephyr thread runtime statistics. The
-	  application must also enable the required Zephyr runtime-stat options.
+	  Resolve bound subsystem operations and catalog membership at compile time.
+	  Leave disabled for the lower-friction runtime-bound frontend used during
+	  normal development and prototyping.
+
+config SOLAR_DESCRIPTOR_STRINGS
+	bool "Retain descriptor strings"
+	default y
+	help
+	  Retain human-readable descriptor names and descriptions where the owning
+	  subsystem supports stripping them.
+
+config SOLAR_DIAGNOSTIC_DETAIL
+	bool "Retain detailed diagnostics"
+	default y
+	help
+	  Retain optional diagnostic metadata used to produce richer build and
+	  runtime error reports.
+
+config SOLAR_ALLOW_DYNAMIC_ALLOCATION
+	bool "Allow dynamic allocation in Solar"
+	default n
+	help
+	  Permit optional facilities to use dynamic allocation only where their
+	  contracts explicitly support it. Solar core remains statically owned.
+
+menu "Kernel integration"
+
+config SOLAR_KERNEL_STACK_DIAGNOSTICS
+	bool "Enable typed thread stack diagnostics"
+	default n
+	select INIT_STACKS
+	select THREAD_STACK_INFO
+	help
+	  Initialize thread stacks and retain native stack metadata so Solar's
+	  focused stack-usage queries can report high-water usage. This has startup
+	  and storage cost and is therefore opt-in.
+
+config SOLAR_KERNEL_RUNTIME_DIAGNOSTICS
+	bool "Enable typed thread runtime statistics"
+	default n
+	select THREAD_RUNTIME_STATS
+	help
+	  Enable Zephyr thread runtime accounting for Solar's focused typed runtime
+	  statistics queries.
+
+config SOLAR_KERNEL_THREAD_ENUMERATION
+	bool "Enable typed global thread enumeration"
+	default n
+	select THREAD_MONITOR
+	help
+	  Retain Zephyr's global thread list and expose explicitly locked and
+	  unlocked typed iteration adapters. Known Solar-owned threads do not need
+	  this option for direct diagnostics.
+
+config SOLAR_KERNEL_RUNTIME_STACK_SAFETY
+	bool "Enable runtime stack safety checks"
+	default n
+	select SOLAR_KERNEL_STACK_DIAGNOSTICS
+	select THREAD_RUNTIME_STACK_SAFETY
+	help
+	  Enable Zephyr's full and threshold stack safety checks through Solar's
+	  typed diagnostic surface.
+
+config SOLAR_FATAL_BRIDGE
+	bool "Install the Solar fatal error bridge"
+	default n
+	help
+	  Replace Zephyr's weak application fatal handler with Solar's panic-safe
+	  atomic latch and one optional observer, then halt through Zephyr. Select
+	  this only when the application does not provide another fatal handler.
+
+endmenu
+
+menu "Hardware"
+
+config SOLAR_HARDWARE
+	bool "Enable typed Zephyr hardware wrappers"
+	default n
+	help
+	  Enable Solar's standalone C++23 endpoint descriptors and driver wrappers.
+	  Hardware remains independent of System, lifecycle, and application Devices.
+
+if SOLAR_HARDWARE
+
+config SOLAR_HARDWARE_GENERATE_DEVICETREE
+	bool "Generate ergonomic devicetree aliases"
+	default y
+	help
+	  Read the resolved image edt.pickle and emit deterministic build-local C++
+	  alias, chosen-node, node-label, and inventory declarations. Explicit Zephyr
+	  descriptor construction remains available when this is disabled.
+
+config SOLAR_HARDWARE_GPIO
+	bool "Enable GPIO wrappers"
+	depends on GPIO
+	default y
+
+config SOLAR_HARDWARE_GPIO_INTERRUPTS
+	bool "Enable GPIO interrupt ownership wrappers"
+	depends on SOLAR_HARDWARE_GPIO
+	default y
+
+config SOLAR_HARDWARE_SPI
+	bool "Enable SPI wrappers"
+	depends on SPI
+	default y
+
+config SOLAR_HARDWARE_SPI_ASYNC
+	bool "Enable asynchronous SPI operations"
+	depends on SOLAR_HARDWARE_SPI && SPI_ASYNC
+	default y
+
+config SOLAR_HARDWARE_I2C
+	bool "Enable I2C wrappers"
+	depends on I2C
+	default y
+
+config SOLAR_HARDWARE_I2C_ASYNC
+	bool "Enable callback-driven I2C operations"
+	depends on SOLAR_HARDWARE_I2C && I2C_CALLBACK
+	default y
+
+config SOLAR_HARDWARE_UART
+	bool "Enable UART wrappers"
+	depends on SERIAL
+	default y
+
+config SOLAR_HARDWARE_UART_INTERRUPT
+	bool "Enable interrupt-driven UART ownership wrappers"
+	depends on SOLAR_HARDWARE_UART && UART_INTERRUPT_DRIVEN
+	default y
+
+config SOLAR_HARDWARE_UART_ASYNC
+	bool "Enable asynchronous UART ownership wrappers"
+	depends on SOLAR_HARDWARE_UART && UART_ASYNC_API
+	default y
+
+config SOLAR_HARDWARE_ADC
+	bool "Enable ADC wrappers"
+	depends on ADC
+	default y
+
+config SOLAR_HARDWARE_ADC_ASYNC
+	bool "Enable asynchronous ADC reads"
+	depends on SOLAR_HARDWARE_ADC && ADC_ASYNC
+	default y
+
+config SOLAR_HARDWARE_PWM
+	bool "Enable PWM wrappers"
+	depends on PWM
+	default y
+
+config SOLAR_HARDWARE_PWM_CAPTURE
+	bool "Enable PWM capture wrappers"
+	depends on SOLAR_HARDWARE_PWM && PWM_CAPTURE
+	default y
+
+config SOLAR_HARDWARE_COUNTER
+	bool "Enable Counter wrappers"
+	depends on COUNTER
+	default y
+
+config SOLAR_HARDWARE_WATCHDOG
+	bool "Enable hardware Watchdog wrappers"
+	depends on WATCHDOG
+	default y
+
+config SOLAR_HARDWARE_RTIO
+	bool "Enable native RTIO adapters"
+	depends on RTIO && (SPI_RTIO || I2C_RTIO || ADC_STREAM)
+	default y
+	help
+	  Expose caller-owned C++ adapters over native RTIO contexts and I/O
+	  devices. This does not create an RTIO context, queue, pool, or worker.
+
+endif # SOLAR_HARDWARE
+
+endmenu
+
+menu "Lifecycle"
+
+config SOLAR_LIFECYCLE_MAX_COMPONENTS
+	int "Maximum effective lifecycle components"
+	range 1 65534
+	default 64
+	help
+	  Hard compile-time ceiling for components in one effective Solar System.
+	  Lifecycle storage itself remains derived exactly from the effective graph.
+
+config SOLAR_LIFECYCLE_REPORT_FAILURE_CAPACITY
+	int "Retained lifecycle report failures"
+	range 1 1024
+	default 8
+	help
+	  Number of cleanup or stop failure details retained in bounded summary
+	  reports. Total and truncation counts remain available, and per-component
+	  lifecycle records retain focused outcomes.
 
 config SOLAR_SERVICE_STOP_TIMEOUT_MS
 	int "Default service stop timeout (milliseconds)"
 	range 0 60000
 	default 100
 	help
-	  Default time Solar waits for a service thread to exit after requesting
-	  cooperative stop. A service execution policy may override this value.
+	  Default finite join timeout for Solar-owned service execution. Typed
+	  component or Blueprint policy may override this value.
+
+config SOLAR_SERVICE_STACK_SIZE
+	int "Default service thread stack size"
+	range 256 1048576
+	default 2048
+	help
+	  Default stack allocation used by an explicit Solar service whose typed
+	  execution declaration omits StackSize. Every service remains visible in
+	  the application Blueprint and owns exactly one such stack.
 
 config SOLAR_SERVICE_ABORT_ON_STOP_TIMEOUT
-	bool "Abort service thread after stop timeout"
+	bool "Abort Solar-owned service execution after stop timeout"
 	default y
 	help
-	  Abort a Solar-owned service thread when it does not exit within its stop
-	  timeout. A service execution policy may override this default. Disable this
-	  only when leaving a timed-out thread running is explicitly acceptable.
+	  Permit the default service containment policy to abort only execution
+	  created and owned by Solar after cooperative stop times out.
 
-config SOLAR_BOOT_LOGS
-	bool "Solar boot logs"
+endmenu
+
+menu "Execution"
+
+config SOLAR_EXECUTION
+	bool "Enable system-integrated execution"
 	default y
+	help
+	  Enable Solar service execution, registered work, and owned workqueue
+	  integration. Direct solar::kernel work remains available independently.
 
-config SOLAR_REMOTE_LOGS
-	bool "Solar Remote logs"
-	default y
+if SOLAR_EXECUTION
 
-config SOLAR_ALLOW_DYNAMIC_ALLOCATION
-	bool "Allow dynamic allocation in Solar"
+config SOLAR_EXECUTION_DEFAULT_SYSTEM_WORKQUEUE
+	bool "Use Zephyr's system workqueue for omitted targets"
 	default n
 	help
-	  Permit Solar facilities to use dynamic allocation where they explicitly
-	  support it. Core graph, lifecycle, and execution storage remain static.
+	  Resolve an execution registration with no explicit target to Zephyr's
+	  existing system workqueue. This creates no Solar thread, queue, or stack.
+	  When disabled, every work registration must name a target explicitly.
 
-config SOLAR_REMOTE_PAYLOAD_BYTES
-	int "Remote payload capacity (bytes)"
+config SOLAR_EXECUTION_MAX_REGISTRATIONS
+	int "Maximum execution registrations"
+	range 1 65534
+	default 128
+	help
+	  Hard compile-time ceiling for the effective execution catalog. Runtime
+	  storage remains derived exactly from registered work.
+
+config SOLAR_EXECUTION_QUIESCENCE_TIMEOUT_MS
+	int "Default registration quiescence timeout (milliseconds)"
+	range 0 60000
+	default 100
+	help
+	  Default bounded wait for in-flight work during lifecycle containment.
+
+config SOLAR_EXECUTOR_STOP_TIMEOUT_MS
+	int "Default owned workqueue stop timeout (milliseconds)"
+	range 0 60000
+	default 100
+	help
+	  Default bounded timeout for stopping a Solar-owned workqueue thread.
+
+config SOLAR_EXECUTOR_ABORT_ON_STOP_TIMEOUT
+	bool "Abort owned workqueues after stop timeout"
+	default y
+	help
+	  Permit Solar to abort only workqueue threads it created and owns after
+	  bounded quiescence or native queue stop times out.
+
+endif # SOLAR_EXECUTION
+
+endmenu
+
+menu "Bus"
+
+config SOLAR_BUS
+	bool "Enable the typed application bus"
+	depends on SOLAR_EXECUTION
+	default y
+	help
+	  Enable compile-time message catalogs, static subscription routes, and
+	  bounded route-owned delivery state. The facility is included only when
+	  the effective System declares Bus messages or subscriptions.
+
+if SOLAR_BUS
+
+config SOLAR_BUS_MAX_MESSAGES
+	int "Maximum Bus messages"
+	range 1 65534
+	default 128
+
+config SOLAR_BUS_MAX_SUBSCRIPTIONS
+	int "Maximum Bus subscriptions"
+	range 1 65534
+	default 256
+
+config SOLAR_BUS_MAX_ASYNC_PAYLOAD_BYTES
+	int "Maximum asynchronous Bus payload size"
+	range 1 65536
+	default 256
+
+config SOLAR_BUS_MAX_ASYNC_PAYLOAD_ALIGNMENT
+	int "Maximum asynchronous Bus payload alignment"
+	range 1 256
+	default 16
+
+config SOLAR_BUS_MAX_ROUTE_CAPACITY
+	int "Maximum queued messages per Bus route"
+	range 1 65535
+	default 32
+
+config SOLAR_BUS_DEFAULT_QUEUE_CAPACITY
+	int "Default queued Bus route capacity"
+	range 1 SOLAR_BUS_MAX_ROUTE_CAPACITY
+	default 4
+
+choice SOLAR_BUS_DEFAULT_OVERFLOW
+	prompt "Default queued Bus overflow policy"
+	default SOLAR_BUS_DEFAULT_OVERFLOW_REJECT
+
+config SOLAR_BUS_DEFAULT_OVERFLOW_REJECT
+	bool "Reject the new message"
+
+config SOLAR_BUS_DEFAULT_OVERFLOW_DROP_NEWEST
+	bool "Drop the new message"
+
+config SOLAR_BUS_DEFAULT_OVERFLOW_DROP_OLDEST
+	bool "Drop the oldest pending message"
+
+endchoice
+
+choice SOLAR_BUS_DEFAULT_STOP
+	prompt "Default asynchronous Bus stop policy"
+	default SOLAR_BUS_DEFAULT_STOP_DRAIN
+
+config SOLAR_BUS_DEFAULT_STOP_DRAIN
+	bool "Drain accepted messages"
+
+config SOLAR_BUS_DEFAULT_STOP_CANCEL_PENDING
+	bool "Cancel pending messages"
+
+endchoice
+
+config SOLAR_BUS_STOP_TIMEOUT_MS
+	int "Bus route stop timeout (milliseconds)"
+	range 0 60000
+	default 100
+
+endif # SOLAR_BUS
+
+endmenu
+
+menu "Inspection"
+
+config SOLAR_INSPECTION
+	bool "Enable generic Inspection collections"
+	default n
+	help
+	  Enable the passive, stateless collection catalog and bounded query adapters
+	  used by generic local diagnostics and optional Remote discovery. Direct
+	  typed subsystem APIs remain available when this option is disabled.
+
+if SOLAR_INSPECTION
+
+config SOLAR_INSPECTION_MAX_COLLECTIONS
+	int "Maximum effective Inspection collections"
+	range 1 1024
+	default 32
+
+config SOLAR_INSPECTION_MAX_PAGE_RECORDS
+	int "Maximum records in one Inspection page"
+	range 1 1024
+	default 32
+
+config SOLAR_INSPECTION_TEXT_FORMATTING
+	bool "Enable bounded Inspection text formatting"
+	default y
+
+config SOLAR_INSPECTION_CBOR
+	bool "Enable deterministic Inspection CBOR formatting"
+	depends on ZCBOR
+	default n
+
+config SOLAR_INSPECTION_REMOTE
+	bool "Expose eligible Inspection collections to Remote"
+	depends on SOLAR_REMOTE && SOLAR_REMOTE_RUNTIME_INTROSPECTION
+	select SOLAR_INSPECTION_CBOR
+	default y
+	help
+	  Compile Remote discovery and bounded collection query support. Remote
+	  session grants remain authoritative for runtime authorization.
+
+config SOLAR_INSPECTION_REMOTE_MAX_PAGE_RECORDS
+	int "Maximum records in one Remote Inspection page"
+	depends on SOLAR_INSPECTION_REMOTE
+	range 1 SOLAR_INSPECTION_MAX_PAGE_RECORDS
+	default 8
+
+config SOLAR_INSPECTION_REMOTE_RESPONSE_BYTES
+	int "Remote Inspection response buffer"
+	depends on SOLAR_INSPECTION_REMOTE
+	range 128 65535
+	default 1024
+
+endif # SOLAR_INSPECTION
+
+endmenu
+
+menu "Health"
+
+config SOLAR_HEALTH
+	bool "Enable passive system Health assessment"
+	default n
+	help
+	  Build the type-derived Health facility, component reports, checks,
+	  progress markers, bounded histories, and focused evidence adapters.
+	  This does not enable the active Supervisor service.
+
+if SOLAR_HEALTH
+
+config SOLAR_HEALTH_MAX_SUBJECTS
+	int "Maximum Health subjects"
+	range 1 512
+	default 64
+
+config SOLAR_HEALTH_MAX_MONITORS
+	int "Maximum Health monitors"
+	range 1 1024
+	default 128
+
+config SOLAR_HEALTH_HISTORY_DEPTH
+	int "Health transition history depth"
+	range 1 1024
+	default 32
+
+config SOLAR_HEALTH_ISR_INGRESS_DEPTH
+	int "Health ISR report ingress depth"
+	range 1 256
+	default 16
+
+config SOLAR_HEALTH_DEFAULT_STALE_MS
+	int "Default self-report stale time in milliseconds"
+	range 1 3600000
+	default 5000
+
+config SOLAR_HEALTH_PROGRESS_GRACE_MS
+	int "Default initial progress grace in milliseconds"
+	range 0 3600000
+	default 250
+
+endif # SOLAR_HEALTH
+
+endmenu
+
+menu "Supervisor"
+
+config SOLAR_SUPERVISOR
+	bool "Solar active system supervisor"
+	depends on SOLAR_HEALTH && SOLAR_EXECUTION
+	default n
+	help
+	  Include one dedicated Solar Supervisor service. The service refreshes
+	  Health, evaluates explicit typed response policy, and gates an optional
+	  watchdog provider from its own execution domain.
+
+if SOLAR_SUPERVISOR
+
+config SOLAR_SUPERVISOR_PERIOD_MS
+	int "Base supervision period (milliseconds)"
+	range 10 60000
+	default 500
+
+config SOLAR_SUPERVISOR_CYCLE_GRACE_MS
+	int "Supervision cycle overrun grace (milliseconds)"
+	range 0 60000
+	default 100
+
+config SOLAR_SUPERVISOR_SERVICE_STACK_SIZE
+	int "Supervisor service stack size"
+	range 1024 65536
+	default 4096
+
+config SOLAR_SUPERVISOR_SERVICE_PRIORITY
+	int "Supervisor preemptive priority"
+	range 0 15
+	default 1
+
+config SOLAR_SUPERVISOR_MAX_RESPONSES_PER_CYCLE
+	int "Maximum response attempts per cycle"
+	range 1 256
+	default 8
+
+config SOLAR_SUPERVISOR_RESPONSE_HISTORY_DEPTH
+	int "Retained Supervisor response records"
+	range 1 256
+	default 32
+
+config SOLAR_SUPERVISOR_RECOVERY_ATTEMPTS
+	int "Default recovery attempt ceiling per incident"
+	range 1 32
+	default 3
+
+config SOLAR_SUPERVISOR_RECOVERY_COOLDOWN_MS
+	int "Default delay between recovery attempts (milliseconds)"
+	range 0 60000
+	default 1000
+
+endif # SOLAR_SUPERVISOR
+
+endmenu
+
+menu "Parameters"
+
+config SOLAR_PARAMETERS
+	bool "Enable typed runtime parameters"
+	default y
+	help
+	  Enable compile-time parameter catalogs, exact typed storage, validation,
+	  coherent access, change hooks, and optional persistence. The facility is
+	  included only when the effective System declares parameter architecture.
+
+if SOLAR_PARAMETERS
+
+config SOLAR_PARAMETERS_MAX_PARAMETERS
+	int "Maximum parameters"
+	range 1 65534
+	default 128
+
+config SOLAR_PARAMETERS_MAX_CHANGE_HOOKS
+	int "Maximum parameter change hooks"
+	range 1 65534
+	default 256
+
+config SOLAR_PARAMETERS_MAX_VALUE_BYTES
+	int "Maximum parameter value size"
+	range 1 65536
+	default 256
+
+config SOLAR_PARAMETERS_PERSISTENCE
+	bool "Enable parameter persistence adapters"
+	default y
+	help
+	  Compile bounded persistence envelopes and adapter integration. Volatile
+	  parameters do not own persistence buffers or execution work.
+
+config SOLAR_PARAMETERS_ZEPHYR_SETTINGS
+	bool "Enable the Zephyr settings persistence adapter"
+	depends on SOLAR_PARAMETERS_PERSISTENCE && SETTINGS
+	default n
+
+config SOLAR_PARAMETERS_SETTINGS_NAMESPACE
+	string "Zephyr settings namespace"
+	depends on SOLAR_PARAMETERS_ZEPHYR_SETTINGS
+	default "solar"
+	help
+	  Root key used by the typed Zephyr settings adapter. Stable parameter and
+	  group IDs form the remainder of each key.
+
+config SOLAR_PARAMETERS_SETTINGS_INITIALIZE
+	bool "Initialize the Zephyr settings subsystem from Solar"
+	depends on SOLAR_PARAMETERS_ZEPHYR_SETTINGS
+	default n
+	help
+	  Call settings_subsys_init() when the adapter initializes. Leave disabled
+	  when the board or application owns global settings/backend initialization.
+
+config SOLAR_PARAMETERS_MIGRATION
+	bool "Enable parameter schema migration"
+	depends on SOLAR_PARAMETERS_PERSISTENCE
+	default y
+
+config SOLAR_PARAMETERS_MAX_ENCODED_RECORD_BYTES
+	int "Maximum encoded parameter record size"
+	depends on SOLAR_PARAMETERS_PERSISTENCE
+	range 32 65536
+	default 512
+
+config SOLAR_PARAMETERS_MAX_GROUP_RECORD_BYTES
+	int "Maximum transactional group record size"
+	depends on SOLAR_PARAMETERS_PERSISTENCE
+	range 32 65536
+	default 1024
+
+config SOLAR_PARAMETERS_DEFERRED_SYSTEM_WORKQUEUE_DEFAULT
+	bool "Use Zephyr's system workqueue for deferred persistence"
+	depends on SOLAR_PARAMETERS_PERSISTENCE && SOLAR_EXECUTION
+	default y
+	help
+	  Use Zephyr's existing system workqueue when parameter configuration does
+	  not name an explicit persistence executor. No Solar thread is created.
+
+choice SOLAR_PARAMETERS_DEFAULT_LOAD_FAILURE
+	prompt "Default persistent-load failure policy"
+	default SOLAR_PARAMETERS_DEFAULT_LOAD_USE_DEFAULT
+
+config SOLAR_PARAMETERS_DEFAULT_LOAD_USE_DEFAULT
+	bool "Use the declared default and report"
+
+config SOLAR_PARAMETERS_DEFAULT_LOAD_FAIL_BOOT
+	bool "Fail system boot"
+
+endchoice
+
+choice SOLAR_PARAMETERS_DEFAULT_STOP
+	prompt "Default deferred-persistence stop policy"
+	default SOLAR_PARAMETERS_DEFAULT_STOP_FLUSH
+
+config SOLAR_PARAMETERS_DEFAULT_STOP_FLUSH
+	bool "Flush deferred values"
+
+config SOLAR_PARAMETERS_DEFAULT_STOP_CANCEL
+	bool "Leave deferred values dirty"
+
+endchoice
+
+config SOLAR_PARAMETERS_PERSISTENCE_TIMEOUT_MS
+	int "Parameter persistence timeout (milliseconds)"
+	depends on SOLAR_PARAMETERS_PERSISTENCE
+	range 0 60000
+	default 250
+
+endif # SOLAR_PARAMETERS
+
+endmenu
+
+menu "Events"
+
+config SOLAR_EVENTS
+	bool "Enable structured observability events"
+	default y
+	help
+	  Enable compile-time event catalogs, bounded thread and ISR capture,
+	  deferred processing, compact retained history, and focused accounting.
+
+if SOLAR_EVENTS
+
+config SOLAR_EVENTS_MAX_EVENTS
+	int "Maximum events"
+	range 1 65534
+	default 128
+
+config SOLAR_EVENTS_MAX_PROCESSORS
+	int "Maximum event processors"
+	range 1 65534
+	default 256
+
+config SOLAR_EVENTS_INGRESS_DEPTH
+	int "Thread event ingress depth"
+	range 1 4096
+	default 16
+
+config SOLAR_EVENTS_ISR_INGRESS_DEPTH
+	int "ISR event ingress depth"
+	range 0 4096
+	default 8
+
+config SOLAR_EVENTS_MAX_PAYLOAD_BYTES
+	int "Maximum copied event payload size"
+	range 1 65535
+	default 64
+
+config SOLAR_EVENTS_MAX_PAYLOAD_ALIGNMENT
+	int "Maximum event payload alignment"
+	range 1 256
+	default 8
+
+config SOLAR_EVENTS_HISTORY_BYTES
+	int "Buffered event history bytes"
+	range 64 65535
+	default 4096
+
+config SOLAR_EVENTS_MAX_CRITICAL_RESERVED_SLOTS
+	int "Maximum total critical reserved slots"
+	range 1 4096
+	default 16
+
+config SOLAR_EVENTS_MAX_AGGREGATION_KEYS
+	int "Maximum keys in one event aggregation policy"
+	range 1 4096
+	default 16
+
+config SOLAR_EVENTS_PERSISTENCE
+	bool "Enable persistent event retention adapters"
+	default n
+
+config SOLAR_EVENTS_PROCESSOR_SYSTEM_WORKQUEUE_DEFAULT
+	bool "Use Zephyr's system workqueue for event processing"
+	depends on SOLAR_EXECUTION
+	default y
+	help
+	  Use Zephyr's existing system workqueue when event configuration does not
+	  name an explicit processor executor. No Solar thread is created.
+
+choice SOLAR_EVENTS_DEFAULT_RETENTION
+	prompt "Default event retention"
+	default SOLAR_EVENTS_DEFAULT_RETENTION_BUFFERED
+
+config SOLAR_EVENTS_DEFAULT_RETENTION_BUFFERED
+	bool "Buffered history"
+
+config SOLAR_EVENTS_DEFAULT_RETENTION_TRANSIENT
+	bool "Transient processing only"
+
+endchoice
+
+choice SOLAR_EVENTS_DEFAULT_STOP
+	prompt "Default event processor stop policy"
+	default SOLAR_EVENTS_DEFAULT_STOP_DRAIN
+
+config SOLAR_EVENTS_DEFAULT_STOP_DRAIN
+	bool "Final bounded drain"
+
+config SOLAR_EVENTS_DEFAULT_STOP_CANCEL
+	bool "Cancel pending processing"
+
+endchoice
+
+config SOLAR_EVENTS_STOP_TIMEOUT_MS
+	int "Event final-drain timeout (milliseconds)"
+	range 0 60000
+	default 100
+
+endif # SOLAR_EVENTS
+
+endmenu
+
+menu "Metrics"
+
+config SOLAR_METRICS
+	bool "Enable typed metrics"
+	default y
+	help
+	  Enable catalog-derived passive counter, gauge, distribution, and timer
+	  instruments with focused readings and records.
+
+if SOLAR_METRICS
+
+config SOLAR_METRICS_MAX_METRICS
+	int "Maximum metrics"
+	range 1 65534
+	default 128
+
+config SOLAR_METRICS_MAX_VALUE_BYTES
+	int "Maximum scalar metric value size"
+	range 1 16
+	default 8
+
+config SOLAR_METRICS_MAX_WINDOW_SIZE
+	int "Maximum exact window reducer capacity"
+	range 1 4096
+	default 64
+
+config SOLAR_METRICS_MAX_HISTOGRAM_BOUNDARIES
+	int "Maximum histogram boundaries"
+	range 1 4096
+	default 16
+
+config SOLAR_METRICS_ATOMIC_BACKEND
+	bool "Enable lock-free scalar backend"
+	default y
+
+config SOLAR_METRICS_SPINLOCK_BACKEND
+	bool "Enable Zephyr spinlock backend"
+	default y
+
+config SOLAR_METRICS_MUTEX_BACKEND
+	bool "Enable Zephyr mutex backend"
+	default y
+
+config SOLAR_METRICS_TIMESTAMPS
+	bool "Track metric update timestamps"
+	default y
+
+config SOLAR_METRICS_RUNTIME_RESET
+	bool "Enable declared runtime metric reset"
+	default n
+
+choice SOLAR_METRICS_DEFAULT_CONCURRENCY
+	prompt "Default metric concurrency"
+	default SOLAR_METRICS_DEFAULT_CONCURRENCY_AUTOMATIC
+
+config SOLAR_METRICS_DEFAULT_CONCURRENCY_AUTOMATIC
+	bool "Automatic per-instrument selection"
+
+config SOLAR_METRICS_DEFAULT_CONCURRENCY_ATOMIC
+	bool "Lock-free scalar"
+	depends on SOLAR_METRICS_ATOMIC_BACKEND
+
+config SOLAR_METRICS_DEFAULT_CONCURRENCY_SPINLOCKED
+	bool "Zephyr spinlock"
+	depends on SOLAR_METRICS_SPINLOCK_BACKEND
+
+config SOLAR_METRICS_DEFAULT_CONCURRENCY_MUTEX
+	bool "Zephyr mutex"
+	depends on SOLAR_METRICS_MUTEX_BACKEND
+
+endchoice
+
+choice SOLAR_METRICS_DEFAULT_OVERFLOW
+	prompt "Default counter overflow"
+	default SOLAR_METRICS_DEFAULT_OVERFLOW_SATURATE
+
+config SOLAR_METRICS_DEFAULT_OVERFLOW_SATURATE
+	bool "Saturate"
+
+config SOLAR_METRICS_DEFAULT_OVERFLOW_REJECT
+	bool "Reject"
+
+config SOLAR_METRICS_DEFAULT_OVERFLOW_WRAP
+	bool "Wrap"
+
+endchoice
+
+endif # SOLAR_METRICS
+
+endmenu
+
+menu "Logging"
+
+config SOLAR_LOG
+	bool "Enable unified Solar logging"
+	depends on SOLAR_EXECUTION && LOG
+	select LOG_FRONTEND
+	select LOG_FRONTEND_ONLY
+	default n
+	help
+	  Route typed Solar diagnostics and Zephyr-native LOG_* records through one
+	  bounded Solar-owned stream. Processing uses registered Solar execution;
+	  this option does not create a logging thread or Zephyr backend.
+
+if SOLAR_LOG
+
+config SOLAR_LOG_MAX_SOURCES
+	int "Maximum effective log sources"
+	range 1 65534
+	default 128
+
+config SOLAR_LOG_MAX_DOMAINS
+	int "Maximum effective log domains"
+	range 1 65534
+	default 32
+
+config SOLAR_LOG_INGRESS_BYTES
+	int "Log ingress capacity in bytes"
+	range 256 65535
+	default 4096
+
+config SOLAR_LOG_MAX_RECORD_BYTES
+	int "Maximum complete log record size"
+	range 64 4096
+	default 384
+
+config SOLAR_LOG_ELEVATED_RESERVE_BYTES
+	int "Warning and error reserve in bytes"
+	range 0 65535
+	default 512
+
+config SOLAR_LOG_EMERGENCY_BYTES
+	int "Fatal emergency reserve in bytes"
+	range 0 65535
+	default 256
+
+config SOLAR_LOG_MAX_STRING_BYTES
+	int "Maximum copied string argument size"
+	range 1 1024
+	default 96
+
+config SOLAR_LOG_MAX_HEXDUMP_BYTES
+	int "Maximum copied hexdump size"
+	range 1 4096
+	default 128
+
+config SOLAR_LOG_EARLY_RECORDS
+	int "Early Zephyr frontend records retained before System activation"
+	range 1 32
+	default 4
+
+config SOLAR_LOG_RENDER_BUFFER_BYTES
+	int "Shared bounded rendering buffer size"
+	range 64 4096
+	default 384
+
+config SOLAR_LOG_HISTORY
+	bool "Enable retained complete-record history"
+	default y
+
+config SOLAR_LOG_HISTORY_BYTES
+	int "Retained log history bytes"
+	depends on SOLAR_LOG_HISTORY
+	range 128 65535
+	default 4096
+
+config SOLAR_LOG_RUNTIME_FILTERING
+	bool "Enable mutable runtime log thresholds"
+	default y
+
+config SOLAR_LOG_ACCOUNTING
+	bool "Retain focused logging accounting"
+	default y
+
+config SOLAR_LOG_SOURCE_LOCATION
+	bool "Retain source location metadata"
+	default n
+
+choice SOLAR_LOG_COMPILE_LEVEL
+	prompt "Lowest compiled Solar log level"
+	default SOLAR_LOG_COMPILE_LEVEL_DEBUG
+
+config SOLAR_LOG_COMPILE_LEVEL_TRACE
+	bool "Trace"
+
+config SOLAR_LOG_COMPILE_LEVEL_DEBUG
+	bool "Debug"
+
+config SOLAR_LOG_COMPILE_LEVEL_INFO
+	bool "Info"
+
+config SOLAR_LOG_COMPILE_LEVEL_NOTICE
+	bool "Notice"
+
+config SOLAR_LOG_COMPILE_LEVEL_WARNING
+	bool "Warning"
+
+config SOLAR_LOG_COMPILE_LEVEL_ERROR
+	bool "Error"
+
+endchoice
+
+config SOLAR_LOG_PROCESSOR_SYSTEM_WORKQUEUE_DEFAULT
+	bool "Use Zephyr's system workqueue for log processing"
+	depends on SOLAR_EXECUTION
+	default y
+	help
+	  Use Zephyr's existing system workqueue when logging configuration does
+	  not name an explicit processor executor. No Solar thread is created.
+
+config SOLAR_LOG_STOP_TIMEOUT_MS
+	int "Final log drain timeout (milliseconds)"
+	range 0 60000
+	default 100
+
+endif # SOLAR_LOG
+
+endmenu
+
+menu "Remote protocol"
+
+config SOLAR_REMOTE
+	bool "Solar typed Remote protocol"
+	default n
+	select COBS
+	select CRC
+	select ZCBOR
+	select ZCBOR_CANONICAL
+	help
+	  Include Remote's typed schemas, deterministic CBOR and packed codecs,
+	  protocol envelope, CRC32C integrity, and COBS framing. Runtime links and
+	  service resources are emitted only by an effective Stage 14 configuration.
+
+if SOLAR_REMOTE
+
+config SOLAR_REMOTE_MAX_SCHEMAS
+	int "Maximum effective Remote schemas"
+	range 1 1024
+	default 128
+
+config SOLAR_REMOTE_MAX_ENDPOINTS
+	int "Maximum effective Remote endpoints per identity domain"
+	range 1 1024
+	default 128
+
+config SOLAR_REMOTE_MAX_FRAME_BYTES
+	int "Maximum decoded protocol frame bytes"
 	range 64 65535
 	default 1024
 
-config SOLAR_REMOTE_FRAME_BUFFER_BYTES
-	int "Remote frame buffer capacity (bytes)"
-	range 64 65535
-	default 1152
+config SOLAR_REMOTE_MAX_MESSAGE_BYTES
+	int "Maximum logical message bytes"
+	range 64 1048576
+	default 8192
 
-config SOLAR_REMOTE_HEARTBEAT_MS
-	int "Remote heartbeat interval (milliseconds)"
+config SOLAR_REMOTE_MAX_SCHEMA_FIELDS
+	int "Maximum fields in one schema"
+	range 1 64
+	default 32
+
+config SOLAR_REMOTE_PACKED
+	bool "Enable explicit packed stream schemas"
+	default y
+
+config SOLAR_REMOTE_GENERATE_MANIFEST
+	bool "Generate host manifest artifacts after linking"
+	default y
+	help
+	  Extract the bound Remote manifest from the final Zephyr ELF and emit
+	  canonical CBOR, reviewable JSON, Python/C++ constants, and SHA-256 digest
+	  under the build directory. Disable only for protocol-only library tests
+	  that intentionally bind no System.
+
+config SOLAR_REMOTE_EVENT_QUEUE_DEPTH
+	int "Remote service event queue depth"
+	range 4 256
+	default 32
+
+config SOLAR_REMOTE_SERVICE_STACK_SIZE
+	int "Remote service stack size"
+	range 1024 65536
+	default 4096
+
+config SOLAR_REMOTE_SERVICE_PRIORITY
+	int "Remote service cooperative priority offset"
+	range 0 15
+	default 1
+
+config SOLAR_REMOTE_RESPONSE_CACHE_BYTES
+	int "Remote response cache bytes per link"
+	range 64 8192
+	default 512
+
+config SOLAR_REMOTE_MAX_REQUESTS
+	int "Maximum concurrently admitted Remote requests"
+	range 1 128
+	default 8
+
+config SOLAR_REMOTE_MAX_INBOUND_WINDOW
+	int "Maximum slots in one inbound stream window per link"
+	range 1 64
+	default 8
+	help
+	  Compile-time ceiling for a typed ReliableWindow. Storage remains absent
+	  for Data declarations without an InStream capability.
+
+config SOLAR_REMOTE_REASSEMBLY_SLOTS
+	int "Concurrent fragmented-message reassembly slots per link"
+	range 1 16
+	default 2
+
+config SOLAR_REMOTE_REASSEMBLY_TIMEOUT_MS
+	int "Fragmented-message reassembly timeout (milliseconds)"
 	range 1 60000
 	default 1000
 
-config SOLAR_REMOTE_SESSION_TIMEOUT_MS
-	int "Remote session timeout (milliseconds)"
-	range 1 60000
-	default 5000
+config SOLAR_REMOTE_OUTBOUND_MESSAGE_SLOTS
+	int "Concurrent fragmented outbound messages per link"
+	range 1 16
+	default 2
 
-config SOLAR_LOG_FORMAT_BUFFER_BYTES
-	int "Log sink format buffer size (bytes)"
-	range 32 4096
-	default 192
+config SOLAR_REMOTE_MAX_STREAM_RATE_HZ
+	int "Maximum negotiated Remote stream rate"
+	range 1 1000000
+	default 1000
+	help
+	  Hard runtime ceiling applied after an endpoint's typed MaxRate policy.
+	  Subscription responses report the effective clamped interval.
 
-config SOLAR_LOG_RECORD_BYTES
-	int "Log record buffer size (bytes)"
-	range 32 4096
-	default 128
+config SOLAR_REMOTE_OUTPUT_LANES
+	int
+	default 5
+	help
+	  Number of independently admitted output classes: protocol control,
+	  responses, important publications, telemetry, and bulk streams.
 
-config SOLAR_EVENT_FORMAT_BUFFER_BYTES
-	int "Event sink format buffer size (bytes)"
-	range 32 4096
-	default 160
+config SOLAR_REMOTE_OUTPUT_LANE_DEPTH
+	int "Queued frames per Remote output lane"
+	range 1 64
+	default 4
+	help
+	  Bounds independently queued protocol, response, important, telemetry,
+	  and bulk frames for each link session. Response payload ownership remains
+	  reserved separately by CONFIG_SOLAR_REMOTE_MAX_REQUESTS.
+
+config SOLAR_REMOTE_ISR_PUBLICATION
+	bool "Enable constrained ISR Push publication"
+	default n
+	help
+	  Expose remote::write_from_isr for trivially copyable Push values whose
+	  Latest ingress path can complete without allocation, waiting, or mutexes.
+
+config SOLAR_REMOTE_RUNTIME_INTROSPECTION
+	bool "Enable bounded Remote runtime introspection"
+	default n
+	help
+	  Admit the protocol-summary introspection request using the same effective
+	  catalogs that generate the host manifest. Generic descriptor paging is
+	  supplied by Solar Inspection and remains absent when that subsystem is not
+	  selected.
+
+endif # SOLAR_REMOTE
+
+endmenu
 
 endif # SOLAR

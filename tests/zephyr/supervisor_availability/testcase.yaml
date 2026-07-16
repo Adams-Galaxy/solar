@@ -1,0 +1,18 @@
+tests:
+  solar.supervisor.availability.relaxed:
+    platform_allow:
+      - native_sim/native/64
+    tags:
+      - solar
+      - supervisor
+      - availability
+  solar.supervisor.availability.strict:
+    extra_configs:
+      - CONFIG_SOLAR_STRICT_CATALOG_BINDING=y
+    platform_allow:
+      - native_sim/native/64
+    tags:
+      - solar
+      - supervisor
+      - availability
+      - strict

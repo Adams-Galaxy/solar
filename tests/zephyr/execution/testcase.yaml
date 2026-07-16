@@ -1,0 +1,24 @@
+tests:
+  solar.execution.relaxed:
+    tags:
+      - solar
+      - execution
+    platform_allow:
+      - native_sim/native/64
+  solar.execution.strict:
+    tags:
+      - solar
+      - execution
+    platform_allow:
+      - native_sim/native/64
+    extra_configs:
+      - CONFIG_SOLAR_STRICT_CATALOG_BINDING=y
+  solar.execution.no_default_abort:
+    tags:
+      - solar
+      - execution
+    platform_allow:
+      - native_sim/native/64
+    extra_configs:
+      - CONFIG_SOLAR_SERVICE_ABORT_ON_STOP_TIMEOUT=n
+      - CONFIG_SOLAR_EXECUTOR_ABORT_ON_STOP_TIMEOUT=n
