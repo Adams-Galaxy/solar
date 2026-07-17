@@ -81,31 +81,37 @@ struct Service;
 struct Executor;
 } // namespace category
 
+/** Direct component dependencies used for graph and lifecycle ordering. */
 template <typename... Types> struct Dependencies
 {
     using Entries = TypeList<Types...>;
 };
 
+/** Blueprint section containing application Device components. */
 template <typename... Types> struct Devices
 {
     using Entries = TypeList<Types...>;
 };
 
+/** Blueprint section containing passive Facility components. */
 template <typename... Types> struct Facilities
 {
     using Entries = TypeList<Types...>;
 };
 
+/** Blueprint section containing active Service components. */
 template <typename... Types> struct Services
 {
     using Entries = TypeList<Types...>;
 };
 
+/** Blueprint section containing owned Executor components. */
 template <typename... Types> struct Executors
 {
     using Entries = TypeList<Types...>;
 };
 
+/** Blueprint section containing root execution registrations. */
 template <typename... Types> struct Execution
 {
     using Entries = TypeList<Types...>;

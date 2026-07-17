@@ -18,6 +18,7 @@ struct IdentityDomain
 using Id = StableId<IdentityDomain>;
 using LocalId = solar::LocalId<Tag>;
 
+/** Public identity and descriptive metadata for a System component. */
 struct Descriptor
 {
     std::string_view name;

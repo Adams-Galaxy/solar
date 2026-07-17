@@ -1,0 +1,6 @@
+Sphinx>=8.2,<9
+breathe>=4.36,<5
+furo>=2024.8
+myst-parser>=4,<5
+sphinx-copybutton>=0.5,<1
+sphinx-design>=0.6,<1

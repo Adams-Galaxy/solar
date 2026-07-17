@@ -1,0 +1,19 @@
+sample:
+  name: Solar system composition
+  description: Dependencies, contributed work, lifecycle records, and binding modes
+common:
+  platform_allow:
+    - native_sim/native/64
+  tags:
+    - solar
+    - documentation
+  harness: console
+  harness_config:
+    type: one_line
+    regex:
+      - "Solar system composition passed"
+tests:
+  sample.solar.system_composition.relaxed: {}
+  sample.solar.system_composition.strict:
+    extra_configs:
+      - CONFIG_SOLAR_STRICT_CATALOG_BINDING=y

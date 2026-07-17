@@ -1,0 +1,69 @@
+PROJECT_NAME           = Solar
+PROJECT_NUMBER         = 0.1.0
+OUTPUT_DIRECTORY       = @SOLAR_DOXYGEN_DIR@
+INPUT                  = @SOLAR_ROOT@/include/solar
+RECURSIVE              = YES
+FILE_PATTERNS          = *.hpp
+EXCLUDE_PATTERNS       = */runtime.hpp */storage.hpp */service_runtime.hpp
+EXCLUDE_SYMBOLS        = solar::detail::* solar::*::detail::*
+
+GENERATE_HTML          = NO
+GENERATE_XML           = YES
+XML_OUTPUT             = xml
+XML_PROGRAMLISTING     = NO
+
+EXTRACT_ALL            = YES
+EXTRACT_PRIVATE        = NO
+EXTRACT_STATIC         = YES
+HIDE_UNDOC_MEMBERS     = NO
+HIDE_UNDOC_CLASSES     = NO
+INTERNAL_DOCS          = NO
+
+ENABLE_PREPROCESSING   = YES
+MACRO_EXPANSION        = YES
+EXPAND_ONLY_PREDEF     = YES
+PREDEFINED             = CONFIG_SOLAR=1 \
+                         CONFIG_SOLAR_EXECUTION=1 \
+                         CONFIG_SOLAR_HARDWARE=1 \
+                         CONFIG_SOLAR_HARDWARE_GPIO=1 \
+                         CONFIG_SOLAR_HARDWARE_GPIO_INTERRUPTS=1 \
+                         CONFIG_SOLAR_HARDWARE_SPI=1 \
+                         CONFIG_SOLAR_HARDWARE_SPI_ASYNC=1 \
+                         CONFIG_SOLAR_HARDWARE_I2C=1 \
+                         CONFIG_SOLAR_HARDWARE_I2C_ASYNC=1 \
+                         CONFIG_SOLAR_HARDWARE_UART=1 \
+                         CONFIG_SOLAR_HARDWARE_UART_INTERRUPT=1 \
+                         CONFIG_SOLAR_HARDWARE_UART_ASYNC=1 \
+                         CONFIG_SOLAR_HARDWARE_ADC=1 \
+                         CONFIG_SOLAR_HARDWARE_ADC_ASYNC=1 \
+                         CONFIG_SOLAR_HARDWARE_PWM=1 \
+                         CONFIG_SOLAR_HARDWARE_PWM_CAPTURE=1 \
+                         CONFIG_SOLAR_HARDWARE_COUNTER=1 \
+                         CONFIG_SOLAR_HARDWARE_WATCHDOG=1 \
+                         CONFIG_SOLAR_HARDWARE_RTIO=1 \
+                         CONFIG_SOLAR_BUS=1 \
+                         CONFIG_SOLAR_PARAMETERS=1 \
+                         CONFIG_SOLAR_PARAMETERS_PERSISTENCE=1 \
+                         CONFIG_SOLAR_EVENTS=1 \
+                         CONFIG_SOLAR_METRICS=1 \
+                         CONFIG_SOLAR_LOG=1 \
+                         CONFIG_SOLAR_REMOTE=1 \
+                         CONFIG_SOLAR_INSPECTION=1 \
+                         CONFIG_SOLAR_HEALTH=1 \
+                         CONFIG_SOLAR_SUPERVISOR=1
+
+QUIET                  = YES
+WARNINGS               = YES
+WARN_IF_UNDOCUMENTED   = NO
+WARN_IF_DOC_ERROR      = YES
+WARN_AS_ERROR          = FAIL_ON_WARNINGS
+WARN_LOGFILE           = @SOLAR_DOXYGEN_DIR@/warnings.log
+
+JAVADOC_AUTOBRIEF      = YES
+MARKDOWN_SUPPORT       = YES
+AUTOLINK_SUPPORT       = YES
+BUILTIN_STL_SUPPORT    = YES
+FULL_PATH_NAMES        = YES
+STRIP_FROM_PATH        = @SOLAR_ROOT@
+STRIP_FROM_INC_PATH    = @SOLAR_ROOT@/include
+CLANG_ASSISTED_PARSING = NO

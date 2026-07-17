@@ -1,0 +1,16 @@
+sample:
+  name: Solar data pipeline
+  description: Integrated Bus, Parameters, Events, Metrics, and Logging example
+common:
+  tags:
+    - solar
+    - documentation
+  integration_platforms:
+    - native_sim/native/64
+tests:
+  sample.solar.data_pipeline:
+    harness: console
+    harness_config:
+      type: one_line
+      regex:
+        - "Solar data pipeline passed"

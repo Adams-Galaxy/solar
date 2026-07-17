@@ -20,6 +20,13 @@ template <typename SystemT, typename Owner, typename Key, typename State> struct
     inline static State value{};
 };
 
+/** Static application System derived from a Blueprint.
+ *
+ * `System` is a type and is never instantiated. Its nested catalogs, graph,
+ * facilities, services, and state slots identify canonical static owners.
+ *
+ * @tparam BlueprintT Valid compile-time application Blueprint.
+ */
 template <typename BlueprintT> struct System
 {
     using Blueprint = BlueprintT;

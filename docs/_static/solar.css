@@ -1,0 +1,31 @@
+:root {
+  --solar-accent: #007f73;
+  --solar-accent-strong: #005f57;
+}
+
+a,
+.toc-tree li.scroll-current > .reference {
+  text-decoration-color: var(--solar-accent);
+}
+
+.admonition {
+  border-radius: 4px;
+}
+
+code {
+  font-variant-ligatures: none;
+}
+
+table.docutils {
+  width: 100%;
+}
+
+.table-wrapper {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+pre {
+  max-width: 100%;
+  overflow-x: auto;
+}

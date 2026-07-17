@@ -1,0 +1,18 @@
+sample:
+  name: Solar first application
+  description: Smallest complete Solar System with lifecycle and boot handling
+common:
+  platform_allow:
+    - native_sim/native/64
+  integration_platforms:
+    - native_sim/native/64
+  tags:
+    - solar
+    - documentation
+  harness: console
+  harness_config:
+    type: one_line
+    regex:
+      - "Solar first application passed"
+tests:
+  sample.solar.first_application: {}

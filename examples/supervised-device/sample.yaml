@@ -1,0 +1,17 @@
+sample:
+  name: Solar supervised device
+  description: Component health, recovery, safe-state, and watchdog-gate example
+common:
+  tags:
+    - solar
+    - documentation
+    - health
+  integration_platforms:
+    - native_sim/native/64
+tests:
+  sample.solar.supervised_device:
+    harness: console
+    harness_config:
+      type: one_line
+      regex:
+        - "Solar supervised device passed"

@@ -67,6 +67,7 @@ constexpr int unexpected_exit_errno =
 
 } // namespace detail
 
+/** Stable, errno-compatible classification shared across error domains. */
 enum class Status : int
 {
     Ok = 0,
@@ -179,6 +180,7 @@ enum class Status : int
     return Status::Error;
 }
 
+/** Default bounded Solar error for operations without a richer domain error. */
 struct Error
 {
     Status status{Status::Error};
@@ -207,12 +209,21 @@ template <typename E>
     return error.status;
 }
 
+/** Error value accepted by Result.
+ *
+ * The error must provide a non-throwing `status_of(error)` projection. `Status`
+ * itself is deliberately not an error value.
+ */
 template <typename E>
 concept ErrorType = std::is_object_v<E> && !std::same_as<std::remove_cv_t<E>, Status> &&
                     std::is_nothrow_destructible_v<E> && requires(const E& error) {
                         { status_of(error) } noexcept -> std::same_as<Status>;
                     };
 
+/** Fallible result backed directly by C++23 `std::expected`.
+ * @tparam T Success value, or `void` for a command.
+ * @tparam E Concrete bounded error type.
+ */
 template <typename T, ErrorType E = Error> using Result = std::expected<T, E>;
 
 template <typename R>
@@ -227,6 +238,10 @@ concept VoidResult =
 
 template <ErrorType E> using Failure = std::unexpected<E>;
 
+/** Construct an explicitly typed failed Result.
+ * @tparam E Concrete error domain.
+ * @param error Error value to move into `std::unexpected`.
+ */
 template <ErrorType E>
 [[nodiscard]] constexpr auto fail(E error) noexcept(std::is_nothrow_move_constructible_v<E>)
     -> Failure<E>
