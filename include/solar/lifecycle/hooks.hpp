@@ -9,8 +9,7 @@ namespace solar::lifecycle::detail
 {
 
 template <typename Return>
-concept HookReturn = std::same_as<std::remove_cvref_t<Return>, Status> ||
-                     std::same_as<std::remove_cvref_t<Return>, Result<void>>;
+concept HookReturn = VoidResult<Return>;
 
 template <typename Component>
 concept HasInit = requires { Component::init(); };
@@ -59,30 +58,26 @@ inline constexpr bool valid_deinit_v = [] {
 template <typename Component> consteval bool validate_hooks()
 {
     static_assert(valid_init_v<Component>,
-                  "SOLAR_DIAGNOSTIC_INVALID_INIT_HOOK_RETURN: init() must return solar::Status or "
-                  "solar::Result<void>");
+                  "SOLAR_DIAGNOSTIC_INVALID_INIT_HOOK_RETURN: init() must return "
+                  "solar::Result<void, ErrorType>");
     static_assert(valid_start_v<Component>,
-                  "SOLAR_DIAGNOSTIC_INVALID_START_HOOK_RETURN: start() must return solar::Status "
-                  "or solar::Result<void>");
+                  "SOLAR_DIAGNOSTIC_INVALID_START_HOOK_RETURN: start() must return "
+                  "solar::Result<void, ErrorType>");
     static_assert(valid_stop_v<Component>,
-                  "SOLAR_DIAGNOSTIC_INVALID_STOP_HOOK_RETURN: stop() must return solar::Status or "
-                  "solar::Result<void>");
+                  "SOLAR_DIAGNOSTIC_INVALID_STOP_HOOK_RETURN: stop() must return "
+                  "solar::Result<void, ErrorType>");
     static_assert(valid_deinit_v<Component>,
                   "SOLAR_DIAGNOSTIC_INVALID_DEINIT_HOOK_RETURN: deinit() must return "
-                  "solar::Status or solar::Result<void>");
+                  "solar::Result<void, ErrorType>");
     return true;
 }
 
 template <HookReturn Return> [[nodiscard]] Result<void> normalize(Return&& value) noexcept
 {
-    if constexpr (std::same_as<std::remove_cvref_t<Return>, Status>) {
-        if (value == Status::Ok) {
-            return {};
-        }
-        return fail(value);
-    } else {
-        return static_cast<Return&&>(value);
+    if (value) {
+        return {};
     }
+    return fail<solar::Error>({.status = status_of(value.error())});
 }
 
 template <typename Component> [[nodiscard]] Result<void> invoke_init() noexcept

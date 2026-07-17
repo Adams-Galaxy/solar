@@ -38,7 +38,8 @@ template <auto Spec> struct Port : hardware::Endpoint<Spec>
         uart_config value{};
         const auto result = uart_config_get(Base::native_device(), &value);
         if (result != 0) {
-            return fail(hardware::detail::native_error(result, Operation::Read, Base::path()));
+            return fail<Error>(
+                hardware::detail::native_error(result, Operation::Read, Base::path()));
         }
         return value;
     }
@@ -53,7 +54,8 @@ template <auto Spec> struct Port : hardware::Endpoint<Spec>
     {
         const auto result = uart_err_check(Base::native_device());
         if (result < 0) {
-            return fail(hardware::detail::native_error(result, Operation::Read, Base::path()));
+            return fail<Error>(
+                hardware::detail::native_error(result, Operation::Read, Base::path()));
         }
         return static_cast<std::uint32_t>(result);
     }
@@ -71,7 +73,8 @@ template <auto Spec> struct Port : hardware::Endpoint<Spec>
         std::uint32_t value{};
         const auto result = uart_line_ctrl_get(Base::native_device(), control, &value);
         if (result != 0) {
-            return fail(hardware::detail::native_error(result, Operation::Read, Base::path()));
+            return fail<Error>(
+                hardware::detail::native_error(result, Operation::Read, Base::path()));
         }
         return value;
     }
@@ -89,7 +92,8 @@ template <auto Spec> struct Polling : Port<Spec>
             return std::optional<std::uint8_t>{};
         }
         if (result != 0) {
-            return fail(hardware::detail::native_error(result, Operation::Read, Base::path()));
+            return fail<Error>(
+                hardware::detail::native_error(result, Operation::Read, Base::path()));
         }
         return std::optional<std::uint8_t>{value};
     }
@@ -141,12 +145,12 @@ template <auto Spec> struct InterruptDriven : Port<Spec>
         if (handler == nullptr ||
             !State::owner.compare_exchange_strong(expected, detail::CallbackRole::Interrupt,
                                                   std::memory_order_acq_rel)) {
-            return fail(Error{.status = handler == nullptr ? Status::Invalid : Status::Already,
-                              .reason = handler == nullptr ? Reason::InvalidConfiguration
-                                                           : Reason::AlreadyOwned,
-                              .operation = Operation::CallbackInstall,
-                              .native = handler == nullptr ? -EINVAL : -EALREADY,
-                              .endpoint = Base::path()});
+            return fail<Error>(
+                {.status = handler == nullptr ? Status::Invalid : Status::Already,
+                 .reason = handler == nullptr ? Reason::InvalidConfiguration : Reason::AlreadyOwned,
+                 .operation = Operation::CallbackInstall,
+                 .native = handler == nullptr ? -EINVAL : -EALREADY,
+                 .endpoint = Base::path()});
         }
         State::interrupt_handler.store(handler, std::memory_order_release);
         const auto result =
@@ -154,7 +158,7 @@ template <auto Spec> struct InterruptDriven : Port<Spec>
         if (result != 0) {
             State::interrupt_handler.store(nullptr, std::memory_order_release);
             State::owner.store(detail::CallbackRole::None, std::memory_order_release);
-            return fail(
+            return fail<Error>(
                 hardware::detail::native_error(result, Operation::CallbackInstall, Base::path()));
         }
         return {};
@@ -163,18 +167,18 @@ template <auto Spec> struct InterruptDriven : Port<Spec>
     [[nodiscard]] static Result<void, Error> uninstall() noexcept
     {
         if (State::owner.load(std::memory_order_acquire) != detail::CallbackRole::Interrupt) {
-            return fail(Error{.status = Status::NotReady,
-                              .reason = Reason::NotReady,
-                              .operation = Operation::CallbackRemove,
-                              .native = -ENOENT,
-                              .endpoint = Base::path()});
+            return fail<Error>({.status = solar::Status::NotReady,
+                                .reason = Reason::NotReady,
+                                .operation = Operation::CallbackRemove,
+                                .native = -ENOENT,
+                                .endpoint = Base::path()});
         }
         uart_irq_tx_disable(Base::native_device());
         uart_irq_rx_disable(Base::native_device());
         const auto result =
             uart_irq_callback_user_data_set(Base::native_device(), nullptr, nullptr);
         if (result != 0) {
-            return fail(
+            return fail<Error>(
                 hardware::detail::native_error(result, Operation::CallbackRemove, Base::path()));
         }
         State::interrupt_handler.store(nullptr, std::memory_order_release);
@@ -196,7 +200,8 @@ template <auto Spec> struct InterruptDriven : Port<Spec>
                                            reinterpret_cast<const std::uint8_t*>(bytes.data()),
                                            static_cast<int>(bytes.size()));
         if (result < 0) {
-            return fail(hardware::detail::native_error(result, Operation::Write, Base::path()));
+            return fail<Error>(
+                hardware::detail::native_error(result, Operation::Write, Base::path()));
         }
         return static_cast<std::size_t>(result);
     }
@@ -207,7 +212,8 @@ template <auto Spec> struct InterruptDriven : Port<Spec>
             uart_fifo_read(Base::native_device(), reinterpret_cast<std::uint8_t*>(bytes.data()),
                            static_cast<int>(bytes.size()));
         if (result < 0) {
-            return fail(hardware::detail::native_error(result, Operation::Read, Base::path()));
+            return fail<Error>(
+                hardware::detail::native_error(result, Operation::Read, Base::path()));
         }
         return static_cast<std::size_t>(result);
     }
@@ -243,7 +249,8 @@ template <auto Spec> struct InterruptDriven : Port<Spec>
     {
         const auto result = uart_irq_update(Base::native_device());
         if (result < 0) {
-            return fail(hardware::detail::native_error(result, Operation::Read, Base::path()));
+            return fail<Error>(
+                hardware::detail::native_error(result, Operation::Read, Base::path()));
         }
         return result != 0;
     }
@@ -294,19 +301,19 @@ template <auto Spec> struct Async : Port<Spec>
         if (handler == nullptr ||
             !State::owner.compare_exchange_strong(expected, detail::CallbackRole::Async,
                                                   std::memory_order_acq_rel)) {
-            return fail(Error{.status = handler == nullptr ? Status::Invalid : Status::Already,
-                              .reason = handler == nullptr ? Reason::InvalidConfiguration
-                                                           : Reason::AlreadyOwned,
-                              .operation = Operation::CallbackInstall,
-                              .native = handler == nullptr ? -EINVAL : -EALREADY,
-                              .endpoint = Base::path()});
+            return fail<Error>(
+                {.status = handler == nullptr ? Status::Invalid : Status::Already,
+                 .reason = handler == nullptr ? Reason::InvalidConfiguration : Reason::AlreadyOwned,
+                 .operation = Operation::CallbackInstall,
+                 .native = handler == nullptr ? -EINVAL : -EALREADY,
+                 .endpoint = Base::path()});
         }
         State::async_handler.store(handler, std::memory_order_release);
         const auto result = uart_callback_set(Base::native_device(), &trampoline, nullptr);
         if (result != 0) {
             State::async_handler.store(nullptr, std::memory_order_release);
             State::owner.store(detail::CallbackRole::None, std::memory_order_release);
-            return fail(
+            return fail<Error>(
                 hardware::detail::native_error(result, Operation::CallbackInstall, Base::path()));
         }
         return {};
@@ -315,15 +322,15 @@ template <auto Spec> struct Async : Port<Spec>
     [[nodiscard]] static Result<void, Error> uninstall() noexcept
     {
         if (State::owner.load(std::memory_order_acquire) != detail::CallbackRole::Async) {
-            return fail(Error{.status = Status::NotReady,
-                              .reason = Reason::NotReady,
-                              .operation = Operation::CallbackRemove,
-                              .native = -ENOENT,
-                              .endpoint = Base::path()});
+            return fail<Error>({.status = solar::Status::NotReady,
+                                .reason = Reason::NotReady,
+                                .operation = Operation::CallbackRemove,
+                                .native = -ENOENT,
+                                .endpoint = Base::path()});
         }
         const auto result = uart_callback_set(Base::native_device(), nullptr, nullptr);
         if (result != 0) {
-            return fail(
+            return fail<Error>(
                 hardware::detail::native_error(result, Operation::CallbackRemove, Base::path()));
         }
         State::async_handler.store(nullptr, std::memory_order_release);
@@ -343,11 +350,11 @@ template <auto Spec> struct Async : Port<Spec>
              std::chrono::microseconds timeout = std::chrono::microseconds::max()) noexcept
     {
         if (timeout != std::chrono::microseconds::max() && timeout.count() < 0) {
-            return fail(Error{.status = Status::Invalid,
-                              .reason = Reason::InvalidConfiguration,
-                              .operation = Operation::Submit,
-                              .native = -EINVAL,
-                              .endpoint = Base::path()});
+            return fail<Error>({.status = solar::Status::Invalid,
+                                .reason = Reason::InvalidConfiguration,
+                                .operation = Operation::Submit,
+                                .native = -EINVAL,
+                                .endpoint = Base::path()});
         }
         return hardware::detail::native_result(
             uart_tx(Base::native_device(), reinterpret_cast<const std::uint8_t*>(bytes.data()),
@@ -366,11 +373,11 @@ template <auto Spec> struct Async : Port<Spec>
             std::chrono::microseconds timeout = std::chrono::microseconds::max()) noexcept
     {
         if (timeout != std::chrono::microseconds::max() && timeout.count() < 0) {
-            return fail(Error{.status = Status::Invalid,
-                              .reason = Reason::InvalidConfiguration,
-                              .operation = Operation::Submit,
-                              .native = -EINVAL,
-                              .endpoint = Base::path()});
+            return fail<Error>({.status = solar::Status::Invalid,
+                                .reason = Reason::InvalidConfiguration,
+                                .operation = Operation::Submit,
+                                .native = -EINVAL,
+                                .endpoint = Base::path()});
         }
         return hardware::detail::native_result(
             uart_rx_enable(Base::native_device(), reinterpret_cast<std::uint8_t*>(buffer.data()),

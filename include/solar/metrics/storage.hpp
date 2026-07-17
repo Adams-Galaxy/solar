@@ -136,7 +136,7 @@ template <typename Value, typename Overflow>
         return std::pair{static_cast<Value>(current + amount), UpdateDisposition::Updated};
     }
     if constexpr (std::is_same_v<Overflow, overflow::Reject>) {
-        return fail(Reason::Overflow);
+        return fail<Reason>(Reason::Overflow);
     } else if constexpr (std::is_same_v<Overflow, overflow::Wrap>) {
         return std::pair{static_cast<Value>(current + amount), UpdateDisposition::Wrapped};
     } else {
@@ -253,7 +253,7 @@ add_counter(SlotState<MetricT>& state, typename MetricT::Value amount, Operation
     if (!added) {
         record_failure<Policies>(state.record, Status::Overflow, added.error());
         ++state.record.overflows;
-        return fail(
+        return fail<Error>(
             slot_error<MetricT>(state.record.metric, operation, Status::Overflow, added.error()));
     }
     state.instrument.value = added->first;
@@ -286,8 +286,8 @@ set_gauge(SlotState<MetricT>& state, typename MetricT::Value value, Operation op
     if (!valid_numeric<MetricT, Policies>(value)) {
         record_failure<Policies>(state.record, Status::Invalid, Reason::InvalidNumeric);
         ++state.record.invalid_numeric;
-        return fail(slot_error<MetricT>(state.record.metric, operation, Status::Invalid,
-                                        Reason::InvalidNumeric));
+        return fail<Error>(slot_error<MetricT>(state.record.metric, operation, Status::Invalid,
+                                               Reason::InvalidNumeric));
     }
     state.instrument.value = value;
     state.instrument.initialized = true;
@@ -322,7 +322,7 @@ template <typename Value, typename Sum, typename Overflow>
                 .disposition = UpdateDisposition::Saturated,
             };
         }
-        return fail(Reason::Overflow);
+        return fail<Reason>(Reason::Overflow);
     } else if constexpr (std::is_unsigned_v<Sum>) {
         return checked_add<Sum, Overflow>(current, static_cast<Sum>(value))
             .transform([](auto result) {
@@ -337,7 +337,7 @@ template <typename Value, typename Sum, typename Overflow>
             return SumUpdate<Sum>{.value = static_cast<Sum>(current + converted)};
         }
         if constexpr (std::is_same_v<Overflow, overflow::Reject>) {
-            return fail(Reason::Overflow);
+            return fail<Reason>(Reason::Overflow);
         } else if constexpr (std::is_same_v<Overflow, overflow::Saturate>) {
             return SumUpdate<Sum>{
                 .value = converted < 0 ? std::numeric_limits<Sum>::lowest()
@@ -363,8 +363,8 @@ template <typename MetricT, typename Policies>
     if (!valid_numeric<MetricT, Policies>(value)) {
         record_failure<Policies>(state.record, Status::Invalid, Reason::InvalidNumeric);
         ++state.record.invalid_numeric;
-        return fail(slot_error<MetricT>(state.record.metric, operation, Status::Invalid,
-                                        Reason::InvalidNumeric));
+        return fail<Error>(slot_error<MetricT>(state.record.metric, operation, Status::Invalid,
+                                               Reason::InvalidNumeric));
     }
 
     auto prepared = state.instrument;
@@ -392,8 +392,8 @@ template <typename MetricT, typename Policies>
         if (!sum) {
             record_failure<Policies>(state.record, Status::Overflow, Reason::Overflow);
             ++state.record.overflows;
-            return fail(slot_error<MetricT>(state.record.metric, operation, Status::Overflow,
-                                            Reason::Overflow));
+            return fail<Error>(slot_error<MetricT>(state.record.metric, operation, Status::Overflow,
+                                                   Reason::Overflow));
         }
         prepared.sum = sum->value;
         disposition = sum->disposition;
@@ -417,8 +417,8 @@ template <typename MetricT, typename Policies>
         if (!sum) {
             record_failure<Policies>(state.record, Status::Overflow, Reason::Overflow);
             ++state.record.overflows;
-            return fail(slot_error<MetricT>(state.record.metric, operation, Status::Overflow,
-                                            Reason::Overflow));
+            return fail<Error>(slot_error<MetricT>(state.record.metric, operation, Status::Overflow,
+                                                   Reason::Overflow));
         }
         if (prepared.count != Reducer::size) {
             ++prepared.count;
@@ -450,8 +450,8 @@ template <typename MetricT, typename Policies>
         if (!sum) {
             record_failure<Policies>(state.record, Status::Overflow, Reason::Overflow);
             ++state.record.overflows;
-            return fail(slot_error<MetricT>(state.record.metric, operation, Status::Overflow,
-                                            Reason::Overflow));
+            return fail<Error>(slot_error<MetricT>(state.record.metric, operation, Status::Overflow,
+                                                   Reason::Overflow));
         }
         prepared.sum = sum->value;
         disposition = sum->disposition;
@@ -525,7 +525,7 @@ template <typename MetricT, typename Policies, typename Concurrency> class Locke
                                             Operation operation) noexcept
     {
         if (isr && !metric_isr_compatible<MetricT, Policies>) {
-            return fail(
+            return fail<Error>(
                 slot_error<MetricT>(id_, operation, Status::NotSupported, Reason::InvalidContext));
         }
         return access(no_wait || isr, operation, [&](auto& state) {
@@ -537,7 +537,7 @@ template <typename MetricT, typename Policies, typename Concurrency> class Locke
                                             Operation operation) noexcept
     {
         if (isr && !metric_isr_compatible<MetricT, Policies>) {
-            return fail(
+            return fail<Error>(
                 slot_error<MetricT>(id_, operation, Status::NotSupported, Reason::InvalidContext));
         }
         return access(no_wait || isr, operation, [&](auto& state) {
@@ -549,7 +549,7 @@ template <typename MetricT, typename Policies, typename Concurrency> class Locke
                                                 bool isr, Operation operation) noexcept
     {
         if (isr && !metric_isr_compatible<MetricT, Policies>) {
-            return fail(
+            return fail<Error>(
                 slot_error<MetricT>(id_, operation, Status::NotSupported, Reason::InvalidContext));
         }
         return access(no_wait || isr, operation, [&](auto& state) {
@@ -625,7 +625,7 @@ template <typename MetricT, typename Policies, typename Concurrency> class Locke
                                  : std::optional<kernel::SpinLock::Guard>{lock_.acquire()};
             if (!guard) {
                 record_contention_fallback();
-                return Return{fail(
+                return Return{fail<Error>(
                     slot_error<MetricT>(id_, operation, Status::WouldBlock, Reason::WouldBlock))};
             }
             merge_contention();
@@ -635,8 +635,8 @@ template <typename MetricT, typename Policies, typename Concurrency> class Locke
                                                            : kernel::Timeout::forever());
             if (!guard) {
                 record_contention_fallback();
-                return Return{
-                    fail(slot_error<MetricT>(id_, operation, guard.error(), Reason::WouldBlock))};
+                return Return{fail<Error>(slot_error<MetricT>(
+                    id_, operation, status_of(guard.error()), Reason::WouldBlock))};
             }
             merge_contention();
             return function(state_);
@@ -718,7 +718,7 @@ template <typename MetricT, typename Policies> class AtomicSlot
                 record_atomic_failure(Status::Overflow, Reason::Overflow);
                 overflows_.fetch_add(1, std::memory_order_relaxed);
                 end_write();
-                return fail(
+                return fail<Error>(
                     slot_error<MetricT>(id_, operation, Status::Overflow, Reason::Overflow));
             }
             if (value_.compare_exchange_weak(current, added->first, std::memory_order_acq_rel,
@@ -733,7 +733,7 @@ template <typename MetricT, typename Policies> class AtomicSlot
         if (!valid_numeric<MetricT, Policies>(value)) {
             record_atomic_failure(Status::Invalid, Reason::InvalidNumeric);
             invalid_numeric_.fetch_add(1, std::memory_order_relaxed);
-            return fail(
+            return fail<Error>(
                 slot_error<MetricT>(id_, operation, Status::Invalid, Reason::InvalidNumeric));
         }
         begin_write();
@@ -744,7 +744,7 @@ template <typename MetricT, typename Policies> class AtomicSlot
 
     [[nodiscard]] Result<Update, Error> observe(Value, bool, bool, Operation operation) noexcept
     {
-        return fail(
+        return fail<Error>(
             slot_error<MetricT>(id_, operation, Status::NotSupported, Reason::ReducerFailure));
     }
 
@@ -755,8 +755,8 @@ template <typename MetricT, typename Policies> class AtomicSlot
                 if (no_wait) {
                     record_atomic_failure(Status::WouldBlock, Reason::WouldBlock);
                     contention_.fetch_add(1, std::memory_order_relaxed);
-                    return fail(slot_error<MetricT>(id_, Operation::TryGet, Status::WouldBlock,
-                                                    Reason::WouldBlock));
+                    return fail<Error>(slot_error<MetricT>(id_, Operation::TryGet,
+                                                           Status::WouldBlock, Reason::WouldBlock));
                 }
                 k_sleep(K_TICKS(1));
                 continue;
@@ -779,8 +779,8 @@ template <typename MetricT, typename Policies> class AtomicSlot
             if (no_wait) {
                 record_atomic_failure(Status::WouldBlock, Reason::WouldBlock);
                 contention_.fetch_add(1, std::memory_order_relaxed);
-                return fail(slot_error<MetricT>(id_, Operation::TryGet, Status::WouldBlock,
-                                                Reason::WouldBlock));
+                return fail<Error>(slot_error<MetricT>(id_, Operation::TryGet, Status::WouldBlock,
+                                                       Reason::WouldBlock));
             }
         }
     }

@@ -26,8 +26,7 @@ struct Telemetry
     };
     using Value = Sample;
     using Capabilities = solar::remote::Capabilities<solar::remote::OutStream<
-        solar::remote::Push, solar::remote::Latest,
-        solar::remote::MaxRate<1000>>>;
+        solar::remote::Push, solar::remote::Latest, solar::remote::MaxRate<1000>>>;
 };
 
 struct LinkA : solar::remote::testing::InMemoryLink<LinkA, 256, 256>
@@ -80,8 +79,7 @@ namespace
 
 template <typename LinkT>
 solar::Result<solar::remote::frame::Decoded, solar::remote::Error>
-receive_frame(std::array<std::byte, 256>& host,
-              std::array<std::byte, 160>& scratch,
+receive_frame(std::array<std::byte, 256>& host, std::array<std::byte, 160>& scratch,
               int attempts = 200)
 {
     for (int attempt = 0; attempt < attempts; ++attempt) {
@@ -91,7 +89,7 @@ receive_frame(std::array<std::byte, 256>& host,
         }
         k_sleep(K_MSEC(1));
     }
-    return solar::fail(solar::remote::Error{.status = solar::Status::Timeout});
+    return solar::fail<solar::remote::Error>({.status = solar::Status::Timeout});
 }
 
 template <typename LinkT>
@@ -112,10 +110,9 @@ void inject(const solar::remote::protocol::Envelope& envelope,
 }
 
 template <typename LinkT>
-void establish(std::array<std::byte, 256>& host,
-               std::array<std::byte, 160>& scratch)
+void establish(std::array<std::byte, 256>& host, std::array<std::byte, 160>& scratch)
 {
-    zassert_equal(LinkT::connect(), solar::Status::Ok);
+    zassert_true(LinkT::connect().has_value());
     zassert_true(receive_frame<LinkT>(host, scratch).has_value());
     solar::remote::protocol::Envelope hello{
         .kind = solar::remote::protocol::Kind::ClientHello,
@@ -130,8 +127,7 @@ void establish(std::array<std::byte, 256>& host,
 }
 
 template <typename LinkT>
-void subscribe(std::array<std::byte, 256>& host,
-               std::array<std::byte, 160>& scratch)
+void subscribe(std::array<std::byte, 256>& host, std::array<std::byte, 160>& scratch)
 {
     solar::remote::protocol::Envelope request{
         .kind = solar::remote::protocol::Kind::Subscribe,
@@ -151,8 +147,7 @@ void subscribe(std::array<std::byte, 256>& host,
 }
 
 template <typename LinkT>
-std::uint32_t receive_sample(std::array<std::byte, 256>& host,
-                             std::array<std::byte, 160>& scratch)
+std::uint32_t receive_sample(std::array<std::byte, 256>& host, std::array<std::byte, 160>& scratch)
 {
     auto frame = receive_frame<LinkT>(host, scratch);
     zassert_true(frame.has_value());

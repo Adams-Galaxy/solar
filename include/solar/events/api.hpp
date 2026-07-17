@@ -178,7 +178,7 @@ template <Event EventT, typename Application = DefaultApplication>
 [[nodiscard]] Result<ConditionRecord, Error> condition(SourceId source) noexcept
 {
     if constexpr (!enabled) {
-        return fail(detail::frontend_error(frontend::Error::Disabled, Operation::Query));
+        return fail<Error>(detail::frontend_error(frontend::Error::Disabled, Operation::Query));
     } else {
         using System = bound_system_t<Application>;
         static_assert(System::EventCatalog::template contains<EventT>,
@@ -193,7 +193,7 @@ template <typename Observer, Event EventT, typename RouteTag = DefaultProcessorT
 [[nodiscard]] Result<ProcessorRecord, Error> processor_record() noexcept
 {
     if constexpr (!enabled) {
-        return fail(detail::frontend_error(frontend::Error::Disabled, Operation::Query));
+        return fail<Error>(detail::frontend_error(frontend::Error::Disabled, Operation::Query));
     } else {
         using System = bound_system_t<Application>;
         using Lookup = detail::FindProcessor<Observer, EventT, RouteTag,
@@ -204,9 +204,9 @@ template <typename Observer, Event EventT, typename RouteTag = DefaultProcessorT
             static_assert(!frontend::strict,
                           "SOLAR_DIAGNOSTIC_STRICT_UNREGISTERED_EVENT_PROCESSOR_QUERY: queried "
                           "processor route is absent from the bound catalog");
-            return fail(Error{.status = Status::NotFound,
-                              .reason = Reason::NotRegistered,
-                              .operation = Operation::Query});
+            return fail<Error>({.status = solar::Status::NotFound,
+                                .reason = Reason::NotRegistered,
+                                .operation = Operation::Query});
         }
     }
 }
@@ -228,7 +228,7 @@ template <Event EventT, typename Application = DefaultApplication>
 descriptor() noexcept
 {
     if constexpr (!enabled) {
-        return fail(catalog::LookupError::Unavailable);
+        return fail<catalog::LookupError>(catalog::LookupError::Unavailable);
     } else {
         using System = bound_system_t<Application>;
         if constexpr (System::EventCatalog::template contains<EventT>) {
@@ -240,7 +240,7 @@ descriptor() noexcept
             static_assert(!frontend::strict,
                           "SOLAR_DIAGNOSTIC_STRICT_UNREGISTERED_EVENT_QUERY: queried event is "
                           "absent from the bound catalog");
-            return fail(catalog::LookupError::Unavailable);
+            return fail<catalog::LookupError>(catalog::LookupError::Unavailable);
         }
     }
 }
@@ -251,15 +251,15 @@ template <Event EventT, typename Application = DefaultApplication>
 {
     const auto expected = detail::record_from_binding<EventT, Application>();
     if (!expected) {
-        return fail(expected.error());
+        return fail<Error>(expected.error());
     }
     if (record.header.event != expected->event ||
         record.payload.size() != sizeof(typename EventT::Payload) ||
         record.header.schema_version != descriptor_traits<Tag, EventT>::descriptor.version) {
-        return fail(Error{.status = Status::ProtocolError,
-                          .reason = Reason::DecodeMismatch,
-                          .operation = Operation::Query,
-                          .event = record.header.event});
+        return fail<Error>({.status = solar::Status::ProtocolError,
+                            .reason = Reason::DecodeMismatch,
+                            .operation = Operation::Query,
+                            .event = record.header.event});
     }
     typename EventT::Payload payload{};
     std::memcpy(&payload, record.payload.data(), sizeof(payload));
@@ -310,7 +310,7 @@ template <int = 0, typename Application = DefaultApplication>
 [[nodiscard]] Result<Record, Error> latest() noexcept
 {
     if constexpr (!enabled) {
-        return fail(detail::frontend_error(frontend::Error::Disabled, Operation::Query));
+        return fail<Error>(detail::frontend_error(frontend::Error::Disabled, Operation::Query));
     } else {
         using System = bound_system_t<Application>;
         return detail::latest_history<System>(std::nullopt);
@@ -321,7 +321,7 @@ template <Event EventT, typename Application = DefaultApplication>
 [[nodiscard]] Result<Record, Error> latest() noexcept
 {
     if constexpr (!enabled) {
-        return fail(detail::frontend_error(frontend::Error::Disabled, Operation::Query));
+        return fail<Error>(detail::frontend_error(frontend::Error::Disabled, Operation::Query));
     } else {
         using System = bound_system_t<Application>;
         static_assert(System::EventCatalog::template contains<EventT>,
@@ -369,7 +369,7 @@ template <typename Application> struct Of
     [[nodiscard]] static Result<ConditionRecord, Error> condition(SourceId source) noexcept
     {
         if constexpr (!enabled) {
-            return fail(detail::frontend_error(frontend::Error::Disabled, Operation::Query));
+            return fail<Error>(detail::frontend_error(frontend::Error::Disabled, Operation::Query));
         } else {
             using System = bound_system_t<Application>;
             static_assert(System::EventCatalog::template contains<EventT>,
@@ -485,7 +485,7 @@ template <typename Application> struct Of
     descriptor() noexcept
     {
         if constexpr (!enabled) {
-            return fail(catalog::LookupError::Unavailable);
+            return fail<catalog::LookupError>(catalog::LookupError::Unavailable);
         } else {
             using System = bound_system_t<Application>;
             if constexpr (System::EventCatalog::template contains<EventT>) {
@@ -497,7 +497,7 @@ template <typename Application> struct Of
                 static_assert(!frontend::strict,
                               "SOLAR_DIAGNOSTIC_STRICT_UNREGISTERED_EVENT_QUERY: queried event is "
                               "absent from the bound catalog");
-                return fail(catalog::LookupError::Unavailable);
+                return fail<catalog::LookupError>(catalog::LookupError::Unavailable);
             }
         }
     }
@@ -506,7 +506,7 @@ template <typename Application> struct Of
     [[nodiscard]] static Result<ProcessorRecord, Error> processor_record() noexcept
     {
         if constexpr (!enabled) {
-            return fail(detail::frontend_error(frontend::Error::Disabled, Operation::Query));
+            return fail<Error>(detail::frontend_error(frontend::Error::Disabled, Operation::Query));
         } else {
             using System = bound_system_t<Application>;
             using Lookup = detail::FindProcessor<Observer, EventT, RouteTag,
@@ -517,9 +517,9 @@ template <typename Application> struct Of
                 static_assert(!frontend::strict,
                               "SOLAR_DIAGNOSTIC_STRICT_UNREGISTERED_EVENT_PROCESSOR_QUERY: "
                               "queried processor route is absent from the bound catalog");
-                return fail(Error{.status = Status::NotFound,
-                                  .reason = Reason::NotRegistered,
-                                  .operation = Operation::Query});
+                return fail<Error>({.status = solar::Status::NotFound,
+                                    .reason = Reason::NotRegistered,
+                                    .operation = Operation::Query});
             }
         }
     }
@@ -562,7 +562,7 @@ template <typename Application> struct Of
     [[nodiscard]] static Result<Record, Error> latest() noexcept
     {
         if constexpr (!enabled) {
-            return fail(detail::frontend_error(frontend::Error::Disabled, Operation::Query));
+            return fail<Error>(detail::frontend_error(frontend::Error::Disabled, Operation::Query));
         } else {
             using System = bound_system_t<Application>;
             return detail::latest_history<System>(std::nullopt);
@@ -572,7 +572,7 @@ template <typename Application> struct Of
     template <Event EventT> [[nodiscard]] static Result<Record, Error> latest() noexcept
     {
         if constexpr (!enabled) {
-            return fail(detail::frontend_error(frontend::Error::Disabled, Operation::Query));
+            return fail<Error>(detail::frontend_error(frontend::Error::Disabled, Operation::Query));
         } else {
             using System = bound_system_t<Application>;
             static_assert(System::EventCatalog::template contains<EventT>,

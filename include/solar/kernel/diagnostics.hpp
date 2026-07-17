@@ -63,7 +63,7 @@ struct StackSafetyCheck
 [[nodiscard]] inline Result<bool> thread_exited(ThreadId thread) noexcept
 {
     if (thread == nullptr) {
-        return fail(Status::Invalid);
+        return fail<solar::Error>({.status = solar::Status::Invalid});
     }
     if (thread == k_current_get()) {
         return false;
@@ -75,7 +75,7 @@ struct StackSafetyCheck
     if (result == -EBUSY) {
         return false;
     }
-    return fail(status_from_errno(result));
+    return fail<Error>(error_from_errno(result));
 }
 
 [[nodiscard]] inline Result<StackUsage>
@@ -83,22 +83,20 @@ stack_usage(ThreadId thread, std::optional<std::size_t> configured_size = std::n
 {
 #if defined(CONFIG_INIT_STACKS) && defined(CONFIG_THREAD_STACK_INFO)
     if (thread == nullptr) {
-        return fail(Status::Invalid);
+        return fail<solar::Error>({.status = solar::Status::Invalid});
     }
 
     std::size_t unused{};
     const int result = k_thread_stack_space_get(thread, &unused);
     if (result != 0) {
-        return fail(status_from_errno(result));
+        return fail<Error>(error_from_errno(result));
     }
     const auto size = configured_size.value_or(thread->stack_info.size);
-    return StackUsage{.size = size,
-                      .used = size >= unused ? size - unused : 0,
-                      .unused = unused};
+    return StackUsage{.size = size, .used = size >= unused ? size - unused : 0, .unused = unused};
 #else
     (void)thread;
     (void)configured_size;
-    return fail(Status::NotSupported);
+    return fail<solar::Error>({.status = solar::Status::NotSupported});
 #endif
 }
 
@@ -106,12 +104,12 @@ stack_usage(ThreadId thread, std::optional<std::size_t> configured_size = std::n
 {
 #if defined(CONFIG_THREAD_RUNTIME_STATS)
     if (thread == nullptr) {
-        return fail(Status::Invalid);
+        return fail<solar::Error>({.status = solar::Status::Invalid});
     }
     k_thread_runtime_stats_t native{};
     const int result = k_thread_runtime_stats_get(thread, &native);
     if (result != 0) {
-        return fail(status_from_errno(result));
+        return fail<Error>(error_from_errno(result));
     }
 
     ThreadRuntimeStats stats{};
@@ -130,44 +128,44 @@ stack_usage(ThreadId thread, std::optional<std::size_t> configured_size = std::n
     return stats;
 #else
     (void)thread;
-    return fail(Status::NotSupported);
+    return fail<solar::Error>({.status = solar::Status::NotSupported});
 #endif
 }
 
-[[nodiscard]] inline Status set_runtime_stats(ThreadId thread, bool enabled) noexcept
+[[nodiscard]] inline Result<void> set_runtime_stats(ThreadId thread, bool enabled) noexcept
 {
 #if defined(CONFIG_THREAD_RUNTIME_STATS)
     if (thread == nullptr) {
-        return Status::Invalid;
+        return fail<Error>({.status = Status::Invalid});
     }
-    return status_from_errno(enabled ? k_thread_runtime_stats_enable(thread)
-                                     : k_thread_runtime_stats_disable(thread));
+    return detail::map_native(enabled ? k_thread_runtime_stats_enable(thread)
+                                      : k_thread_runtime_stats_disable(thread));
 #else
     (void)thread;
     (void)enabled;
-    return Status::NotSupported;
+    return fail<Error>({.status = Status::NotSupported});
 #endif
 }
 
-[[nodiscard]] inline Status set_stack_warning_margin(ThreadId thread,
-                                                      std::size_t margin) noexcept
+[[nodiscard]] inline Result<void> set_stack_warning_margin(ThreadId thread,
+                                                           std::size_t margin) noexcept
 {
-#if defined(CONFIG_THREAD_RUNTIME_STACK_SAFETY) && defined(CONFIG_INIT_STACKS) &&               \
+#if defined(CONFIG_THREAD_RUNTIME_STACK_SAFETY) && defined(CONFIG_INIT_STACKS) &&                  \
     defined(CONFIG_THREAD_STACK_INFO)
     if (thread == nullptr) {
-        return Status::Invalid;
+        return fail<Error>({.status = Status::Invalid});
     }
     // Zephyr 4.4's public syscall names do not match the implementation names.
     // Keep the compatibility workaround local to this native wrapper.
     if (margin > thread->stack_info.size) {
-        return Status::Invalid;
+        return fail<Error>({.status = Status::Invalid});
     }
     thread->stack_info.usage.unused_threshold = margin;
-    return Status::Ok;
+    return {};
 #else
     (void)thread;
     (void)margin;
-    return Status::NotSupported;
+    return fail<Error>({.status = Status::NotSupported});
 #endif
 }
 
@@ -184,26 +182,25 @@ inline void stack_safety_handler(const k_thread*, std::size_t, void* argument) n
 [[nodiscard]] inline Result<StackSafetyCheck> check_stack_safety(ThreadId thread,
                                                                  bool full_scan) noexcept
 {
-#if defined(CONFIG_THREAD_RUNTIME_STACK_SAFETY) && defined(CONFIG_INIT_STACKS) &&               \
+#if defined(CONFIG_THREAD_RUNTIME_STACK_SAFETY) && defined(CONFIG_INIT_STACKS) &&                  \
     defined(CONFIG_THREAD_STACK_INFO)
     if (thread == nullptr) {
-        return fail(Status::Invalid);
+        return fail<solar::Error>({.status = solar::Status::Invalid});
     }
     std::size_t unused{};
     bool crossed{};
-    const int result = full_scan
-                           ? k_thread_runtime_stack_safety_full_check(
-                                 thread, &unused, &detail::stack_safety_handler, &crossed)
-                           : k_thread_runtime_stack_safety_threshold_check(
-                                 thread, &unused, &detail::stack_safety_handler, &crossed);
+    const int result = full_scan ? k_thread_runtime_stack_safety_full_check(
+                                       thread, &unused, &detail::stack_safety_handler, &crossed)
+                                 : k_thread_runtime_stack_safety_threshold_check(
+                                       thread, &unused, &detail::stack_safety_handler, &crossed);
     if (result != 0) {
-        return fail(status_from_errno(result));
+        return fail<Error>(error_from_errno(result));
     }
     return StackSafetyCheck{.unused = unused, .threshold_crossed = crossed};
 #else
     (void)thread;
     (void)full_scan;
-    return fail(Status::NotSupported);
+    return fail<solar::Error>({.status = solar::Status::NotSupported});
 #endif
 }
 
@@ -212,7 +209,7 @@ thread_diagnostics(ThreadId thread,
                    std::optional<std::size_t> configured_stack_size = std::nullopt) noexcept
 {
     if (thread == nullptr) {
-        return fail(Status::Invalid);
+        return fail<solar::Error>({.status = solar::Status::Invalid});
     }
 
     ThreadDiagnostics diagnostics{.id = thread, .observed_at = now()};
@@ -249,10 +246,10 @@ thread_diagnostics(ThreadId thread,
 }
 
 template <std::size_t StackBytes>
-[[nodiscard]] Result<ThreadDiagnostics> thread_diagnostics(const Thread<StackBytes>& thread) noexcept
+[[nodiscard]] Result<ThreadDiagnostics>
+thread_diagnostics(const Thread<StackBytes>& thread) noexcept
 {
-    auto diagnostics =
-        thread_diagnostics(thread.native_handle(), Thread<StackBytes>::stack_size());
+    auto diagnostics = thread_diagnostics(thread.native_handle(), Thread<StackBytes>::stack_size());
     if (diagnostics) {
         diagnostics->state = thread.state();
     }
@@ -278,37 +275,37 @@ inline void visit_thread(const k_thread* thread, void* context_pointer) noexcept
 
 } // namespace detail
 
-[[nodiscard]] inline Status for_each_thread_locked(ThreadVisitor visitor,
-                                                    void* user_data = nullptr) noexcept
+[[nodiscard]] inline Result<void> for_each_thread_locked(ThreadVisitor visitor,
+                                                         void* user_data = nullptr) noexcept
 {
 #if defined(CONFIG_THREAD_MONITOR)
     if (visitor == nullptr) {
-        return Status::Invalid;
+        return fail<Error>({.status = Status::Invalid});
     }
     detail::ThreadVisitorContext context{.visitor = visitor, .user_data = user_data};
     k_thread_foreach(&detail::visit_thread, &context);
-    return Status::Ok;
+    return {};
 #else
     (void)visitor;
     (void)user_data;
-    return Status::NotSupported;
+    return fail<Error>({.status = Status::NotSupported});
 #endif
 }
 
-[[nodiscard]] inline Status for_each_thread_unlocked(ThreadVisitor visitor,
-                                                      void* user_data = nullptr) noexcept
+[[nodiscard]] inline Result<void> for_each_thread_unlocked(ThreadVisitor visitor,
+                                                           void* user_data = nullptr) noexcept
 {
 #if defined(CONFIG_THREAD_MONITOR)
     if (visitor == nullptr) {
-        return Status::Invalid;
+        return fail<Error>({.status = Status::Invalid});
     }
     detail::ThreadVisitorContext context{.visitor = visitor, .user_data = user_data};
     k_thread_foreach_unlocked(&detail::visit_thread, &context);
-    return Status::Ok;
+    return {};
 #else
     (void)visitor;
     (void)user_data;
-    return Status::NotSupported;
+    return fail<Error>({.status = Status::NotSupported});
 #endif
 }
 

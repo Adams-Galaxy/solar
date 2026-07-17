@@ -46,28 +46,28 @@ class StopToken
         return state_ != nullptr && state_->requested.load(std::memory_order_acquire);
     }
 
-    [[nodiscard]] Status wait(Timeout timeout = Timeout::forever()) const noexcept
+    [[nodiscard]] Result<void> wait(Timeout timeout = Timeout::forever()) const noexcept
     {
         if (state_ == nullptr) {
-            return Status::NotSupported;
+            return fail<Error>({.status = Status::NotSupported});
         }
         if (stop_requested()) {
-            return Status::Ok;
+            return {};
         }
         if (in_isr()) {
-            return Status::Invalid;
+            return fail<Error>({.status = Status::Invalid});
         }
         if (timeout.is_no_wait()) {
-            return Status::WouldBlock;
+            return fail<Error>({.status = Status::WouldBlock});
         }
 
         const auto deadline = Deadline::after(timeout);
         const int lock_result = k_mutex_lock(&state_->mutex, K_FOREVER);
         if (lock_result != 0) {
-            return status_from_errno(lock_result);
+            return fail<Error>(error_from_errno(lock_result));
         }
 
-        Status status = Status::Ok;
+        Result<void> status{};
         while (!state_->requested.load(std::memory_order_acquire)) {
             const auto remaining = deadline.remaining();
             const int result =
@@ -79,19 +79,19 @@ class StopToken
         }
 
         const int unlock_result = k_mutex_unlock(&state_->mutex);
-        if (status == Status::Ok && unlock_result != 0) {
-            status = status_from_errno(unlock_result);
+        if (status && unlock_result != 0) {
+            status = fail<Error>(error_from_errno(unlock_result));
         }
         return status;
     }
 
     template <typename Rep, typename Period>
-    [[nodiscard]] Status wait(std::chrono::duration<Rep, Period> timeout) const noexcept
+    [[nodiscard]] Result<void> wait(std::chrono::duration<Rep, Period> timeout) const noexcept
     {
         return wait(Timeout::after(timeout));
     }
 
-    [[nodiscard]] Status wait(const Deadline& deadline) const noexcept
+    [[nodiscard]] Result<void> wait(const Deadline& deadline) const noexcept
     {
         return wait(deadline.remaining());
     }
@@ -127,7 +127,7 @@ class StopSource
     [[nodiscard]] Result<bool> request_stop() noexcept
     {
         if (in_isr()) {
-            return fail(Status::Invalid);
+            return fail<solar::Error>({.status = solar::Status::Invalid});
         }
 
         bool expected = false;
@@ -137,15 +137,15 @@ class StopSource
 
         const int lock_result = k_mutex_lock(&state_.mutex, K_FOREVER);
         if (lock_result != 0) {
-            return fail(status_from_errno(lock_result));
+            return fail<Error>(error_from_errno(lock_result));
         }
         const int woken = k_condvar_broadcast(&state_.condition);
         const int unlock_result = k_mutex_unlock(&state_.mutex);
         if (woken < 0) {
-            return fail(status_from_errno(woken));
+            return fail<Error>(error_from_errno(woken));
         }
         if (unlock_result != 0) {
-            return fail(status_from_errno(unlock_result));
+            return fail<Error>(error_from_errno(unlock_result));
         }
         return true;
     }

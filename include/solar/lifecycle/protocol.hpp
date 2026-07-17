@@ -21,9 +21,9 @@ template <typename System, typename Component> struct ExecutionProtocol
 
     static void activate() noexcept {}
 
-    [[nodiscard]] static Status request_stop() noexcept
+    [[nodiscard]] static Result<void> request_stop() noexcept
     {
-        return Status::Ok;
+        return {};
     }
 
     [[nodiscard]] static Containment contain() noexcept
@@ -50,9 +50,9 @@ template <typename System> struct SystemExecutionProtocol
 
     static void activate() noexcept {}
 
-    [[nodiscard]] static Status request_stop() noexcept
+    [[nodiscard]] static Result<void> request_stop() noexcept
     {
-        return Status::Ok;
+        return {};
     }
 
     [[nodiscard]] static Containment contain() noexcept

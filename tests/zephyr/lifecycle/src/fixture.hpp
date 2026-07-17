@@ -36,10 +36,10 @@ using SuccessTrace = Trace<SuccessTraceTag>;
 struct SuccessCore
 {
     static constexpr solar::component::Descriptor descriptor{.name = "success.core"};
-    static solar::Status init() noexcept;
-    static solar::Status start() noexcept;
-    static solar::Status stop() noexcept;
-    static solar::Status deinit() noexcept;
+    static solar::Result<void> init() noexcept;
+    static solar::Result<void> start() noexcept;
+    static solar::Result<void> stop() noexcept;
+    static solar::Result<void> deinit() noexcept;
 };
 
 struct SuccessSensor
@@ -61,10 +61,10 @@ struct SuccessService
 {
     static constexpr solar::component::Descriptor descriptor{.name = "success.service"};
     using Dependencies = solar::Dependencies<SuccessSensor>;
-    static solar::Status init() noexcept;
-    static solar::Status start() noexcept;
-    static solar::Status stop() noexcept;
-    static solar::Status deinit() noexcept;
+    static solar::Result<void> init() noexcept;
+    static solar::Result<void> start() noexcept;
+    static solar::Result<void> stop() noexcept;
+    static solar::Result<void> deinit() noexcept;
 };
 
 struct SuccessExecutor
@@ -72,10 +72,10 @@ struct SuccessExecutor
 {
     static constexpr solar::component::Descriptor descriptor{.name = "success.executor"};
     using Dependencies = solar::Dependencies<SuccessService>;
-    static solar::Status init() noexcept;
-    static solar::Status start() noexcept;
-    static solar::Status stop() noexcept;
-    static solar::Status deinit() noexcept;
+    static solar::Result<void> init() noexcept;
+    static solar::Result<void> start() noexcept;
+    static solar::Result<void> stop() noexcept;
+    static solar::Result<void> deinit() noexcept;
 };
 
 using SuccessSystem = solar::System<
@@ -98,22 +98,22 @@ inline std::atomic_bool transition_states_observed{};
 struct InitFailureRoot
 {
     static constexpr solar::component::Descriptor descriptor{.name = "init_failure.root"};
-    static solar::Status init() noexcept;
-    static solar::Status deinit() noexcept;
+    static solar::Result<void> init() noexcept;
+    static solar::Result<void> deinit() noexcept;
 };
 
 struct InitFailureComponent
 {
     static constexpr solar::component::Descriptor descriptor{.name = "init_failure.failure"};
     using Dependencies = solar::Dependencies<InitFailureRoot>;
-    static solar::Status init() noexcept;
-    static solar::Status deinit() noexcept;
+    static solar::Result<void> init() noexcept;
+    static solar::Result<void> deinit() noexcept;
 };
 
 struct InitFailureSkipped
 {
     static constexpr solar::component::Descriptor descriptor{.name = "init_failure.skipped"};
-    static solar::Status init() noexcept;
+    static solar::Result<void> init() noexcept;
 };
 
 struct InitFailureTraceTag;
@@ -126,20 +126,20 @@ struct InitFailureApplication;
 struct StartFailureRoot
 {
     static constexpr solar::component::Descriptor descriptor{.name = "start_failure.root"};
-    static solar::Status init() noexcept;
-    static solar::Status start() noexcept;
-    static solar::Status stop() noexcept;
-    static solar::Status deinit() noexcept;
+    static solar::Result<void> init() noexcept;
+    static solar::Result<void> start() noexcept;
+    static solar::Result<void> stop() noexcept;
+    static solar::Result<void> deinit() noexcept;
 };
 
 struct StartFailureComponent
 {
     static constexpr solar::component::Descriptor descriptor{.name = "start_failure.failure"};
     using Dependencies = solar::Dependencies<StartFailureRoot>;
-    static solar::Status init() noexcept;
-    static solar::Status start() noexcept;
-    static solar::Status stop() noexcept;
-    static solar::Status deinit() noexcept;
+    static solar::Result<void> init() noexcept;
+    static solar::Result<void> start() noexcept;
+    static solar::Result<void> stop() noexcept;
+    static solar::Result<void> deinit() noexcept;
 };
 
 struct StartFailureTraceTag;
@@ -152,22 +152,22 @@ struct StopFailureComponent
 {
     static constexpr solar::component::Descriptor descriptor{.name = "stop_failure.component"};
     inline static bool deinit_called{};
-    static solar::Status init() noexcept
+    static solar::Result<void> init() noexcept
     {
-        return solar::Status::Ok;
+        return {};
     }
-    static solar::Status start() noexcept
+    static solar::Result<void> start() noexcept
     {
-        return solar::Status::Ok;
+        return {};
     }
-    static solar::Status stop() noexcept
+    static solar::Result<void> stop() noexcept
     {
-        return solar::Status::Error;
+        return solar::fail<solar::Error>({.status = solar::Status::Error});
     }
-    static solar::Status deinit() noexcept
+    static solar::Result<void> deinit() noexcept
     {
         deinit_called = true;
-        return solar::Status::Ok;
+        return {};
     }
 };
 
@@ -178,22 +178,22 @@ struct PrepareFailureService
 {
     static constexpr solar::component::Descriptor descriptor{.name = "execution.prepare_failure"};
     inline static bool deinit_called{};
-    static solar::Status init() noexcept
+    static solar::Result<void> init() noexcept
     {
-        return solar::Status::Ok;
+        return {};
     }
-    static solar::Status start() noexcept
+    static solar::Result<void> start() noexcept
     {
-        return solar::Status::Ok;
+        return {};
     }
-    static solar::Status stop() noexcept
+    static solar::Result<void> stop() noexcept
     {
-        return solar::Status::Ok;
+        return {};
     }
-    static solar::Status deinit() noexcept
+    static solar::Result<void> deinit() noexcept
     {
         deinit_called = true;
-        return solar::Status::Ok;
+        return {};
     }
 };
 
@@ -206,23 +206,23 @@ struct ValidateFailureService
     static constexpr solar::component::Descriptor descriptor{.name = "execution.validate_failure"};
     inline static bool stop_called{};
     inline static bool deinit_called{};
-    static solar::Status init() noexcept
+    static solar::Result<void> init() noexcept
     {
-        return solar::Status::Ok;
+        return {};
     }
-    static solar::Status start() noexcept
+    static solar::Result<void> start() noexcept
     {
-        return solar::Status::Ok;
+        return {};
     }
-    static solar::Status stop() noexcept
+    static solar::Result<void> stop() noexcept
     {
         stop_called = true;
-        return solar::Status::Ok;
+        return {};
     }
-    static solar::Status deinit() noexcept
+    static solar::Result<void> deinit() noexcept
     {
         deinit_called = true;
-        return solar::Status::Ok;
+        return {};
     }
 };
 
@@ -235,23 +235,23 @@ struct PreservedResource
     static constexpr solar::component::Descriptor descriptor{.name = "uncontained.resource"};
     inline static bool stop_called{};
     inline static bool deinit_called{};
-    static solar::Status init() noexcept
+    static solar::Result<void> init() noexcept
     {
-        return solar::Status::Ok;
+        return {};
     }
-    static solar::Status start() noexcept
+    static solar::Result<void> start() noexcept
     {
-        return solar::Status::Ok;
+        return {};
     }
-    static solar::Status stop() noexcept
+    static solar::Result<void> stop() noexcept
     {
         stop_called = true;
-        return solar::Status::Ok;
+        return {};
     }
-    static solar::Status deinit() noexcept
+    static solar::Result<void> deinit() noexcept
     {
         deinit_called = true;
-        return solar::Status::Ok;
+        return {};
     }
 };
 
@@ -260,23 +260,23 @@ struct IndependentResource
     static constexpr solar::component::Descriptor descriptor{.name = "uncontained.independent"};
     inline static bool stop_called{};
     inline static bool deinit_called{};
-    static solar::Status init() noexcept
+    static solar::Result<void> init() noexcept
     {
-        return solar::Status::Ok;
+        return {};
     }
-    static solar::Status start() noexcept
+    static solar::Result<void> start() noexcept
     {
-        return solar::Status::Ok;
+        return {};
     }
-    static solar::Status stop() noexcept
+    static solar::Result<void> stop() noexcept
     {
         stop_called = true;
-        return solar::Status::Ok;
+        return {};
     }
-    static solar::Status deinit() noexcept
+    static solar::Result<void> deinit() noexcept
     {
         deinit_called = true;
-        return solar::Status::Ok;
+        return {};
     }
 };
 
@@ -296,23 +296,23 @@ struct ForcedService
     static constexpr solar::component::Descriptor descriptor{.name = "forced.service"};
     inline static bool stop_called{};
     inline static bool deinit_called{};
-    static solar::Status init() noexcept
+    static solar::Result<void> init() noexcept
     {
-        return solar::Status::Ok;
+        return {};
     }
-    static solar::Status start() noexcept
+    static solar::Result<void> start() noexcept
     {
-        return solar::Status::Ok;
+        return {};
     }
-    static solar::Status stop() noexcept
+    static solar::Result<void> stop() noexcept
     {
         stop_called = true;
-        return solar::Status::Ok;
+        return {};
     }
-    static solar::Status deinit() noexcept
+    static solar::Result<void> deinit() noexcept
     {
         deinit_called = true;
-        return solar::Status::Ok;
+        return {};
     }
 };
 
@@ -322,52 +322,52 @@ struct ForcedApplication;
 struct CapacityOne
 {
     static constexpr solar::component::Descriptor descriptor{.name = "capacity.one"};
-    static solar::Status init() noexcept
+    static solar::Result<void> init() noexcept
     {
-        return solar::Status::Ok;
+        return {};
     }
-    static solar::Status deinit() noexcept
+    static solar::Result<void> deinit() noexcept
     {
-        return solar::Status::Error;
+        return solar::fail<solar::Error>({.status = solar::Status::Error});
     }
 };
 
 struct CapacityTwo
 {
     static constexpr solar::component::Descriptor descriptor{.name = "capacity.two"};
-    static solar::Status init() noexcept
+    static solar::Result<void> init() noexcept
     {
-        return solar::Status::Ok;
+        return {};
     }
-    static solar::Status deinit() noexcept
+    static solar::Result<void> deinit() noexcept
     {
-        return solar::Status::Error;
+        return solar::fail<solar::Error>({.status = solar::Status::Error});
     }
 };
 
 struct CapacityThree
 {
     static constexpr solar::component::Descriptor descriptor{.name = "capacity.three"};
-    static solar::Status init() noexcept
+    static solar::Result<void> init() noexcept
     {
-        return solar::Status::Ok;
+        return {};
     }
-    static solar::Status deinit() noexcept
+    static solar::Result<void> deinit() noexcept
     {
-        return solar::Status::Error;
+        return solar::fail<solar::Error>({.status = solar::Status::Error});
     }
 };
 
 struct CapacityStartFailure
 {
     static constexpr solar::component::Descriptor descriptor{.name = "capacity.start_failure"};
-    static solar::Status init() noexcept
+    static solar::Result<void> init() noexcept
     {
-        return solar::Status::Ok;
+        return {};
     }
-    static solar::Status start() noexcept
+    static solar::Result<void> start() noexcept
     {
-        return solar::Status::Invalid;
+        return solar::fail<solar::Error>({.status = solar::Status::Invalid});
     }
 };
 
@@ -380,7 +380,7 @@ struct ConcurrentComponent
     static constexpr solar::component::Descriptor descriptor{.name = "concurrent.component"};
     inline static solar::kernel::Semaphore entered{};
     inline static solar::kernel::Semaphore release{};
-    static solar::Status init() noexcept
+    static solar::Result<void> init() noexcept
     {
         entered.give();
         return release.take(solar::kernel::Timeout::after(std::chrono::milliseconds{500}));
@@ -452,10 +452,10 @@ struct solar::lifecycle::ExecutionProtocol<lifecycle_fixture::SuccessSystem,
         lifecycle_fixture::SuccessTrace::push(34);
     }
 
-    static solar::Status request_stop() noexcept
+    static solar::Result<void> request_stop() noexcept
     {
         lifecycle_fixture::SuccessTrace::push(35);
-        return solar::Status::Ok;
+        return {};
     }
 
     static solar::lifecycle::Containment contain() noexcept
@@ -472,16 +472,16 @@ struct solar::lifecycle::ExecutionProtocol<lifecycle_fixture::PrepareFailureSyst
     static constexpr bool participates = true;
     static solar::Result<void> prepare() noexcept
     {
-        return solar::fail(solar::Status::NoMemory);
+        return solar::fail<solar::Error>({.status = solar::Status::NoMemory});
     }
     static solar::Result<void> validate_activation() noexcept
     {
         return {};
     }
     static void activate() noexcept {}
-    static solar::Status request_stop() noexcept
+    static solar::Result<void> request_stop() noexcept
     {
-        return solar::Status::Ok;
+        return {};
     }
     static solar::lifecycle::Containment contain() noexcept
     {
@@ -500,12 +500,12 @@ struct solar::lifecycle::ExecutionProtocol<lifecycle_fixture::ValidateFailureSys
     }
     static solar::Result<void> validate_activation() noexcept
     {
-        return solar::fail(solar::Status::Invalid);
+        return solar::fail<solar::Error>({.status = solar::Status::Invalid});
     }
     static void activate() noexcept {}
-    static solar::Status request_stop() noexcept
+    static solar::Result<void> request_stop() noexcept
     {
-        return solar::Status::Ok;
+        return {};
     }
     static solar::lifecycle::Containment contain() noexcept
     {
@@ -527,9 +527,9 @@ struct solar::lifecycle::ExecutionProtocol<lifecycle_fixture::UncontainedSystem,
         return {};
     }
     static void activate() noexcept {}
-    static solar::Status request_stop() noexcept
+    static solar::Result<void> request_stop() noexcept
     {
-        return solar::Status::Ok;
+        return {};
     }
     static solar::lifecycle::Containment contain() noexcept
     {
@@ -551,9 +551,9 @@ struct solar::lifecycle::ExecutionProtocol<lifecycle_fixture::ForcedSystem,
         return {};
     }
     static void activate() noexcept {}
-    static solar::Status request_stop() noexcept
+    static solar::Result<void> request_stop() noexcept
     {
-        return solar::Status::Ok;
+        return {};
     }
     static solar::lifecycle::Containment contain() noexcept
     {
@@ -580,29 +580,29 @@ inline void observe_success_transition(solar::lifecycle::SystemState system_stat
     }
 }
 
-inline solar::Status SuccessCore::init() noexcept
+inline solar::Result<void> SuccessCore::init() noexcept
 {
     observe_success_transition<SuccessCore>(solar::lifecycle::SystemState::Initializing,
                                             solar::lifecycle::ComponentState::Initializing);
     SuccessTrace::push(10);
-    return solar::Status::Ok;
+    return {};
 }
-inline solar::Status SuccessCore::start() noexcept
+inline solar::Result<void> SuccessCore::start() noexcept
 {
     observe_success_transition<SuccessCore>(solar::lifecycle::SystemState::Starting,
                                             solar::lifecycle::ComponentState::Starting);
     SuccessTrace::push(11);
-    return solar::Status::Ok;
+    return {};
 }
-inline solar::Status SuccessCore::stop() noexcept
+inline solar::Result<void> SuccessCore::stop() noexcept
 {
     SuccessTrace::push(12);
-    return solar::Status::Ok;
+    return {};
 }
-inline solar::Status SuccessCore::deinit() noexcept
+inline solar::Result<void> SuccessCore::deinit() noexcept
 {
     SuccessTrace::push(13);
-    return solar::Status::Ok;
+    return {};
 }
 
 inline solar::Result<void> SuccessSensor::init() noexcept
@@ -626,117 +626,117 @@ inline solar::Result<void> SuccessSensor::deinit() noexcept
     return {};
 }
 
-inline solar::Status SuccessService::init() noexcept
+inline solar::Result<void> SuccessService::init() noexcept
 {
     SuccessTrace::push(30);
-    return solar::Status::Ok;
+    return {};
 }
-inline solar::Status SuccessService::start() noexcept
+inline solar::Result<void> SuccessService::start() noexcept
 {
     SuccessTrace::push(31);
-    return solar::Status::Ok;
+    return {};
 }
-inline solar::Status SuccessService::stop() noexcept
+inline solar::Result<void> SuccessService::stop() noexcept
 {
     SuccessTrace::push(37);
-    return solar::Status::Ok;
+    return {};
 }
-inline solar::Status SuccessService::deinit() noexcept
+inline solar::Result<void> SuccessService::deinit() noexcept
 {
     SuccessTrace::push(38);
-    return solar::Status::Ok;
+    return {};
 }
 
-inline solar::Status SuccessExecutor::init() noexcept
+inline solar::Result<void> SuccessExecutor::init() noexcept
 {
     SuccessTrace::push(40);
-    return solar::Status::Ok;
+    return {};
 }
-inline solar::Status SuccessExecutor::start() noexcept
+inline solar::Result<void> SuccessExecutor::start() noexcept
 {
     SuccessTrace::push(41);
-    return solar::Status::Ok;
+    return {};
 }
-inline solar::Status SuccessExecutor::stop() noexcept
+inline solar::Result<void> SuccessExecutor::stop() noexcept
 {
     observe_success_transition<SuccessExecutor>(solar::lifecycle::SystemState::Stopping,
                                                 solar::lifecycle::ComponentState::Stopping);
     SuccessTrace::push(42);
-    return solar::Status::Ok;
+    return {};
 }
-inline solar::Status SuccessExecutor::deinit() noexcept
+inline solar::Result<void> SuccessExecutor::deinit() noexcept
 {
     observe_success_transition<SuccessExecutor>(solar::lifecycle::SystemState::Deinitializing,
                                                 solar::lifecycle::ComponentState::Deinitializing);
     SuccessTrace::push(43);
-    return solar::Status::Ok;
+    return {};
 }
 
-inline solar::Status InitFailureRoot::init() noexcept
+inline solar::Result<void> InitFailureRoot::init() noexcept
 {
     InitFailureTrace::push(1);
-    return solar::Status::Ok;
+    return {};
 }
-inline solar::Status InitFailureRoot::deinit() noexcept
+inline solar::Result<void> InitFailureRoot::deinit() noexcept
 {
     InitFailureTrace::push(3);
-    return solar::Status::Ok;
+    return {};
 }
-inline solar::Status InitFailureComponent::init() noexcept
+inline solar::Result<void> InitFailureComponent::init() noexcept
 {
     InitFailureTrace::push(2);
-    return solar::Status::NotReady;
+    return solar::fail<solar::Error>({.status = solar::Status::NotReady});
 }
-inline solar::Status InitFailureComponent::deinit() noexcept
+inline solar::Result<void> InitFailureComponent::deinit() noexcept
 {
     InitFailureTrace::push(99);
-    return solar::Status::Ok;
+    return {};
 }
-inline solar::Status InitFailureSkipped::init() noexcept
+inline solar::Result<void> InitFailureSkipped::init() noexcept
 {
     InitFailureTrace::push(98);
-    return solar::Status::Ok;
+    return {};
 }
 
-inline solar::Status StartFailureRoot::init() noexcept
+inline solar::Result<void> StartFailureRoot::init() noexcept
 {
     StartFailureTrace::push(1);
-    return solar::Status::Ok;
+    return {};
 }
-inline solar::Status StartFailureRoot::start() noexcept
+inline solar::Result<void> StartFailureRoot::start() noexcept
 {
     StartFailureTrace::push(3);
-    return solar::Status::Ok;
+    return {};
 }
-inline solar::Status StartFailureRoot::stop() noexcept
+inline solar::Result<void> StartFailureRoot::stop() noexcept
 {
     StartFailureTrace::push(5);
-    return solar::Status::Error;
+    return solar::fail<solar::Error>({.status = solar::Status::Error});
 }
-inline solar::Status StartFailureRoot::deinit() noexcept
+inline solar::Result<void> StartFailureRoot::deinit() noexcept
 {
     StartFailureTrace::push(7);
-    return solar::Status::Ok;
+    return {};
 }
-inline solar::Status StartFailureComponent::init() noexcept
+inline solar::Result<void> StartFailureComponent::init() noexcept
 {
     StartFailureTrace::push(2);
-    return solar::Status::Ok;
+    return {};
 }
-inline solar::Status StartFailureComponent::start() noexcept
+inline solar::Result<void> StartFailureComponent::start() noexcept
 {
     StartFailureTrace::push(4);
-    return solar::Status::Invalid;
+    return solar::fail<solar::Error>({.status = solar::Status::Invalid});
 }
-inline solar::Status StartFailureComponent::stop() noexcept
+inline solar::Result<void> StartFailureComponent::stop() noexcept
 {
     StartFailureTrace::push(97);
-    return solar::Status::Ok;
+    return {};
 }
-inline solar::Status StartFailureComponent::deinit() noexcept
+inline solar::Result<void> StartFailureComponent::deinit() noexcept
 {
     StartFailureTrace::push(6);
-    return solar::Status::Ok;
+    return {};
 }
 
 inline void concurrent_boot_entry(void*) noexcept

@@ -36,12 +36,13 @@ struct Imu
         {
             recovery_attempts.fetch_add(1);
             if (!recovery_succeeds.load()) {
-                return solar::fail(solar::Status::Error);
+                return solar::fail<solar::Error>({.status = solar::Status::Error});
             }
             imu_connected.store(true);
             auto reported = solar::health::report<Imu>(solar::health::nominal());
             return reported ? solar::Result<void>{}
-                            : solar::Result<void>{solar::fail(reported.error().status)};
+                            : solar::Result<void>{
+                                  solar::fail<solar::Error>({.status = reported.error().status})};
         }
     };
 };

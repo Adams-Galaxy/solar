@@ -29,11 +29,11 @@ template <typename Application, Parameter ParameterT>
                   "SOLAR_DIAGNOSTIC_PARAMETER_ISR_REQUIRES_ATOMIC: ISR reads require explicit "
                   "always-lock-free atomic storage");
     if (!kernel::in_isr()) {
-        return fail(make_error<System, ParameterT>(Operation::GetIsr, Status::Invalid,
-                                                   Reason::InvalidContext));
+        return fail<Error>(make_error<System, ParameterT>(Operation::GetIsr, Status::Invalid,
+                                                          Reason::InvalidContext));
     }
     if (!Facility::ready.load(std::memory_order_acquire)) {
-        return fail(
+        return fail<Error>(
             make_error<System, ParameterT>(Operation::GetIsr, Status::NotReady, Reason::NotReady));
     }
     return Facility::template slot<ParameterT>.read_isr();
@@ -58,7 +58,7 @@ template <typename Application, bool Try, Parameter... ParametersT>
 {
     using System = bound_system_t<Application>;
     if constexpr (!enabled) {
-        return fail(frontend_error(frontend::Error::Disabled, Operation::Snapshot));
+        return fail<Error>(frontend_error(frontend::Error::Disabled, Operation::Snapshot));
     } else {
         static_assert((System::ParameterCatalog::template contains<ParametersT> && ...),
                       "SOLAR_DIAGNOSTIC_PARAMETER_SNAPSHOT_NOT_REGISTERED: snapshot contains an "
@@ -76,7 +76,7 @@ set_all_for(std::tuple<Assignment<ParametersT>...> assignments) noexcept
 {
     using System = bound_system_t<Application>;
     if constexpr (!enabled) {
-        return fail(frontend_error(frontend::Error::Disabled, Operation::Transaction));
+        return fail<Error>(frontend_error(frontend::Error::Disabled, Operation::Transaction));
     } else {
         return set_all_parameters<System>(std::move(assignments), Try);
     }
@@ -87,7 +87,7 @@ template <typename Application, bool Try>
 {
     using System = bound_system_t<Application>;
     if constexpr (!enabled) {
-        return fail(frontend_error(frontend::Error::Disabled, Operation::SaveAll));
+        return fail<Error>(frontend_error(frontend::Error::Disabled, Operation::SaveAll));
     } else {
         return save_all_parameters<System>(Try);
     }
@@ -98,7 +98,7 @@ template <typename Application, bool Try>
 {
     using System = bound_system_t<Application>;
     if constexpr (!enabled) {
-        return fail(frontend_error(frontend::Error::Disabled, Operation::Flush));
+        return fail<Error>(frontend_error(frontend::Error::Disabled, Operation::Flush));
     } else {
         return flush_parameters<System>(Try);
     }
@@ -160,7 +160,7 @@ template <typename Application> struct DescriptorAccess
             static_assert(!frontend::strict,
                           "SOLAR_DIAGNOSTIC_STRICT_UNREGISTERED_PARAMETER_QUERY: queried "
                           "parameter is absent from the bound catalog");
-            return fail(catalog::LookupError::Unavailable);
+            return fail<catalog::LookupError>(catalog::LookupError::Unavailable);
         }
     }
 };
@@ -315,7 +315,7 @@ template <typename Observer, Parameter ParameterT, typename RouteTag = DefaultCh
 {
     using System = bound_system_t<Application>;
     if constexpr (!enabled) {
-        return fail(detail::frontend_error(frontend::Error::Disabled, Operation::Query));
+        return fail<Error>(detail::frontend_error(frontend::Error::Disabled, Operation::Query));
     } else {
         using Lookup = detail::FindChange<Observer, ParameterT, RouteTag,
                                           typename System::ParameterFacility::ChangeTypes>;
@@ -325,9 +325,9 @@ template <typename Observer, Parameter ParameterT, typename RouteTag = DefaultCh
             static_assert(!frontend::strict,
                           "SOLAR_DIAGNOSTIC_STRICT_UNREGISTERED_PARAMETER_CHANGE_QUERY: queried "
                           "parameter change route is absent from the bound catalog");
-            return fail(Error{.status = Status::NotFound,
-                              .reason = Reason::NotRegistered,
-                              .operation = Operation::Query});
+            return fail<Error>({.status = solar::Status::NotFound,
+                                .reason = Reason::NotRegistered,
+                                .operation = Operation::Query});
         }
     }
 }

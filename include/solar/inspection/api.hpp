@@ -35,10 +35,10 @@ template <typename System, typename Visitor, typename... Entries>
           : void()),
      ...);
     if (!matched) {
-        return fail(Error{.status = Status::NotFound,
-                          .reason = Reason::NotFound,
-                          .operation = Operation::Visit,
-                          .collection = collection});
+        return fail<Error>({.status = solar::Status::NotFound,
+                            .reason = Reason::NotFound,
+                            .operation = Operation::Visit,
+                            .collection = collection});
     }
     return {};
 }
@@ -69,10 +69,10 @@ template <typename Application = DefaultApplication> struct Of
     {
         const auto descriptors = collections();
         if (!collection.valid() || collection.index() >= descriptors.size()) {
-            return fail(Error{.status = Status::NotFound,
-                              .reason = Reason::NotFound,
-                              .operation = Operation::Find,
-                              .collection = collection});
+            return fail<Error>({.status = solar::Status::NotFound,
+                                .reason = Reason::NotFound,
+                                .operation = Operation::Find,
+                                .collection = collection});
         }
         return std::cref(descriptors[collection.index()]);
     }
@@ -86,9 +86,9 @@ template <typename Application = DefaultApplication> struct Of
                 return value.descriptor.stable_id == stable_id;
             });
         if (found == descriptors.end()) {
-            return fail(Error{.status = Status::NotFound,
-                              .reason = Reason::NotFound,
-                              .operation = Operation::Find});
+            return fail<Error>({.status = solar::Status::NotFound,
+                                .reason = Reason::NotFound,
+                                .operation = Operation::Find});
         }
         return std::cref(*found);
     }
@@ -104,18 +104,18 @@ template <typename Application = DefaultApplication> struct Of
         constexpr auto collection = Catalog::template Entry<Collection>::local_id;
         if (request.page.cursor.collection.valid() &&
             request.page.cursor.collection != collection) {
-            return fail(Error{.status = Status::Invalid,
-                              .reason = Reason::StaleCursor,
-                              .operation = Operation::Query,
-                              .collection = collection});
+            return fail<Error>({.status = solar::Status::Invalid,
+                                .reason = Reason::StaleCursor,
+                                .operation = Operation::Query,
+                                .collection = collection});
         }
         const auto requested = request.page.limit == 0 ? destination.size() : request.page.limit;
         if (requested > Collection::descriptor.maximum_page) {
-            return fail(Error{.status = Status::NoSpace,
-                              .reason = Reason::NoSpace,
-                              .operation = Operation::Query,
-                              .collection = collection,
-                              .detail = static_cast<std::uint32_t>(requested)});
+            return fail<Error>({.status = solar::Status::NoSpace,
+                                .reason = Reason::NoSpace,
+                                .operation = Operation::Query,
+                                .collection = collection,
+                                .detail = static_cast<std::uint32_t>(requested)});
         }
         const auto capacity = (std::min)(requested, destination.size());
         auto result = detail::query_provider<System, Collection>(
@@ -124,11 +124,11 @@ template <typename Application = DefaultApplication> struct Of
             return result;
         }
         if (result->written > capacity) {
-            return fail(Error{.status = Status::Error,
-                              .reason = Reason::SourceFailed,
-                              .operation = Operation::Query,
-                              .collection = collection,
-                              .detail = static_cast<std::uint32_t>(result->written)});
+            return fail<Error>({.status = solar::Status::Error,
+                                .reason = Reason::SourceFailed,
+                                .operation = Operation::Query,
+                                .collection = collection,
+                                .detail = static_cast<std::uint32_t>(result->written)});
         }
         if (!result->next.collection.valid()) {
             result->next.collection = collection;

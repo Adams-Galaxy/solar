@@ -62,7 +62,7 @@ template <typename System, typename Component> void service_entry(void*) noexcep
 
     auto result = invoke_service<Component>(state.stop_source.token());
     const bool stop_requested = state.stop_source.stop_requested();
-    Status status = result ? Status::Ok : result.error();
+    Status status = result ? Status::Ok : status_of(result.error());
     if (result && !stop_requested) {
         status = Status::UnexpectedExit;
     }
@@ -87,8 +87,8 @@ template <typename System, typename Component> [[nodiscard]] Result<void> prepar
                   "SOLAR_DIAGNOSTIC_MISSING_SERVICE_EXECUTION: service must declare using "
                   "Execution = solar::execution::Service<...>");
     static_assert(!DeclaredService<Component> || ValidServiceRun<Component>,
-                  "SOLAR_DIAGNOSTIC_INVALID_SERVICE_RUN: service must implement static Status or "
-                  "Result<void> run(StopToken)");
+                  "SOLAR_DIAGNOSTIC_INVALID_SERVICE_RUN: service must implement static "
+                  "Result<void, ErrorType> run(StopToken)");
 
     using Policy = component_service_policy<Component>;
     auto& state = service_state<System, Component>();
@@ -108,9 +108,10 @@ template <typename System, typename Component> [[nodiscard]] Result<void> prepar
     });
 
     const auto priority = kernel::Priority::template preemptive<Policy::priority>();
-    const auto status = state.thread.prepare(
+    const auto prepared = state.thread.prepare(
         &service_entry<System, Component>, nullptr,
         kernel::ThreadConfiguration{.priority = priority, .name = nullptr, .options = 0});
+    const auto status = prepared ? Status::Ok : status_of(prepared.error());
     state.mutate([&](ServiceRecord& record) {
         record.thread_created = status == Status::Ok;
         record.thread_state = thread_state(state.thread.state());
@@ -119,7 +120,7 @@ template <typename System, typename Component> [[nodiscard]] Result<void> prepar
             status == Status::Ok ? ContainmentState::Prepared : ContainmentState::NotPrepared;
         record.run_status = status == Status::Ok ? Status::NotReady : status;
     });
-    return status == Status::Ok ? Result<void>{} : Result<void>{fail(status)};
+    return prepared;
 }
 
 template <typename System, typename Component>
@@ -128,14 +129,15 @@ template <typename System, typename Component>
     const auto& state = service_state<System, Component>();
     return state.thread.state() == kernel::ThreadExecutionState::Prepared
                ? Result<void>{}
-               : Result<void>{fail(Status::NotReady)};
+               : Result<void>{fail<solar::Error>({.status = solar::Status::NotReady})};
 }
 
 template <typename System, typename Component> void activate_service() noexcept
 {
     auto& state = service_state<System, Component>();
-    const auto status = state.thread.start();
-    if (status != Status::Ok) {
+    const auto started = state.thread.start();
+    if (!started) {
+        const auto status = status_of(started.error());
         state.mutate([&](ServiceRecord& record) {
             record.run_status = status;
             record.containment = ContainmentState::Uncontained;
@@ -144,7 +146,8 @@ template <typename System, typename Component> void activate_service() noexcept
     }
 }
 
-template <typename System, typename Component> [[nodiscard]] Status request_service_stop() noexcept
+template <typename System, typename Component>
+[[nodiscard]] Result<void> request_service_stop() noexcept
 {
     auto& state = service_state<System, Component>();
     auto result = state.stop_source.request_stop();
@@ -152,7 +155,7 @@ template <typename System, typename Component> [[nodiscard]] Status request_serv
         Component::notify_stop();
     }
     state.mutate([&](ServiceRecord& record) { record.stop_requested = true; });
-    return result ? Status::Ok : result.error();
+    return result ? Result<void>{} : Result<void>{fail<solar::Error>(result.error())};
 }
 
 template <typename System, typename Component>
@@ -162,8 +165,8 @@ template <typename System, typename Component>
     auto& state = service_state<System, Component>();
     state.mutate([](ServiceRecord& record) { record.join_attempted = true; });
 
-    auto status = state.thread.join(kernel::Timeout::after(Policy::stop_timeout));
-    if (status == Status::Ok) {
+    auto joined = state.thread.join(kernel::Timeout::after(Policy::stop_timeout));
+    if (joined) {
         const auto run_status = state.copy().run_status;
         state.mutate([](ServiceRecord& record) {
             record.joined = true;
@@ -174,6 +177,7 @@ template <typename System, typename Component>
                 .contained = true};
     }
 
+    const auto status = status_of(joined.error());
     const bool timed_out = status == Status::Timeout || status == Status::WouldBlock;
     state.mutate([&](ServiceRecord& record) { record.timed_out = timed_out; });
     if (!timed_out) {
@@ -184,8 +188,9 @@ template <typename System, typename Component>
 
     if constexpr (Policy::abort_on_timeout) {
         state.mutate([](ServiceRecord& record) { record.abort_attempted = true; });
-        const auto abort_status = state.thread.abort();
-        const bool aborted = abort_status == Status::Ok || abort_status == Status::Already;
+        const auto abort_result = state.thread.abort();
+        const auto abort_status = abort_result ? Status::Ok : status_of(abort_result.error());
+        const bool aborted = abort_result || abort_status == Status::Already;
         state.mutate([&](ServiceRecord& record) {
             record.abort_succeeded = aborted;
             record.abort_failed = !aborted;
@@ -203,7 +208,7 @@ template <typename System, typename Component>
     }
 
     state.mutate([](ServiceRecord& record) { record.containment = ContainmentState::Uncontained; });
-    return {.status = Status::Timeout, .contained = false, .timed_out = true};
+    return {.status = solar::Status::Timeout, .contained = false, .timed_out = true};
 }
 
 } // namespace solar::execution::detail
@@ -233,7 +238,7 @@ struct ExecutionProtocol<System, Component>
         execution::detail::activate_service<System, Component>();
     }
 
-    [[nodiscard]] static Status request_stop() noexcept
+    [[nodiscard]] static Result<void> request_stop() noexcept
     {
         return execution::detail::request_service_stop<System, Component>();
     }

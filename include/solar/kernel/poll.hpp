@@ -32,7 +32,7 @@ class PollSignal
     PollSignal(PollSignal&&) = delete;
     PollSignal& operator=(PollSignal&&) = delete;
 
-    [[nodiscard]] Status raise(int value = 0) noexcept
+    [[nodiscard]] Result<void> raise(int value = 0) noexcept
     {
         return detail::map_native(k_poll_signal_raise(&signal_, value));
     }
@@ -104,18 +104,19 @@ template <std::size_t Capacity> class PollSet
     PollSet(PollSet&&) = delete;
     PollSet& operator=(PollSet&&) = delete;
 
-    [[nodiscard]] Status add(PollSignal& signal, std::uint8_t tag = 0) noexcept
+    [[nodiscard]] Result<void> add(PollSignal& signal, std::uint8_t tag = 0) noexcept
     {
         return add_native(K_POLL_TYPE_SIGNAL, signal.native_handle(), tag);
     }
 
-    [[nodiscard]] Status add(Semaphore& semaphore, std::uint8_t tag = 0) noexcept
+    [[nodiscard]] Result<void> add(Semaphore& semaphore, std::uint8_t tag = 0) noexcept
     {
         return add_native(K_POLL_TYPE_SEM_AVAILABLE, semaphore.native_handle(), tag);
     }
 
     template <typename Message, std::size_t Depth>
-    [[nodiscard]] Status add(MessageQueue<Message, Depth>& queue, std::uint8_t tag = 0) noexcept
+    [[nodiscard]] Result<void> add(MessageQueue<Message, Depth>& queue,
+                                   std::uint8_t tag = 0) noexcept
     {
         return add_native(K_POLL_TYPE_MSGQ_DATA_AVAILABLE, queue.native_handle(), tag);
     }
@@ -123,7 +124,7 @@ template <std::size_t Capacity> class PollSet
     [[nodiscard]] Result<PollResult> wait(Timeout timeout = Timeout::forever()) noexcept
     {
         if (count_ == 0) {
-            return fail(Status::Invalid);
+            return fail<solar::Error>({.status = solar::Status::Invalid});
         }
 
         reset_states();
@@ -132,7 +133,8 @@ template <std::size_t Capacity> class PollSet
         if (result == 0 || result == -EINTR) {
             return PollResult{.ready = ready_count(), .interrupted = result == -EINTR};
         }
-        return fail(detail::map_wait(result, timeout, Status::WouldBlock));
+        auto waited = detail::map_wait(result, timeout, Status::WouldBlock);
+        return fail<Error>(waited.error());
     }
 
     [[nodiscard]] Result<PollResult> wait(const Deadline& deadline) noexcept
@@ -148,7 +150,7 @@ template <std::size_t Capacity> class PollSet
     [[nodiscard]] Result<PollEvent> event(std::size_t index) const noexcept
     {
         if (index >= count_) {
-            return fail(Status::NotFound);
+            return fail<solar::Error>({.status = solar::Status::NotFound});
         }
         return PollEvent{.tag = static_cast<std::uint8_t>(events_[index].tag),
                          .state = state_of(events_[index].state)};
@@ -170,19 +172,20 @@ template <std::size_t Capacity> class PollSet
     }
 
   private:
-    [[nodiscard]] Status add_native(std::uint32_t type, void* object, std::uint8_t tag) noexcept
+    [[nodiscard]] Result<void> add_native(std::uint32_t type, void* object,
+                                          std::uint8_t tag) noexcept
     {
         if (object == nullptr) {
-            return Status::Invalid;
+            return fail<Error>({.status = Status::Invalid});
         }
         if (count_ == Capacity) {
-            return Status::Full;
+            return fail<Error>({.status = Status::Full});
         }
 
         k_poll_event_init(&events_[count_], type, K_POLL_MODE_NOTIFY_ONLY, object);
         events_[count_].tag = tag;
         ++count_;
-        return Status::Ok;
+        return {};
     }
 
     void reset_states() noexcept

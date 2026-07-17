@@ -27,14 +27,20 @@ using observation_argument_t = typename ObservationArgument<EventT>::type;
 {
     switch (error) {
     case frontend::Error::NotReady:
-        return {.status = Status::NotReady, .reason = Reason::NotReady, .operation = operation};
-    case frontend::Error::Disabled:
-        return {.status = Status::NotSupported, .reason = Reason::Disabled, .operation = operation};
-    case frontend::Error::NotRegistered:
         return {
-            .status = Status::NotFound, .reason = Reason::NotRegistered, .operation = operation};
+            .status = solar::Status::NotReady, .reason = Reason::NotReady, .operation = operation};
+    case frontend::Error::Disabled:
+        return {.status = solar::Status::NotSupported,
+                .reason = Reason::Disabled,
+                .operation = operation};
+    case frontend::Error::NotRegistered:
+        return {.status = solar::Status::NotFound,
+                .reason = Reason::NotRegistered,
+                .operation = operation};
     }
-    return {.status = Status::Error, .reason = Reason::InternalInvariant, .operation = operation};
+    return {.status = solar::Status::Error,
+            .reason = Reason::InternalInvariant,
+            .operation = operation};
 }
 
 enum class ObserveMode : std::uint8_t
@@ -59,8 +65,8 @@ template <ObserveMode Mode> struct ObserveFrontend
         if constexpr (Mode == ObserveMode::Isr) {
             using Policies = typename System::EventFacility::template Policies<EventT>;
             if constexpr (!CaptureTraits<typename Policies::Capture>::isr_compatible) {
-                return fail(make_error<System, EventT>(Operation::ObserveIsr, Status::NotSupported,
-                                                       Reason::IsrUnsupported, source));
+                return fail<Error>(make_error<System, EventT>(
+                    Operation::ObserveIsr, Status::NotSupported, Reason::IsrUnsupported, source));
             } else {
                 return capture_event<System, EventT, true, Operation::ObserveIsr>(payload, source,
                                                                                   options);
@@ -88,7 +94,7 @@ template <ObserveMode Mode> struct ObserveFrontend
         constexpr auto operation = Mode == ObserveMode::Isr   ? Operation::ObserveIsr
                                    : Mode == ObserveMode::Try ? Operation::TryObserve
                                                               : Operation::Observe;
-        return fail(frontend_error(error, operation));
+        return fail<Error>(frontend_error(error, operation));
     }
 };
 
@@ -106,7 +112,7 @@ struct RecordFrontend
     template <typename EventT>
     [[nodiscard]] static Result<EventRecord, Error> unavailable(frontend::Error error) noexcept
     {
-        return fail(frontend_error(error, Operation::Query));
+        return fail<Error>(frontend_error(error, Operation::Query));
     }
 };
 
@@ -140,7 +146,7 @@ template <typename Application, typename Source, typename EventT, ObserveMode Mo
         constexpr auto operation = Mode == ObserveMode::Isr   ? Operation::ObserveIsr
                                    : Mode == ObserveMode::Try ? Operation::TryObserve
                                                               : Operation::Observe;
-        return fail(frontend_error(frontend::Error::Disabled, operation));
+        return fail<Error>(frontend_error(frontend::Error::Disabled, operation));
     } else {
         using System = bound_system_t<Application>;
         static_assert(System::EventCatalog::template contains<EventT>,

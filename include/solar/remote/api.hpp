@@ -8,20 +8,22 @@
 namespace solar::remote::detail
 {
 
-[[nodiscard]] constexpr Error frontend_error(frontend::Error error,
-                                             Operation operation) noexcept
+[[nodiscard]] constexpr Error frontend_error(frontend::Error error, Operation operation) noexcept
 {
     switch (error) {
     case frontend::Error::NotReady:
-        return {.status = Status::NotReady, .reason = Reason::NotReady, .operation = operation};
+        return {
+            .status = solar::Status::NotReady, .reason = Reason::NotReady, .operation = operation};
     case frontend::Error::Disabled:
-        return {.status = Status::NotSupported, .reason = Reason::Disabled, .operation = operation};
+        return {.status = solar::Status::NotSupported,
+                .reason = Reason::Disabled,
+                .operation = operation};
     case frontend::Error::NotRegistered:
-        return {.status = Status::NotFound,
+        return {.status = solar::Status::NotFound,
                 .reason = Reason::NotRegistered,
                 .operation = operation};
     }
-    return {.status = Status::Error,
+    return {.status = solar::Status::Error,
             .reason = Reason::InternalInvariant,
             .operation = operation};
 }
@@ -29,24 +31,22 @@ namespace solar::remote::detail
 struct WriteDataFrontend
 {
     using CatalogTag = DataTag;
-    template <typename DataT>
-    using Signature = Result<WriteReceipt, Error>(typename DataT::Value);
+    template <typename DataT> using Signature = Result<WriteReceipt, Error>(typename DataT::Value);
 
     template <typename System, typename DataT>
-    [[nodiscard]] static Result<WriteReceipt, Error>
-    invoke(typename DataT::Value value) noexcept
+    [[nodiscard]] static Result<WriteReceipt, Error> invoke(typename DataT::Value value) noexcept
     {
 #if defined(__ZEPHYR__) && defined(CONFIG_SOLAR_REMOTE)
         if constexpr (has_push_v<DataT>) {
             return write_data<System, DataT>(std::move(value));
         } else {
             (void)value;
-            return fail(Error{Status::NotSupported, Reason::UnsupportedOperation,
-                              Operation::Publish});
+            return fail<Error>(
+                {Status::NotSupported, Reason::UnsupportedOperation, Operation::Publish});
         }
 #else
         (void)value;
-        return fail(frontend_error(frontend::Error::Disabled, Operation::Publish));
+        return fail<Error>(frontend_error(frontend::Error::Disabled, Operation::Publish));
 #endif
     }
 
@@ -56,10 +56,9 @@ struct WriteDataFrontend
     }
 
     template <typename DataT>
-    [[nodiscard]] static Result<WriteReceipt, Error>
-    unavailable(frontend::Error error) noexcept
+    [[nodiscard]] static Result<WriteReceipt, Error> unavailable(frontend::Error error) noexcept
     {
-        return fail(frontend_error(error, Operation::Publish));
+        return fail<Error>(frontend_error(error, Operation::Publish));
     }
 };
 
@@ -76,14 +75,12 @@ struct DataInterestFrontend
             interested = interested || interested_in_data<System, DataT>();
         }
         if constexpr (has_loaned_v<DataT>) {
-            interested = interested ||
-                         loan_state<System, DataT>().interested_sessions.load(
-                             std::memory_order_acquire) != 0;
+            interested = interested || loan_state<System, DataT>().interested_sessions.load(
+                                           std::memory_order_acquire) != 0;
         }
         if constexpr (has_watch_v<DataT>) {
-            interested = interested ||
-                         watch_state<System, DataT>().interested_sessions.load(
-                             std::memory_order_acquire) != 0;
+            interested = interested || watch_state<System, DataT>().interested_sessions.load(
+                                           std::memory_order_acquire) != 0;
         }
         return interested;
 #else
@@ -105,12 +102,10 @@ struct DataInterestFrontend
 struct PublishDataWatchFrontend
 {
     using CatalogTag = DataTag;
-    template <typename DataT>
-    using Signature = Result<WriteReceipt, Error>(typename DataT::Value);
+    template <typename DataT> using Signature = Result<WriteReceipt, Error>(typename DataT::Value);
 
     template <typename System, typename DataT>
-    [[nodiscard]] static Result<WriteReceipt, Error>
-    invoke(typename DataT::Value value) noexcept
+    [[nodiscard]] static Result<WriteReceipt, Error> invoke(typename DataT::Value value) noexcept
     {
 #if defined(__ZEPHYR__) && defined(CONFIG_SOLAR_REMOTE)
         if constexpr (has_watch_v<DataT>) {
@@ -118,8 +113,8 @@ struct PublishDataWatchFrontend
         }
 #endif
         (void)value;
-        return fail(Error{Status::NotSupported, Reason::UnsupportedOperation,
-                          Operation::Publish});
+        return fail<Error>(
+            {Status::NotSupported, Reason::UnsupportedOperation, Operation::Publish});
     }
 
     template <typename System, typename DataT> static consteval void validate()
@@ -128,10 +123,9 @@ struct PublishDataWatchFrontend
     }
 
     template <typename DataT>
-    [[nodiscard]] static Result<WriteReceipt, Error>
-    unavailable(frontend::Error error) noexcept
+    [[nodiscard]] static Result<WriteReceipt, Error> unavailable(frontend::Error error) noexcept
     {
-        return fail(frontend_error(error, Operation::Publish));
+        return fail<Error>(frontend_error(error, Operation::Publish));
     }
 };
 
@@ -142,14 +136,13 @@ struct PublishTopicFrontend
     using Signature = Result<WriteReceipt, Error>(typename TopicT::Value);
 
     template <typename System, typename TopicT>
-    [[nodiscard]] static Result<WriteReceipt, Error>
-    invoke(typename TopicT::Value value) noexcept
+    [[nodiscard]] static Result<WriteReceipt, Error> invoke(typename TopicT::Value value) noexcept
     {
 #if defined(__ZEPHYR__) && defined(CONFIG_SOLAR_REMOTE)
         return publish_topic<System, TopicT>(std::move(value));
 #else
         (void)value;
-        return fail(frontend_error(frontend::Error::Disabled, Operation::Publish));
+        return fail<Error>(frontend_error(frontend::Error::Disabled, Operation::Publish));
 #endif
     }
 
@@ -159,10 +152,9 @@ struct PublishTopicFrontend
     }
 
     template <typename TopicT>
-    [[nodiscard]] static Result<WriteReceipt, Error>
-    unavailable(frontend::Error error) noexcept
+    [[nodiscard]] static Result<WriteReceipt, Error> unavailable(frontend::Error error) noexcept
     {
-        return fail(frontend_error(error, Operation::Publish));
+        return fail<Error>(frontend_error(error, Operation::Publish));
     }
 };
 
@@ -174,8 +166,8 @@ struct TopicInterestFrontend
     template <typename System, typename TopicT> [[nodiscard]] static bool invoke() noexcept
     {
 #if defined(__ZEPHYR__) && defined(CONFIG_SOLAR_REMOTE)
-        return topic_state<System, TopicT>().interested_sessions.load(
-                   std::memory_order_acquire) != 0;
+        return topic_state<System, TopicT>().interested_sessions.load(std::memory_order_acquire) !=
+               0;
 #else
         return false;
 #endif
@@ -205,8 +197,8 @@ struct TryLoanFrontend
             return try_loan_data<System, DataT>();
         }
 #endif
-        return fail(Error{Status::NotSupported, Reason::UnsupportedOperation,
-                          Operation::Publish});
+        return fail<Error>(
+            {Status::NotSupported, Reason::UnsupportedOperation, Operation::Publish});
     }
 
     template <typename System, typename DataT> static consteval void validate()
@@ -215,10 +207,9 @@ struct TryLoanFrontend
     }
 
     template <typename DataT>
-    [[nodiscard]] static Result<Loan<DataT>, Error>
-    unavailable(frontend::Error error) noexcept
+    [[nodiscard]] static Result<Loan<DataT>, Error> unavailable(frontend::Error error) noexcept
     {
-        return fail(frontend_error(error, Operation::Publish));
+        return fail<Error>(frontend_error(error, Operation::Publish));
     }
 };
 
@@ -229,8 +220,8 @@ struct CommitLoanFrontend
     using Signature = Result<WriteReceipt, Error>(Loan<DataT>&&, std::size_t);
 
     template <typename System, typename DataT>
-    [[nodiscard]] static Result<WriteReceipt, Error>
-    invoke(Loan<DataT>&& loan, std::size_t size) noexcept
+    [[nodiscard]] static Result<WriteReceipt, Error> invoke(Loan<DataT>&& loan,
+                                                            std::size_t size) noexcept
     {
 #if defined(__ZEPHYR__) && defined(CONFIG_SOLAR_REMOTE)
         if constexpr (has_loaned_v<DataT>) {
@@ -239,8 +230,8 @@ struct CommitLoanFrontend
 #endif
         (void)loan;
         (void)size;
-        return fail(Error{Status::NotSupported, Reason::UnsupportedOperation,
-                          Operation::Publish});
+        return fail<Error>(
+            {Status::NotSupported, Reason::UnsupportedOperation, Operation::Publish});
     }
 
     template <typename System, typename DataT> static consteval void validate()
@@ -249,35 +240,32 @@ struct CommitLoanFrontend
     }
 
     template <typename DataT>
-    [[nodiscard]] static Result<WriteReceipt, Error>
-    unavailable(frontend::Error error) noexcept
+    [[nodiscard]] static Result<WriteReceipt, Error> unavailable(frontend::Error error) noexcept
     {
-        return fail(frontend_error(error, Operation::Publish));
+        return fail<Error>(frontend_error(error, Operation::Publish));
     }
 };
 
 struct WriteDataFromIsrFrontend
 {
     using CatalogTag = DataTag;
-    template <typename DataT>
-    using Signature = Result<WriteReceipt, Error>(typename DataT::Value);
+    template <typename DataT> using Signature = Result<WriteReceipt, Error>(typename DataT::Value);
 
     template <typename System, typename DataT>
-    [[nodiscard]] static Result<WriteReceipt, Error>
-    invoke(typename DataT::Value value) noexcept
+    [[nodiscard]] static Result<WriteReceipt, Error> invoke(typename DataT::Value value) noexcept
     {
-#if defined(__ZEPHYR__) && defined(CONFIG_SOLAR_REMOTE) &&                                \
+#if defined(__ZEPHYR__) && defined(CONFIG_SOLAR_REMOTE) &&                                         \
     defined(CONFIG_SOLAR_REMOTE_ISR_PUBLICATION)
         if constexpr (has_push_v<DataT>) {
             return write_data<System, DataT, true>(std::move(value));
         } else {
             (void)value;
-            return fail(Error{Status::NotSupported, Reason::UnsupportedOperation,
-                              Operation::Publish});
+            return fail<Error>(
+                {Status::NotSupported, Reason::UnsupportedOperation, Operation::Publish});
         }
 #else
         (void)value;
-        return fail(frontend_error(frontend::Error::Disabled, Operation::Publish));
+        return fail<Error>(frontend_error(frontend::Error::Disabled, Operation::Publish));
 #endif
     }
 
@@ -293,10 +281,9 @@ struct WriteDataFromIsrFrontend
     }
 
     template <typename DataT>
-    [[nodiscard]] static Result<WriteReceipt, Error>
-    unavailable(frontend::Error error) noexcept
+    [[nodiscard]] static Result<WriteReceipt, Error> unavailable(frontend::Error error) noexcept
     {
-        return fail(frontend_error(error, Operation::Publish));
+        return fail<Error>(frontend_error(error, Operation::Publish));
     }
 };
 
@@ -344,15 +331,13 @@ template <Data DataT>
 template <Data DataT>
 [[nodiscard]] Result<WriteReceipt, Error> publish(typename DataT::Value value) noexcept
 {
-    return frontend::Operation<detail::PublishDataWatchFrontend, DataT>::call(
-        std::move(value));
+    return frontend::Operation<detail::PublishDataWatchFrontend, DataT>::call(std::move(value));
 }
 
 template <Topic TopicT>
 [[nodiscard]] Result<WriteReceipt, Error> publish(typename TopicT::Value value) noexcept
 {
-    return frontend::Operation<detail::PublishTopicFrontend, TopicT>::call(
-        std::move(value));
+    return frontend::Operation<detail::PublishTopicFrontend, TopicT>::call(std::move(value));
 }
 
 template <Data DataT> [[nodiscard]] bool interested() noexcept
@@ -377,8 +362,7 @@ template <Data DataT> [[nodiscard]] Result<Loan<DataT>, Error> try_loan() noexce
 }
 
 template <Data DataT>
-[[nodiscard]] Result<WriteReceipt, Error> commit(Loan<DataT>&& loan,
-                                                 std::size_t size) noexcept
+[[nodiscard]] Result<WriteReceipt, Error> commit(Loan<DataT>&& loan, std::size_t size) noexcept
 {
     return frontend::Operation<detail::CommitLoanFrontend, DataT>::call(std::move(loan), size);
 }
@@ -386,8 +370,7 @@ template <Data DataT>
 namespace records
 {
 
-template <typename Application = DefaultApplication>
-[[nodiscard]] ServiceRecord service() noexcept
+template <typename Application = DefaultApplication> [[nodiscard]] ServiceRecord service() noexcept
 {
     using System = bound_system_t<Application>;
     if constexpr (!System::RemoteArchitecture::demanded) {
@@ -409,8 +392,7 @@ template <remote::Link LinkT, typename Application = DefaultApplication>
     return System::RemoteService::template link_record<LinkT, index>();
 }
 
-template <typename Application = DefaultApplication>
-[[nodiscard]] auto links() noexcept
+template <typename Application = DefaultApplication> [[nodiscard]] auto links() noexcept
 {
     using System = bound_system_t<Application>;
     return []<typename... LinkTypes>(TypeList<LinkTypes...>) {

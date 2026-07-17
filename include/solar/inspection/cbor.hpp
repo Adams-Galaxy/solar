@@ -255,22 +255,22 @@ template <typename Record>
     if constexpr (CborEncodable<Record>) {
         CborWriter writer{destination};
         if (!CborEncoder<Record>::encode(record, writer) || !writer.good()) {
-            return fail(Error{.status = Status::NoSpace,
-                              .reason = Reason::NoSpace,
-                              .operation = Operation::EncodeCbor});
+            return fail<Error>({.status = solar::Status::NoSpace,
+                                .reason = Reason::NoSpace,
+                                .operation = Operation::EncodeCbor});
         }
         return writer.size();
     } else {
-        return fail(Error{.status = Status::NotSupported,
-                          .reason = Reason::Unsupported,
-                          .operation = Operation::EncodeCbor});
+        return fail<Error>({.status = solar::Status::NotSupported,
+                            .reason = Reason::Unsupported,
+                            .operation = Operation::EncodeCbor});
     }
 #else
     (void)record;
     (void)destination;
-    return fail(Error{.status = Status::NotSupported,
-                      .reason = Reason::Disabled,
-                      .operation = Operation::EncodeCbor});
+    return fail<Error>({.status = solar::Status::NotSupported,
+                        .reason = Reason::Disabled,
+                        .operation = Operation::EncodeCbor});
 #endif
 }
 

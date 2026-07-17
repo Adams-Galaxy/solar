@@ -25,29 +25,31 @@ template <typename Target, typename Source>
     if constexpr (std::same_as<From, Target>) {
         return source;
     } else if constexpr (std::same_as<Target, bool>) {
-        return (source == From{0} || source == From{1}) ? Result<Target>{static_cast<bool>(source)}
-                                                        : Result<Target>{fail(Status::Overflow)};
+        return (source == From{0} || source == From{1})
+                   ? Result<Target>{static_cast<bool>(source)}
+                   : Result<Target>{fail<solar::Error>({.status = solar::Status::Overflow})};
     } else if constexpr (std::same_as<From, bool>) {
         return static_cast<Target>(source);
     } else if constexpr (std::is_integral_v<From> && std::is_integral_v<Target>) {
-        return std::in_range<Target>(source) ? Result<Target>{static_cast<Target>(source)}
-                                             : Result<Target>{fail(Status::Overflow)};
+        return std::in_range<Target>(source)
+                   ? Result<Target>{static_cast<Target>(source)}
+                   : Result<Target>{fail<solar::Error>({.status = solar::Status::Overflow})};
     } else {
         const auto wide = static_cast<long double>(source);
         if (!std::isfinite(wide) ||
             wide < static_cast<long double>(std::numeric_limits<Target>::lowest()) ||
             wide > static_cast<long double>(std::numeric_limits<Target>::max())) {
-            return fail(Status::Overflow);
+            return fail<solar::Error>({.status = solar::Status::Overflow});
         }
         if constexpr (std::is_integral_v<Target>) {
             if (std::trunc(wide) != wide) {
-                return fail(Status::Overflow);
+                return fail<solar::Error>({.status = solar::Status::Overflow});
             }
         }
         const auto converted = static_cast<Target>(source);
         if constexpr (std::is_floating_point_v<Target>) {
             if (!std::isfinite(converted) || static_cast<long double>(converted) != wide) {
-                return fail(Status::Overflow);
+                return fail<solar::Error>({.status = solar::Status::Overflow});
             }
         }
         return converted;
@@ -61,7 +63,7 @@ template <typename MetricT>
     auto converted = checked_numeric_cast<typename MetricT::Value>(value);
     if (!converted) {
         const auto error = solar::metrics::detail::reject_adapter_conversion<MetricT>(operation);
-        return fail(error.status);
+        return fail<solar::Error>({.status = solar::status_of(error)});
     }
     return *converted;
 }
@@ -77,11 +79,13 @@ template <typename MetricT> struct Increment
         using Value = typename MetricT::Value;
         if (record.header.occurrence_count >
             static_cast<std::uint64_t>(std::numeric_limits<Value>::max())) {
-            return fail(Status::Overflow);
+            return fail<solar::Error>({.status = solar::Status::Overflow});
         }
         auto updated =
             solar::metrics::add<MetricT>(static_cast<Value>(record.header.occurrence_count));
-        return updated ? Result<void>{} : Result<void>{fail(updated.error().status)};
+        return updated ? Result<void>{}
+                       : Result<void>{
+                             fail<solar::Error>({.status = solar::status_of(updated.error())})};
     }
 };
 
@@ -96,10 +100,12 @@ template <typename MetricT, auto Projection> struct Add
         auto converted =
             detail::projected<MetricT>((*payload).*Projection, solar::metrics::Operation::Add);
         if (!converted) {
-            return fail(converted.error());
+            return fail<solar::Error>(converted.error());
         }
         auto updated = solar::metrics::add<MetricT>(*converted);
-        return updated ? Result<void>{} : Result<void>{fail(updated.error().status)};
+        return updated ? Result<void>{}
+                       : Result<void>{
+                             fail<solar::Error>({.status = solar::status_of(updated.error())})};
     }
 };
 
@@ -114,10 +120,12 @@ template <typename MetricT, auto Projection> struct Set
         auto converted =
             detail::projected<MetricT>((*payload).*Projection, solar::metrics::Operation::Set);
         if (!converted) {
-            return fail(converted.error());
+            return fail<solar::Error>(converted.error());
         }
         auto updated = solar::metrics::set<MetricT>(*converted);
-        return updated ? Result<void>{} : Result<void>{fail(updated.error().status)};
+        return updated ? Result<void>{}
+                       : Result<void>{
+                             fail<solar::Error>({.status = solar::status_of(updated.error())})};
     }
 };
 
@@ -132,10 +140,12 @@ template <typename MetricT, auto Projection> struct Observe
         auto converted =
             detail::projected<MetricT>((*payload).*Projection, solar::metrics::Operation::Observe);
         if (!converted) {
-            return fail(converted.error());
+            return fail<solar::Error>(converted.error());
         }
         auto updated = solar::metrics::observe<MetricT>(*converted);
-        return updated ? Result<void>{} : Result<void>{fail(updated.error().status)};
+        return updated ? Result<void>{}
+                       : Result<void>{
+                             fail<solar::Error>({.status = solar::status_of(updated.error())})};
     }
 };
 
@@ -148,7 +158,9 @@ template <typename MetricT, auto Projection> struct Record
         static_assert(!payload_free_v<EventT>,
                       "SOLAR_DIAGNOSTIC_EVENT_METRIC_PAYLOAD: projected adapter requires payload");
         auto updated = solar::metrics::record<MetricT>((*payload).*Projection);
-        return updated ? Result<void>{} : Result<void>{fail(updated.error().status)};
+        return updated ? Result<void>{}
+                       : Result<void>{
+                             fail<solar::Error>({.status = solar::status_of(updated.error())})};
     }
 };
 
@@ -164,7 +176,7 @@ template <typename EventT, typename... Operations> struct On
         } else {
             auto payload = solar::events::decode<EventT>(record);
             if (!payload) {
-                return fail(payload.error().status);
+                return fail<solar::Error>({.status = solar::status_of(payload.error())});
             }
             return apply_all(record, &*payload);
         }
@@ -179,11 +191,13 @@ template <typename EventT, typename... Operations> struct On
             [&] {
                 auto result = Operations::template apply<EventT>(record, payload);
                 if (!result && first_failure == Status::Ok) {
-                    first_failure = result.error();
+                    first_failure = status_of(result.error());
                 }
             }(),
             ...);
-        return first_failure == Status::Ok ? Result<void>{} : Result<void>{fail(first_failure)};
+        return first_failure == Status::Ok
+                   ? Result<void>{}
+                   : Result<void>{fail<solar::Error>({.status = first_failure})};
     }
 };
 

@@ -36,7 +36,7 @@ template <std::size_t Capacity> class Pipe
                                             Timeout timeout = Timeout::forever()) noexcept
     {
         if (in_isr()) {
-            return fail(Status::Invalid);
+            return fail<solar::Error>({.status = solar::Status::Invalid});
         }
         const int result = k_pipe_write(&pipe_, reinterpret_cast<const std::uint8_t*>(data.data()),
                                         data.size(), timeout.native_handle());
@@ -58,11 +58,10 @@ template <std::size_t Capacity> class Pipe
                                            Timeout timeout = Timeout::forever()) noexcept
     {
         if (in_isr()) {
-            return fail(Status::Invalid);
+            return fail<solar::Error>({.status = solar::Status::Invalid});
         }
-        const int result =
-            k_pipe_read(&pipe_, reinterpret_cast<std::uint8_t*>(destination.data()),
-                        destination.size(), timeout.native_handle());
+        const int result = k_pipe_read(&pipe_, reinterpret_cast<std::uint8_t*>(destination.data()),
+                                       destination.size(), timeout.native_handle());
         return transfer_result(result, timeout);
     }
 
@@ -104,12 +103,13 @@ template <std::size_t Capacity> class Pipe
             return static_cast<std::size_t>(result);
         }
         if (result == -EAGAIN) {
-            return fail(timeout.is_no_wait() ? Status::WouldBlock : Status::Timeout);
+            return fail<Error>(
+                {.status = timeout.is_no_wait() ? Status::WouldBlock : Status::Timeout});
         }
         if (result == -ECANCELED) {
-            return fail(Status::Cancelled);
+            return fail<solar::Error>({.status = solar::Status::Cancelled});
         }
-        return fail(status_from_errno(result));
+        return fail<Error>(error_from_errno(result));
     }
 
     std::array<std::uint8_t, Capacity> storage_{};

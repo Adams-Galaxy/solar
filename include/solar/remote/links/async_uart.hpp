@@ -28,12 +28,12 @@ template <typename Derived, const device* Device, std::size_t RxCapacity> class 
     [[nodiscard]] static Result<void, LinkError> open(LinkEventSink sink) noexcept
     {
         if (!device_is_ready(Device)) {
-            return fail(LinkError{.status = Status::NotReady});
+            return fail<LinkError>({.status = solar::Status::NotReady});
         }
         {
             auto guard = lock_.acquire();
             if (opened_) {
-                return fail(LinkError{.status = Status::Already});
+                return fail<LinkError>({.status = solar::Status::Already});
             }
             sink_ = sink;
             opened_ = true;
@@ -54,7 +54,7 @@ template <typename Derived, const device* Device, std::size_t RxCapacity> class 
             auto guard = lock_.acquire();
             opened_ = false;
             sink_ = {};
-            return fail(LinkError{.status = status_from_errno(status), .native_error = status});
+            return fail<LinkError>({.status = status_from_errno(status), .native_error = status});
         }
         sink.notify(LinkEvent{.kind = LinkEventKind::Connected});
         return {};
@@ -119,7 +119,7 @@ template <typename Derived, const device* Device, std::size_t RxCapacity> class 
     {
         auto guard = lock_.acquire();
         if (!opened_ || !rx_occupied_ || lease != rx_handle_) {
-            return fail(LinkError{.status = Status::NotFound});
+            return fail<LinkError>({.status = solar::Status::NotFound});
         }
         return std::span<const std::byte>{rx_storage_}.first(rx_size_);
     }
@@ -150,7 +150,7 @@ template <typename Derived, const device* Device, std::size_t RxCapacity> class 
         {
             auto guard = lock_.acquire();
             if (!opened_) {
-                return fail(LinkError{.status = Status::NotReady});
+                return fail<LinkError>({.status = solar::Status::NotReady});
             }
             if (tx_active_) {
                 return TxDisposition::Busy;
@@ -166,7 +166,7 @@ template <typename Derived, const device* Device, std::size_t RxCapacity> class 
             tx_active_ = false;
             tx_bytes_ = {};
             return status == -EBUSY ? Result<TxDisposition, LinkError>{TxDisposition::Busy}
-                                    : Result<TxDisposition, LinkError>{fail(LinkError{
+                                    : Result<TxDisposition, LinkError>{fail<LinkError>({
                                           .status = status_from_errno(status),
                                           .native_error = status,
                                       })};

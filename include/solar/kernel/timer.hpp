@@ -29,17 +29,17 @@ class Timer
     Timer(Timer&&) = delete;
     Timer& operator=(Timer&&) = delete;
 
-    [[nodiscard]] Status start(Timeout initial, Timeout period = Timeout::no_wait()) noexcept
+    [[nodiscard]] Result<void> start(Timeout initial, Timeout period = Timeout::no_wait()) noexcept
     {
         if (initial.is_forever()) {
-            return Status::Invalid;
+            return fail<Error>({.status = Status::Invalid});
         }
         k_timer_start(&timer_, initial.native_handle(), period.native_handle());
-        return Status::Ok;
+        return {};
     }
 
     template <typename InitialRep, typename InitialPeriod>
-    [[nodiscard]] Status
+    [[nodiscard]] Result<void>
     start_after(std::chrono::duration<InitialRep, InitialPeriod> initial) noexcept
     {
         return start(Timeout::after(initial));
@@ -47,7 +47,7 @@ class Timer
 
     template <typename InitialRep, typename InitialPeriod, typename RepeatRep,
               typename RepeatPeriod>
-    [[nodiscard]] Status
+    [[nodiscard]] Result<void>
     start_periodic(std::chrono::duration<InitialRep, InitialPeriod> initial,
                    std::chrono::duration<RepeatRep, RepeatPeriod> period) noexcept
     {
@@ -72,7 +72,7 @@ class Timer
     [[nodiscard]] Result<std::uint32_t> sync() noexcept
     {
         if (in_isr()) {
-            return fail(Status::Invalid);
+            return fail<solar::Error>({.status = solar::Status::Invalid});
         }
         return k_timer_status_sync(&timer_);
     }

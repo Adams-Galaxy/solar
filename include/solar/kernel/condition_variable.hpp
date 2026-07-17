@@ -28,10 +28,10 @@ class ConditionVariable
     ConditionVariable(ConditionVariable&&) = delete;
     ConditionVariable& operator=(ConditionVariable&&) = delete;
 
-    [[nodiscard]] Status notify_one() noexcept
+    [[nodiscard]] Result<void> notify_one() noexcept
     {
         if (in_isr()) {
-            return Status::Invalid;
+            return fail<Error>({.status = Status::Invalid});
         }
         return detail::map_native(k_condvar_signal(&condition_));
     }
@@ -39,28 +39,28 @@ class ConditionVariable
     [[nodiscard]] Result<std::size_t> notify_all() noexcept
     {
         if (in_isr()) {
-            return fail(Status::Invalid);
+            return fail<solar::Error>({.status = solar::Status::Invalid});
         }
         const int result = k_condvar_broadcast(&condition_);
         if (result < 0) {
-            return fail(status_from_errno(result));
+            return fail<Error>(error_from_errno(result));
         }
         return static_cast<std::size_t>(result);
     }
 
-    [[nodiscard]] Status wait(UniqueLock<Mutex>& lock,
-                              Timeout timeout = Timeout::forever()) noexcept
+    [[nodiscard]] Result<void> wait(UniqueLock<Mutex>& lock,
+                                    Timeout timeout = Timeout::forever()) noexcept
     {
         if (in_isr()) {
-            return Status::Invalid;
+            return fail<Error>({.status = Status::Invalid});
         }
         if (!lock.owns_lock() || lock.mutex() == nullptr) {
-            return Status::PermissionDenied;
+            return fail<Error>({.status = Status::PermissionDenied});
         }
 
         auto& mutex = *lock.mutex();
         const auto begin = mutex.begin_condition_wait();
-        if (begin != Status::Ok) {
+        if (!begin) {
             return begin;
         }
 
@@ -71,38 +71,39 @@ class ConditionVariable
     }
 
     template <typename Rep, typename Period>
-    [[nodiscard]] Status wait(UniqueLock<Mutex>& lock,
-                              std::chrono::duration<Rep, Period> timeout) noexcept
+    [[nodiscard]] Result<void> wait(UniqueLock<Mutex>& lock,
+                                    std::chrono::duration<Rep, Period> timeout) noexcept
     {
         return wait(lock, Timeout::after(timeout));
     }
 
-    [[nodiscard]] Status wait(UniqueLock<Mutex>& lock, const Deadline& deadline) noexcept
+    [[nodiscard]] Result<void> wait(UniqueLock<Mutex>& lock, const Deadline& deadline) noexcept
     {
         return wait(lock, deadline.remaining());
     }
 
     template <typename Predicate>
-    [[nodiscard]] Status wait(UniqueLock<Mutex>& lock, Predicate&& predicate,
-                              Timeout timeout = Timeout::forever()) noexcept
+    [[nodiscard]] Result<void> wait(UniqueLock<Mutex>& lock, Predicate&& predicate,
+                                    Timeout timeout = Timeout::forever()) noexcept
     {
         if (timeout.is_no_wait()) {
-            return predicate() ? Status::Ok : Status::WouldBlock;
+            return predicate() ? Result<void>{}
+                               : Result<void>{fail<Error>({.status = Status::WouldBlock})};
         }
 
         const auto deadline = Deadline::after(timeout);
         while (!predicate()) {
             const auto status = wait(lock, deadline);
-            if (status != Status::Ok) {
+            if (!status) {
                 return status;
             }
         }
-        return Status::Ok;
+        return {};
     }
 
     template <typename Predicate, typename Rep, typename Period>
-    [[nodiscard]] Status wait(UniqueLock<Mutex>& lock, Predicate&& predicate,
-                              std::chrono::duration<Rep, Period> timeout) noexcept
+    [[nodiscard]] Result<void> wait(UniqueLock<Mutex>& lock, Predicate&& predicate,
+                                    std::chrono::duration<Rep, Period> timeout) noexcept
     {
         return wait(lock, std::forward<Predicate>(predicate), Timeout::after(timeout));
     }

@@ -30,8 +30,8 @@ template <typename T> using wire_type_t = typename WireType<T>::type;
 
 template <typename T>
 inline constexpr bool supported_v =
-    std::is_same_v<T, bool> || std::integral<T> || std::is_enum_v<T> ||
-    std::is_same_v<T, float> || std::is_same_v<T, double>;
+    std::is_same_v<T, bool> || std::integral<T> || std::is_enum_v<T> || std::is_same_v<T, float> ||
+    std::is_same_v<T, double>;
 
 template <typename T> [[nodiscard]] constexpr auto bits(T value)
 {
@@ -63,8 +63,7 @@ template <typename T, typename Bits> [[nodiscard]] constexpr T from_bits(Bits va
     }
 }
 
-template <typename T>
-bool write(T value, std::span<std::byte> output, std::size_t& offset) noexcept
+template <typename T> bool write(T value, std::span<std::byte> output, std::size_t& offset) noexcept
 {
     static_assert(supported_v<T>,
                   "SOLAR_DIAGNOSTIC_REMOTE_PACKED_FIELD: Packed supports fixed scalar fields");
@@ -101,8 +100,7 @@ template <typename Value, typename FieldsT> struct Codec;
 
 template <typename Value, typename... FieldTypes> struct Codec<Value, Fields<FieldTypes...>>
 {
-    static constexpr bool valid =
-        (supported_v<remote::detail::field_member_t<FieldTypes>> && ...);
+    static constexpr bool valid = (supported_v<remote::detail::field_member_t<FieldTypes>> && ...);
     static constexpr std::size_t size =
         (sizeof(wire_type_t<remote::detail::field_member_t<FieldTypes>>) + ... + 0U);
 
@@ -114,7 +112,7 @@ template <typename Value, typename... FieldTypes> struct Codec<Value, Fields<Fie
                       "field");
         std::size_t offset{};
         if (!(write(value.*FieldTypes::member, output, offset) && ...)) {
-            return fail(Error{Status::NoSpace, Reason::NoSpace, Operation::Pack});
+            return fail<Error>({Status::NoSpace, Reason::NoSpace, Operation::Pack});
         }
         return offset;
     }
@@ -122,19 +120,20 @@ template <typename Value, typename... FieldTypes> struct Codec<Value, Fields<Fie
     static Result<Value, Error> decode(std::span<const std::byte> input) noexcept
     {
         if (input.size() != size) {
-            return fail(Error{Status::ProtocolError, Reason::Malformed, Operation::Unpack});
+            return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::Unpack});
         }
         Value value{};
         std::size_t offset{};
         if (!(read(value.*FieldTypes::member, input, offset) && ...)) {
-            return fail(Error{Status::ProtocolError, Reason::Malformed, Operation::Unpack});
+            return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::Unpack});
         }
         return value;
     }
 };
 } // namespace detail
 
-template <typename Value> inline constexpr std::size_t encoded_size = [] {
+template <typename Value>
+inline constexpr std::size_t encoded_size = [] {
     static_assert(validate_schema<Value>());
     static_assert(Schema<Value>::codec == Codec::Packed,
                   "SOLAR_DIAGNOSTIC_REMOTE_PACKED_CODEC: Schema must explicitly select Packed");

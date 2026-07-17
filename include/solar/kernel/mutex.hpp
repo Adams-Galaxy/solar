@@ -30,48 +30,48 @@ class Mutex
     Mutex(Mutex&&) = delete;
     Mutex& operator=(Mutex&&) = delete;
 
-    [[nodiscard]] Status lock(Timeout timeout = Timeout::forever()) noexcept
+    [[nodiscard]] Result<void> lock(Timeout timeout = Timeout::forever()) noexcept
     {
         if (in_isr()) {
-            return Status::Invalid;
+            return fail<Error>({.status = Status::Invalid});
         }
 
         const auto current = k_current_get();
         if (owner_.load(std::memory_order_relaxed) == current) {
-            return Status::Deadlock;
+            return fail<Error>({.status = Status::Deadlock});
         }
 
         const auto status = detail::map_wait(k_mutex_lock(&mutex_, timeout.native_handle()),
                                              timeout, Status::WouldBlock);
-        if (status == Status::Ok) {
+        if (status) {
             owner_.store(current, std::memory_order_release);
         }
         return status;
     }
 
-    [[nodiscard]] Status lock(const Deadline& deadline) noexcept
+    [[nodiscard]] Result<void> lock(const Deadline& deadline) noexcept
     {
         return lock(deadline.remaining());
     }
 
-    [[nodiscard]] Status try_lock() noexcept
+    [[nodiscard]] Result<void> try_lock() noexcept
     {
         return lock(Timeout::no_wait());
     }
 
-    [[nodiscard]] Status unlock() noexcept
+    [[nodiscard]] Result<void> unlock() noexcept
     {
         if (in_isr()) {
-            return Status::Invalid;
+            return fail<Error>({.status = Status::Invalid});
         }
         if (owner_.load(std::memory_order_acquire) != k_current_get()) {
-            return Status::PermissionDenied;
+            return fail<Error>({.status = Status::PermissionDenied});
         }
 
         const auto current = k_current_get();
         owner_.store(nullptr, std::memory_order_release);
         const auto status = detail::map_native(k_mutex_unlock(&mutex_));
-        if (status != Status::Ok) {
+        if (!status) {
             owner_.store(current, std::memory_order_release);
         }
         return status;
@@ -88,13 +88,13 @@ class Mutex
     }
 
   private:
-    [[nodiscard]] Status begin_condition_wait() noexcept
+    [[nodiscard]] Result<void> begin_condition_wait() noexcept
     {
         if (owner_.load(std::memory_order_acquire) != k_current_get()) {
-            return Status::PermissionDenied;
+            return fail<Error>({.status = Status::PermissionDenied});
         }
         owner_.store(nullptr, std::memory_order_release);
-        return Status::Ok;
+        return {};
     }
 
     void end_condition_wait() noexcept
@@ -121,29 +121,29 @@ class RecursiveMutex
     RecursiveMutex(RecursiveMutex&&) = delete;
     RecursiveMutex& operator=(RecursiveMutex&&) = delete;
 
-    [[nodiscard]] Status lock(Timeout timeout = Timeout::forever()) noexcept
+    [[nodiscard]] Result<void> lock(Timeout timeout = Timeout::forever()) noexcept
     {
         if (in_isr()) {
-            return Status::Invalid;
+            return fail<Error>({.status = Status::Invalid});
         }
         return detail::map_wait(k_mutex_lock(&mutex_, timeout.native_handle()), timeout,
                                 Status::WouldBlock);
     }
 
-    [[nodiscard]] Status lock(const Deadline& deadline) noexcept
+    [[nodiscard]] Result<void> lock(const Deadline& deadline) noexcept
     {
         return lock(deadline.remaining());
     }
 
-    [[nodiscard]] Status try_lock() noexcept
+    [[nodiscard]] Result<void> try_lock() noexcept
     {
         return lock(Timeout::no_wait());
     }
 
-    [[nodiscard]] Status unlock() noexcept
+    [[nodiscard]] Result<void> unlock() noexcept
     {
         if (in_isr()) {
-            return Status::Invalid;
+            return fail<Error>({.status = Status::Invalid});
         }
         return detail::map_native(k_mutex_unlock(&mutex_));
     }
@@ -164,9 +164,9 @@ class RecursiveMutex
 
 template <typename T>
 concept Lockable = requires(T& mutex, Timeout timeout) {
-    { mutex.lock(timeout) } -> std::same_as<Status>;
-    { mutex.try_lock() } -> std::same_as<Status>;
-    { mutex.unlock() } -> std::same_as<Status>;
+    { mutex.lock(timeout) } -> std::same_as<Result<void>>;
+    { mutex.try_lock() } -> std::same_as<Result<void>>;
+    { mutex.unlock() } -> std::same_as<Result<void>>;
 };
 
 template <Lockable MutexType> class LockGuard
@@ -176,8 +176,8 @@ template <Lockable MutexType> class LockGuard
                                                    Timeout timeout = Timeout::forever()) noexcept
     {
         const auto status = mutex.lock(timeout);
-        if (status != Status::Ok) {
-            return fail(status);
+        if (!status) {
+            return fail<Error>(status.error());
         }
         return LockGuard{mutex};
     }
@@ -214,8 +214,8 @@ template <Lockable MutexType> class UniqueLock
     {
         UniqueLock lock{mutex};
         const auto status = lock.lock(timeout);
-        if (status != Status::Ok) {
-            return fail(status);
+        if (!status) {
+            return fail<Error>(status.error());
         }
         return lock;
     }
@@ -247,31 +247,31 @@ template <Lockable MutexType> class UniqueLock
         return *this;
     }
 
-    [[nodiscard]] Status lock(Timeout timeout = Timeout::forever()) noexcept
+    [[nodiscard]] Result<void> lock(Timeout timeout = Timeout::forever()) noexcept
     {
         if (mutex_ == nullptr) {
-            return Status::Invalid;
+            return fail<Error>({.status = Status::Invalid});
         }
         if (owns_) {
-            return Status::Already;
+            return fail<Error>({.status = Status::Already});
         }
         const auto status = mutex_->lock(timeout);
-        owns_ = status == Status::Ok;
+        owns_ = status.has_value();
         return status;
     }
 
-    [[nodiscard]] Status try_lock() noexcept
+    [[nodiscard]] Result<void> try_lock() noexcept
     {
         return lock(Timeout::no_wait());
     }
 
-    [[nodiscard]] Status unlock() noexcept
+    [[nodiscard]] Result<void> unlock() noexcept
     {
         if (mutex_ == nullptr || !owns_) {
-            return Status::Invalid;
+            return fail<Error>({.status = Status::Invalid});
         }
         const auto status = mutex_->unlock();
-        if (status == Status::Ok) {
+        if (status) {
             owns_ = false;
         }
         return status;

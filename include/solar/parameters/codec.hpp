@@ -79,7 +79,7 @@ template <typename T> struct ScalarCodec
                                                               std::span<std::byte> output) noexcept
     {
         if (output.size() < encoded_size) {
-            return fail(Status::NoBuffer);
+            return fail<solar::Error>({.status = solar::Status::NoBuffer});
         }
         auto bits = detail::scalar_bits(value);
         for (std::size_t index = 0; index < encoded_size; ++index) {
@@ -91,7 +91,7 @@ template <typename T> struct ScalarCodec
     [[nodiscard]] static constexpr Result<T> decode(std::span<const std::byte> input) noexcept
     {
         if (input.size() != encoded_size) {
-            return fail(Status::MessageTooLarge);
+            return fail<solar::Error>({.status = solar::Status::MessageTooLarge});
         }
         Representation bits{};
         for (std::size_t index = 0; index < encoded_size; ++index) {

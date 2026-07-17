@@ -21,10 +21,10 @@ class Gate
     {
         bool expected{};
         if (!active_.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
-            return fail(Error{.status = Status::Busy,
-                              .reason = Reason::Busy,
-                              .operation = Operation::Submit,
-                              .native = -EBUSY});
+            return fail<Error>({.status = solar::Status::Busy,
+                                .reason = Reason::Busy,
+                                .operation = Operation::Submit,
+                                .native = -EBUSY});
         }
         const auto generation = generation_.fetch_add(1, std::memory_order_acq_rel) + 1U;
         return Token{generation};
@@ -51,17 +51,17 @@ class Gate
                                              Reason stale_reason) noexcept
     {
         if (generation_.load(std::memory_order_acquire) != token.generation) {
-            return fail(Error{.status = Status::Invalid,
-                              .reason = stale_reason,
-                              .operation = operation,
-                              .native = -EINVAL});
+            return fail<Error>({.status = solar::Status::Invalid,
+                                .reason = stale_reason,
+                                .operation = operation,
+                                .native = -EINVAL});
         }
         bool expected{true};
         if (!active_.compare_exchange_strong(expected, false, std::memory_order_acq_rel)) {
-            return fail(Error{.status = Status::Already,
-                              .reason = stale_reason,
-                              .operation = operation,
-                              .native = -EALREADY});
+            return fail<Error>({.status = solar::Status::Already,
+                                .reason = stale_reason,
+                                .operation = operation,
+                                .native = -EALREADY});
         }
         return {};
     }

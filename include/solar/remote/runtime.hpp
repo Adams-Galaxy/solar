@@ -467,12 +467,12 @@ template <typename System, Data DataT, bool FromIsr = false>
                       "copyable and trivially destructible Value");
     }
     if (kernel::in_isr() != FromIsr) {
-        return fail(Error{Status::Invalid, Reason::InvalidContext, Operation::Publish});
+        return fail<Error>({Status::Invalid, Reason::InvalidContext, Operation::Publish});
     }
     using FacilityT = typename System::RemoteFacility;
     if (!FacilityT::ready.load(std::memory_order_acquire) ||
         !FacilityT::accepting.load(std::memory_order_acquire)) {
-        return fail(Error{Status::NotReady, Reason::NotReady, Operation::Publish});
+        return fail<Error>({Status::NotReady, Reason::NotReady, Operation::Publish});
     }
 
     auto& state = push_state<System, DataT>();
@@ -483,7 +483,7 @@ template <typename System, Data DataT, bool FromIsr = false>
         using Storage = typename std::remove_reference_t<decltype(state)>::Storage;
         if (state.size == state.values.size()) {
             if constexpr (std::same_as<typename Storage::Overflow, Reject>) {
-                return fail(Error{Status::NoSpace, Reason::NoCapacity, Operation::Publish});
+                return fail<Error>({Status::NoSpace, Reason::NoCapacity, Operation::Publish});
             } else if constexpr (std::same_as<typename Storage::Overflow, DropNewest>) {
                 ++state.replaced;
                 sequence = ++state.sequence;
@@ -516,7 +516,7 @@ template <typename System, Data DataT, bool FromIsr = false>
     if (!already_pending) {
         constexpr auto endpoint = System::RemoteDataCatalog::template Entry<DataT>::local_id.value;
         const auto status = System::RemoteService::notify_publication(endpoint);
-        wake_queued = status == Status::Ok;
+        wake_queued = status.has_value();
         if (!wake_queued) {
             state.wake_pending.store(false, std::memory_order_release);
         }
@@ -570,7 +570,7 @@ template <typename System, Data DataT> void rearm_push() noexcept
         return;
     }
     constexpr auto endpoint = System::RemoteDataCatalog::template Entry<DataT>::local_id.value;
-    if (System::RemoteService::notify_publication(endpoint) != Status::Ok) {
+    if (!System::RemoteService::notify_publication(endpoint)) {
         state.wake_pending.store(false, std::memory_order_release);
     }
 }
@@ -651,12 +651,12 @@ template <typename System, typename DataT>
                   "SOLAR_DIAGNOSTIC_REMOTE_LOAN_SIZE: LoanedPool bytes must fit the declared "
                   "schema ceiling");
     if (kernel::in_isr()) {
-        return fail(Error{Status::Invalid, Reason::InvalidContext, Operation::Publish});
+        return fail<Error>({Status::Invalid, Reason::InvalidContext, Operation::Publish});
     }
     using FacilityT = typename System::RemoteFacility;
     if (!FacilityT::ready.load(std::memory_order_acquire) ||
         !FacilityT::accepting.load(std::memory_order_acquire)) {
-        return fail(Error{Status::NotReady, Reason::NotReady, Operation::Publish});
+        return fail<Error>({Status::NotReady, Reason::NotReady, Operation::Publish});
     }
     auto& state = loan_state<System, DataT>();
     auto guard = state.lock.acquire();
@@ -672,7 +672,7 @@ template <typename System, typename DataT>
         return Loan<DataT>::make(state.bytes[slot], slot, record.generation,
                                  &abandon_loan<System, DataT>);
     }
-    return fail(Error{Status::NoBuffer, Reason::NoCapacity, Operation::Publish});
+    return fail<Error>({Status::NoBuffer, Reason::NoCapacity, Operation::Publish});
 }
 
 template <typename System, typename DataT>
@@ -681,25 +681,25 @@ template <typename System, typename DataT>
 {
     static_assert(has_loaned_v<DataT>);
     if (kernel::in_isr()) {
-        return fail(Error{Status::Invalid, Reason::InvalidContext, Operation::Publish});
+        return fail<Error>({Status::Invalid, Reason::InvalidContext, Operation::Publish});
     }
     if (!loan || size > loan.capacity() || size > (std::numeric_limits<std::uint16_t>::max)()) {
-        return fail(Error{Status::Invalid, Reason::InvalidValue, Operation::Publish});
+        return fail<Error>({Status::Invalid, Reason::InvalidValue, Operation::Publish});
     }
     using FacilityT = typename System::RemoteFacility;
     if (!FacilityT::accepting.load(std::memory_order_acquire)) {
-        return fail(Error{Status::NotReady, Reason::NotReady, Operation::Publish});
+        return fail<Error>({Status::NotReady, Reason::NotReady, Operation::Publish});
     }
     auto& state = loan_state<System, DataT>();
     std::uint64_t sequence{};
     {
         auto guard = state.lock.acquire();
         if (loan.slot() >= state.slots.size()) {
-            return fail(Error{Status::Invalid, Reason::InvalidValue, Operation::Publish});
+            return fail<Error>({Status::Invalid, Reason::InvalidValue, Operation::Publish});
         }
         auto& record = state.slots[loan.slot()];
         if (record.state != LoanSlotState::Loaned || record.generation != loan.generation()) {
-            return fail(Error{Status::Invalid, Reason::InvalidValue, Operation::Publish});
+            return fail<Error>({Status::Invalid, Reason::InvalidValue, Operation::Publish});
         }
         record.state = LoanSlotState::Ready;
         record.size = static_cast<std::uint16_t>(size);
@@ -717,7 +717,7 @@ template <typename System, typename DataT>
     bool queued = pending;
     if (!pending) {
         constexpr auto endpoint = System::RemoteDataCatalog::template Entry<DataT>::local_id.value;
-        queued = System::RemoteService::notify_publication(endpoint) == Status::Ok;
+        queued = System::RemoteService::notify_publication(endpoint).has_value();
         if (!queued) {
             state.wake_pending.store(false, std::memory_order_release);
         }
@@ -790,12 +790,12 @@ write_discrete(StateT& state, std::uint16_t subscription_slot,
                typename DeclarationT::Value value) noexcept
 {
     if (kernel::in_isr()) {
-        return fail(Error{Status::Invalid, Reason::InvalidContext, Operation::Publish});
+        return fail<Error>({Status::Invalid, Reason::InvalidContext, Operation::Publish});
     }
     using FacilityT = typename System::RemoteFacility;
     if (!FacilityT::ready.load(std::memory_order_acquire) ||
         !FacilityT::accepting.load(std::memory_order_acquire)) {
-        return fail(Error{Status::NotReady, Reason::NotReady, Operation::Publish});
+        return fail<Error>({Status::NotReady, Reason::NotReady, Operation::Publish});
     }
 
     WriteDisposition disposition{WriteDisposition::Accepted};
@@ -805,7 +805,7 @@ write_discrete(StateT& state, std::uint16_t subscription_slot,
         using Storage = typename StateT::Storage;
         if (state.size == state.values.size()) {
             if constexpr (std::same_as<typename Storage::Overflow, Reject>) {
-                return fail(Error{Status::NoSpace, Reason::NoCapacity, Operation::Publish});
+                return fail<Error>({Status::NoSpace, Reason::NoCapacity, Operation::Publish});
             } else if constexpr (std::same_as<typename Storage::Overflow, DropNewest>) {
                 ++state.replaced;
                 sequence = ++state.sequence;
@@ -836,7 +836,7 @@ write_discrete(StateT& state, std::uint16_t subscription_slot,
     }
     bool queued = pending;
     if (!pending) {
-        queued = System::RemoteService::notify_publication(subscription_slot) == Status::Ok;
+        queued = System::RemoteService::notify_publication(subscription_slot).has_value();
         if (!queued) {
             state.wake_pending.store(false, std::memory_order_release);
         }
@@ -892,7 +892,7 @@ void rearm_discrete(StateT& state, std::uint16_t subscription_slot) noexcept
     if (!discrete_pending(state) || state.wake_pending.exchange(true, std::memory_order_acq_rel)) {
         return;
     }
-    if (System::RemoteService::notify_publication(subscription_slot) != Status::Ok) {
+    if (!System::RemoteService::notify_publication(subscription_slot)) {
         state.wake_pending.store(false, std::memory_order_release);
     }
 }
@@ -1111,7 +1111,7 @@ template <typename System, typename DataT> void rearm_loan() noexcept
         return;
     }
     constexpr auto endpoint = System::RemoteDataCatalog::template Entry<DataT>::local_id.value;
-    if (System::RemoteService::notify_publication(endpoint) != Status::Ok) {
+    if (!System::RemoteService::notify_publication(endpoint)) {
         state.wake_pending.store(false, std::memory_order_release);
     }
 }
@@ -1225,15 +1225,9 @@ template <typename System, typename DataT> [[nodiscard]] auto& poll_state() noex
     return System::template StateSlot<DataT, PollStateKey<DataT>, PollState>::value;
 }
 
-template <typename ErrorT> [[nodiscard]] Status poll_error_status(const ErrorT& error) noexcept
+template <ErrorType ErrorT> [[nodiscard]] Status poll_error_status(const ErrorT& error) noexcept
 {
-    if constexpr (std::same_as<ErrorT, Status>) {
-        return error;
-    } else if constexpr (requires { status_of(error); }) {
-        return status_of(error);
-    } else {
-        return Status::Error;
-    }
+    return status_of(error);
 }
 
 template <typename System, typename DataT>
@@ -1253,7 +1247,8 @@ template <typename System, typename DataT>
         } else if constexpr (ExpectedValue<Return, Value>) {
             auto result = reader();
             return result ? Result<Value>{std::move(*result)}
-                          : Result<Value>{fail(poll_error_status(result.error()))};
+                          : Result<Value>{
+                                fail<solar::Error>({.status = poll_error_status(result.error())})};
         } else {
             static_assert(solar::detail::dependent_false_v<Return>,
                           "SOLAR_DIAGNOSTIC_REMOTE_POLL_RETURN: Poll reader must return Value or "
@@ -1268,7 +1263,8 @@ template <typename System, typename DataT>
         } else if constexpr (ExpectedVoid<Return>) {
             auto result = reader(value);
             return result ? Result<Value>{std::move(value)}
-                          : Result<Value>{fail(poll_error_status(result.error()))};
+                          : Result<Value>{
+                                fail<solar::Error>({.status = poll_error_status(result.error())})};
         } else {
             static_assert(solar::detail::dependent_false_v<Return>,
                           "SOLAR_DIAGNOSTIC_REMOTE_POLL_DESTINATION_RETURN: destination Poll "
@@ -1291,7 +1287,7 @@ template <typename System, typename DataT> [[nodiscard]] Result<void> execute_po
         state.failures.fetch_add(1, std::memory_order_relaxed);
     }
     state.in_flight.store(false, std::memory_order_release);
-    return value ? Result<void>{} : Result<void>{fail(value.error())};
+    return value ? Result<void>{} : Result<void>{fail<solar::Error>(value.error())};
 }
 
 template <typename System, typename... DataTypes>
@@ -1299,7 +1295,7 @@ template <typename System, typename... DataTypes>
                                                  TypeList<DataTypes...>) noexcept
 {
     bool matched{};
-    Result<void> result{fail(Status::NotFound)};
+    Result<void> result{fail<solar::Error>({.status = solar::Status::NotFound})};
     (([&] {
          if constexpr (has_poll_v<DataTypes>) {
              if (!matched && target == DataTypes::descriptor.id.value) {
@@ -1309,7 +1305,7 @@ template <typename System, typename... DataTypes>
          }
      }()),
      ...);
-    return matched ? result : Result<void>{fail(Status::NotFound)};
+    return matched ? result : Result<void>{fail<solar::Error>({.status = solar::Status::NotFound})};
 }
 
 template <typename System>
@@ -1422,12 +1418,12 @@ update_data_subscription(std::uint32_t target, bool enable, protocol::Subscripti
         return false;
     }
     if ((stream && !has_out_stream_v<DataT>) || (watch && !has_watch_v<DataT>)) {
-        return fail(protocol::ErrorCode::UnsupportedOperation);
+        return fail<protocol::ErrorCode>(protocol::ErrorCode::UnsupportedOperation);
     } else {
         constexpr auto codec = Schema<typename DataT::Value>::codec;
         if (request.flags != 0 ||
             (request.codec != 0 && request.codec != static_cast<std::uint8_t>(codec))) {
-            return fail(protocol::ErrorCode::UnsupportedCapability);
+            return fail<protocol::ErrorCode>(protocol::ErrorCode::UnsupportedCapability);
         }
         const auto endpoint_minimum = stream ? minimum_stream_interval_us<DataT>() : 0U;
         effective = {
@@ -1506,7 +1502,7 @@ update_topic_subscription(std::uint32_t target, bool enable, protocol::Subscript
     constexpr auto codec = Schema<typename TopicT::Value>::codec;
     if (request.flags != 0 ||
         (request.codec != 0 && request.codec != static_cast<std::uint8_t>(codec))) {
-        return fail(protocol::ErrorCode::UnsupportedCapability);
+        return fail<protocol::ErrorCode>(protocol::ErrorCode::UnsupportedCapability);
     }
     effective = {
         .minimum_interval_us = request.minimum_interval_us,
@@ -1810,7 +1806,7 @@ invoke_action_handler(const action_request_t<ActionT>& request)
                       "handlers require the default Empty Response");
         auto result = call_action<ActionT>(request);
         if (!result) {
-            return fail(result.error());
+            return fail<DomainError>(std::move(result.error()));
         }
         return Empty{};
     } else {
@@ -1976,13 +1972,6 @@ void execute_update(const typename DataT::Value& value, const protocol::Envelope
     if constexpr (std::same_as<Return, void>) {
         writer(value);
         send_empty_response<System, LinkT, LinkIndex>(envelope);
-    } else if constexpr (std::same_as<Return, Status>) {
-        const auto status = writer(value);
-        if (status == Status::Ok) {
-            send_empty_response<System, LinkT, LinkIndex>(envelope);
-        } else {
-            send_query_error<System, LinkT, LinkIndex>(status, envelope);
-        }
     } else if constexpr (ExpectedVoid<Return>) {
         auto result = writer(value);
         if (result) {
@@ -1992,13 +1981,13 @@ void execute_update(const typename DataT::Value& value, const protocol::Envelope
         }
     } else {
         static_assert(solar::detail::dependent_false_v<Return>,
-                      "SOLAR_DIAGNOSTIC_REMOTE_UPDATE_RETURN: Update writer must return void, "
-                      "Status, or expected<void, Error>");
+                      "SOLAR_DIAGNOSTIC_REMOTE_UPDATE_RETURN: Update writer must return void or "
+                      "Result<void, ErrorType>");
     }
 }
 
 template <typename DataT>
-[[nodiscard]] Status invoke_in_stream_consumer(const typename DataT::Value& value) noexcept
+[[nodiscard]] Result<void> invoke_in_stream_consumer(const typename DataT::Value& value) noexcept
 {
     using Capability = typename InStreamTraits<DataT>::Capability;
     constexpr auto consumer = IsInStream<Capability>::consumer;
@@ -2008,16 +1997,16 @@ template <typename DataT>
     using Return = std::invoke_result_t<decltype(consumer), const typename DataT::Value&>;
     if constexpr (std::same_as<Return, void>) {
         consumer(value);
-        return Status::Ok;
-    } else if constexpr (std::same_as<Return, Status>) {
-        return consumer(value);
+        return {};
     } else if constexpr (ExpectedVoid<Return>) {
         auto result = consumer(value);
-        return result ? Status::Ok : poll_error_status(result.error());
+        return result ? Result<void>{}
+                      : Result<void>{
+                            fail<solar::Error>({.status = poll_error_status(result.error())})};
     } else {
         static_assert(solar::detail::dependent_false_v<Return>,
                       "SOLAR_DIAGNOSTIC_REMOTE_IN_STREAM_RETURN: InStream consumer must return "
-                      "void, Status, or expected<void, Error>");
+                      "void or Result<void, ErrorType>");
     }
 }
 
@@ -2073,12 +2062,12 @@ template <typename System, typename DataT> bool run_pending_in_stream() noexcept
                 found->value.reset();
                 found->state = InboundSlotState::Running;
             }
-            const auto status = invoke_in_stream_consumer<DataT>(*value);
+            const auto consumed = invoke_in_stream_consumer<DataT>(*value);
             {
                 auto guard = state.lock.acquire();
                 state.slots[selected] = {};
                 ++state.completed;
-                if (status != Status::Ok) {
+                if (!consumed) {
                     ++state.consumer_failures;
                 }
             }
@@ -2319,20 +2308,20 @@ template <typename System, typename LinkT, std::uint16_t LinkIndex, typename Act
     using State = LinkState<ServiceT, LinkT, LinkIndex>;
     if (State::session.load(std::memory_order_acquire) != SessionState::Active ||
         State::epoch.load(std::memory_order_acquire) != token.epoch) {
-        return fail(Status::NotReady);
+        return fail<solar::Error>({.status = solar::Status::NotReady});
     }
     auto& output = ActionBuffers<System, ActionT>::output;
     auto encoded = cbor::encode(value, output);
     if (!encoded) {
         (void)ServiceT::template protocol_error<LinkT, LinkIndex>(
             token.request, ActionT::descriptor.id.value, protocol::ErrorCode::InternalFailure);
-        return fail(encoded.error().status);
+        return fail<solar::Error>({.status = encoded.error().status});
     }
     auto sent = ServiceT::template respond<LinkT, LinkIndex>(
         token.request, ActionT::descriptor.id.value, std::span{output}.first(*encoded),
         domain_error);
     if (!sent) {
-        return fail(sent.error().status);
+        return fail<solar::Error>({.status = sent.error().status});
     }
     State::completed_requests.fetch_add(1, std::memory_order_relaxed);
     return {};
@@ -2345,7 +2334,7 @@ send_asynchronous_action_result_on_link(ResponderToken token, Value&& value, boo
                                         TypeList<LinkTypes...>,
                                         std::index_sequence<Indices...>) noexcept
 {
-    Result<void> result = fail(Status::NotFound);
+    Result<void> result = fail<solar::Error>({.status = solar::Status::NotFound});
     ((token.link == Indices
           ? (result = send_asynchronous_action_result<System, LinkTypes,
                                                       static_cast<std::uint16_t>(Indices), ActionT>(
@@ -2361,7 +2350,7 @@ template <typename System, typename ActionT, typename Value>
                                                         bool domain_error) noexcept
 {
     if (!claim_asynchronous_action<System, ActionT>(token)) {
-        return fail(Status::NotReady);
+        return fail<solar::Error>({.status = solar::Status::NotReady});
     }
     using Links = typename System::RemoteArchitecture::Links;
     auto result = send_asynchronous_action_result_on_link<System, ActionT>(
@@ -2621,7 +2610,8 @@ template <typename System>
                   : false),
              ...);
         }(target, found, Actions{});
-        return found ? Result<void>{} : Result<void>{fail(Status::NotFound)};
+        return found ? Result<void>{}
+                     : Result<void>{fail<solar::Error>({.status = solar::Status::NotFound})};
     }
     using DataTypes = declarations_of_t<typename System::RemoteDataCatalog::EntryTypes>;
     bool found{};
@@ -2632,7 +2622,8 @@ template <typename System>
               : false),
          ...);
     }(target, found, DataTypes{});
-    return found ? Result<void>{} : Result<void>{fail(Status::NotFound)};
+    return found ? Result<void>{}
+                 : Result<void>{fail<solar::Error>({.status = solar::Status::NotFound})};
 }
 
 template <typename System, typename... DataTypes>
@@ -2644,7 +2635,8 @@ template <typename System, typename... DataTypes>
           ? (static_cast<void>(run_pending_in_stream<System, DataTypes>()), found = true)
           : false),
      ...);
-    return found ? Result<void>{} : Result<void>{fail(Status::NotFound)};
+    return found ? Result<void>{}
+                 : Result<void>{fail<solar::Error>({.status = solar::Status::NotFound})};
 }
 
 template <typename System>
@@ -3247,18 +3239,18 @@ inspection_collections(std::span<const std::byte> request_bytes,
 {
     auto request = protocol::decode_collection_request(request_bytes);
     if (!request || request->limit == 0) {
-        return fail(Error{Status::ProtocolError, Reason::Malformed, Operation::Decode});
+        return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::Decode});
     }
     constexpr auto descriptors = System::InspectionCatalog::descriptors();
     if (request->offset > descriptors.size()) {
-        return fail(Error{Status::Invalid, Reason::InvalidValue, Operation::Decode});
+        return fail<Error>({Status::Invalid, Reason::InvalidValue, Operation::Decode});
     }
     const auto limit =
         (std::min)(static_cast<std::size_t>(request->limit),
                    static_cast<std::size_t>(CONFIG_SOLAR_INSPECTION_REMOTE_MAX_PAGE_RECORDS));
     const auto count = (std::min)(limit, descriptors.size() - request->offset);
     if (output.size() < protocol::collection_page_header_size) {
-        return fail(Error{Status::NoSpace, Reason::NoSpace, Operation::Encode});
+        return fail<Error>({Status::NoSpace, Reason::NoSpace, Operation::Encode});
     }
     output[0] = std::byte{1};
     output[1] = static_cast<std::byte>(count);
@@ -3273,7 +3265,7 @@ inspection_collections(std::span<const std::byte> request_bytes,
         const auto name_size = (std::min)(descriptor.name.size(), std::size_t{UINT8_MAX});
         const auto required = protocol::collection_descriptor_header_size + name_size;
         if (written + required > output.size()) {
-            return fail(Error{Status::NoSpace, Reason::NoSpace, Operation::Encode});
+            return fail<Error>({Status::NoSpace, Reason::NoSpace, Operation::Encode});
         }
         protocol::detail::put_u16(output, written, view.local_id.value);
         protocol::detail::put_u32(output, written + 2, descriptor.stable_id.value);
@@ -3310,10 +3302,10 @@ encode_inspection_query(const protocol::CollectionQueryRequest& request,
 {
     if constexpr (!inspection::CborEncodable<typename Collection::Record> ||
                   !std::is_same_v<typename Collection::Query, inspection::BasicQuery>) {
-        return fail(Error{Status::NotSupported, Reason::UnsupportedOperation, Operation::Encode});
+        return fail<Error>({Status::NotSupported, Reason::UnsupportedOperation, Operation::Encode});
     } else {
         if (request.limit > Collection::descriptor.maximum_page) {
-            return fail(Error{Status::Invalid, Reason::InvalidValue, Operation::Query});
+            return fail<Error>({Status::Invalid, Reason::InvalidValue, Operation::Query});
         }
         constexpr auto collection = System::InspectionCatalog::template Entry<Collection>::local_id;
         auto& records = inspection_remote_records<System, Collection>;
@@ -3327,7 +3319,7 @@ encode_inspection_query(const protocol::CollectionQueryRequest& request,
         auto page = inspection::detail::query_provider<System, Collection>(
             query, std::span{records}.first(limit), collection);
         if (!page) {
-            return fail(Error{page.error().status, Reason::InternalInvariant, Operation::Query});
+            return fail<Error>({page.error().status, Reason::InternalInvariant, Operation::Query});
         }
         inspection::CborWriter writer{output};
         bool encoded = writer.map(10) && writer.unsigned_integer(0) &&
@@ -3348,7 +3340,7 @@ encode_inspection_query(const protocol::CollectionQueryRequest& request,
                                                                                    writer);
         }
         if (!encoded || !writer.good()) {
-            return fail(Error{Status::NoSpace, Reason::NoSpace, Operation::Encode});
+            return fail<Error>({Status::NoSpace, Reason::NoSpace, Operation::Encode});
         }
         return writer.size();
     }
@@ -3361,7 +3353,7 @@ template <typename System>
     auto request = protocol::decode_collection_query_request(request_bytes);
     if (!request || request->limit == 0 ||
         request->limit > CONFIG_SOLAR_INSPECTION_REMOTE_MAX_PAGE_RECORDS) {
-        return fail(Error{Status::ProtocolError, Reason::Malformed, Operation::Decode});
+        return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::Decode});
     }
     const auto descriptors = System::InspectionCatalog::descriptors();
     const auto found = std::find_if(descriptors.begin(), descriptors.end(), [&](const auto& value) {
@@ -3370,10 +3362,10 @@ template <typename System>
                 inspection::capability(inspection::OperationCapability::Remote)) != 0;
     });
     if (found == descriptors.end()) {
-        return fail(Error{Status::NotFound, Reason::NotRegistered, Operation::Query});
+        return fail<Error>({Status::NotFound, Reason::NotRegistered, Operation::Query});
     }
     Result<std::size_t, Error> result =
-        fail(Error{Status::NotFound, Reason::NotRegistered, Operation::Query});
+        fail<Error>({Status::NotFound, Reason::NotRegistered, Operation::Query});
     auto visited = inspection::detail::visit_entry<System>(
         found->local_id,
         [&](auto identity) {
@@ -3382,7 +3374,7 @@ template <typename System>
         },
         typename System::InspectionCatalog::EntryTypes{});
     if (!visited) {
-        return fail(Error{Status::NotFound, Reason::NotRegistered, Operation::Query});
+        return fail<Error>({Status::NotFound, Reason::NotRegistered, Operation::Query});
     }
     return result;
 }

@@ -36,8 +36,7 @@ struct Notice
         .name = "fixture.notice",
     };
     using Value = Change;
-    using Publication =
-        solar::remote::Watch<solar::remote::Queue<2, solar::remote::Reject>>;
+    using Publication = solar::remote::Watch<solar::remote::Queue<2, solar::remote::Reject>>;
 };
 
 struct TestLink : solar::remote::testing::InMemoryLink<TestLink, 256, 256>
@@ -81,18 +80,16 @@ namespace
 std::array<std::byte, 256> host_bytes{};
 std::array<std::byte, 160> decoded_bytes{};
 
-solar::Result<solar::remote::frame::Decoded, solar::remote::Error>
-receive_frame(int attempts = 300)
+solar::Result<solar::remote::frame::Decoded, solar::remote::Error> receive_frame(int attempts = 300)
 {
     for (int attempt = 0; attempt < attempts; ++attempt) {
         auto bytes = fixture::TestLink::take_transmitted(host_bytes);
         if (bytes) {
-            return solar::remote::frame::decode(std::span{host_bytes}.first(*bytes),
-                                                decoded_bytes);
+            return solar::remote::frame::decode(std::span{host_bytes}.first(*bytes), decoded_bytes);
         }
         k_sleep(K_MSEC(1));
     }
-    return solar::fail(solar::remote::Error{.status = solar::Status::Timeout});
+    return solar::fail<solar::remote::Error>({.status = solar::Status::Timeout});
 }
 
 void inject(const solar::remote::protocol::Envelope& envelope)
@@ -110,8 +107,7 @@ void inject(const solar::remote::protocol::Envelope& envelope)
     zassert_unreachable("host frame was not admitted");
 }
 
-void subscribe(solar::remote::protocol::SubscriptionKind kind,
-               std::uint32_t request_id)
+void subscribe(solar::remote::protocol::SubscriptionKind kind, std::uint32_t request_id)
 {
     solar::remote::protocol::Envelope request{
         .kind = solar::remote::protocol::Kind::Subscribe,
@@ -132,8 +128,7 @@ void subscribe(solar::remote::protocol::SubscriptionKind kind,
     inject(request);
 }
 
-void unsubscribe(solar::remote::protocol::SubscriptionKind kind,
-                 std::uint32_t request_id)
+void unsubscribe(solar::remote::protocol::SubscriptionKind kind, std::uint32_t request_id)
 {
     solar::remote::protocol::Envelope request{
         .kind = solar::remote::protocol::Kind::Unsubscribe,
@@ -158,7 +153,7 @@ ZTEST(remote_topics, test_watch_and_topic_have_independent_subscription_domains)
     zassert_false(solar::remote::interested<fixture::Watched>());
     zassert_false(solar::remote::interested<fixture::Notice>());
 
-    zassert_equal(fixture::TestLink::connect(), solar::Status::Ok);
+    zassert_true(fixture::TestLink::connect().has_value());
     zassert_true(receive_frame().has_value());
     solar::remote::protocol::Envelope hello{
         .kind = solar::remote::protocol::Kind::ClientHello,
@@ -193,8 +188,7 @@ ZTEST(remote_topics, test_watch_and_topic_have_independent_subscription_domains)
         zassert_equal(data->envelope.kind, solar::remote::protocol::Kind::Data);
         auto value = solar::remote::cbor::decode<fixture::Change>(data->payload);
         zassert_true(value.has_value());
-        if (data->envelope.subscription() ==
-            solar::remote::protocol::SubscriptionKind::DataWatch) {
+        if (data->envelope.subscription() == solar::remote::protocol::SubscriptionKind::DataWatch) {
             saw_watch = true;
             zassert_equal(value->sequence, 11);
         } else if (data->envelope.subscription() ==

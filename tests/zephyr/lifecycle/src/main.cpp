@@ -74,7 +74,8 @@ ZTEST(solar_lifecycle, test_success_order_records_activation_stop_and_reboot_pol
     zassert_equal(final_page->count, 1);
     zassert_false(final_page->has_more());
     zassert_equal(page_storage[0].descriptor.descriptor.name, "success.executor");
-    zassert_equal(lifecycle::component_page(page_storage, 6).error(), solar::Status::Invalid);
+    zassert_equal(solar::status_of(lifecycle::component_page(page_storage, 6).error()),
+                  solar::Status::Invalid);
 
     const auto retained_boot = lifecycle::boot_report();
     zassert_true(retained_boot.has_value());
@@ -269,13 +270,14 @@ ZTEST(solar_lifecycle, test_concurrent_boot_is_busy_and_transitions_are_queryabl
 {
     fixture::concurrent_boot_succeeded.store(false, std::memory_order_release);
     solar::kernel::Thread<2048> thread;
-    zassert_equal(thread.launch(&fixture::concurrent_boot_entry, nullptr,
-                                {.priority = solar::kernel::Priority::preemptive<1>(),
-                                 .name = "lifecycle-boot"}),
-                  solar::Status::Ok);
-    zassert_equal(fixture::ConcurrentComponent::entered.take(
-                      solar::kernel::Timeout::after(std::chrono::milliseconds{100})),
-                  solar::Status::Ok);
+    zassert_true(thread
+                     .launch(&fixture::concurrent_boot_entry, nullptr,
+                             {.priority = solar::kernel::Priority::preemptive<1>(),
+                              .name = "lifecycle-boot"})
+                     .has_value());
+    zassert_true(fixture::ConcurrentComponent::entered
+                     .take(solar::kernel::Timeout::after(std::chrono::milliseconds{100}))
+                     .has_value());
 
     zassert_equal(lifecycle::state<fixture::ConcurrentApplication>(),
                   lifecycle::SystemState::Initializing);
@@ -288,8 +290,8 @@ ZTEST(solar_lifecycle, test_concurrent_boot_is_busy_and_transitions_are_queryabl
     zassert_false(rejected.has_value());
     zassert_equal(rejected.error().reason, lifecycle::BootErrorReason::Busy);
     fixture::ConcurrentComponent::release.give();
-    zassert_equal(thread.join(solar::kernel::Timeout::after(std::chrono::milliseconds{100})),
-                  solar::Status::Ok);
+    zassert_true(
+        thread.join(solar::kernel::Timeout::after(std::chrono::milliseconds{100})).has_value());
     zassert_true(fixture::concurrent_boot_succeeded.load(std::memory_order_acquire));
     zassert_true(solar::stop<fixture::ConcurrentApplication>().has_value());
 }

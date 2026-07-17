@@ -35,23 +35,23 @@ class Semaphore
         k_sem_give(&semaphore_);
     }
 
-    [[nodiscard]] Status take(Timeout timeout = Timeout::forever()) noexcept
+    [[nodiscard]] Result<void> take(Timeout timeout = Timeout::forever()) noexcept
     {
         return detail::map_wait(k_sem_take(&semaphore_, timeout.native_handle()), timeout,
                                 Status::WouldBlock);
     }
 
-    [[nodiscard]] Status take(const Deadline& deadline) noexcept
+    [[nodiscard]] Result<void> take(const Deadline& deadline) noexcept
     {
         return take(deadline.remaining());
     }
 
-    [[nodiscard]] Status try_take() noexcept
+    [[nodiscard]] Result<void> try_take() noexcept
     {
         return take(Timeout::no_wait());
     }
 
-    [[nodiscard]] Status try_take_isr() noexcept
+    [[nodiscard]] Result<void> try_take_isr() noexcept
     {
         return take(Timeout::no_wait());
     }

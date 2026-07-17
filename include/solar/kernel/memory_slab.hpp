@@ -18,8 +18,7 @@
 namespace solar::kernel
 {
 
-template <std::size_t BlockBytes, std::size_t BlockCount,
-          std::size_t Alignment = alignof(void*)>
+template <std::size_t BlockBytes, std::size_t BlockCount, std::size_t Alignment = alignof(void*)>
 class MemorySlab
 {
     static_assert(BlockBytes > 0,
@@ -74,8 +73,8 @@ class MemorySlab
 
         [[nodiscard]] std::span<const std::byte, BlockBytes> bytes() const noexcept
         {
-            return std::span<const std::byte, BlockBytes>{
-                static_cast<const std::byte*>(memory_), BlockBytes};
+            return std::span<const std::byte, BlockBytes>{static_cast<const std::byte*>(memory_),
+                                                          BlockBytes};
         }
 
         [[nodiscard]] void* data() noexcept
@@ -123,8 +122,7 @@ class MemorySlab
 
     MemorySlab() noexcept
     {
-        __ASSERT_NO_MSG(
-            k_mem_slab_init(&slab_, storage_.data(), block_stride, BlockCount) == 0);
+        __ASSERT_NO_MSG(k_mem_slab_init(&slab_, storage_.data(), block_stride, BlockCount) == 0);
     }
 
     ~MemorySlab()
@@ -140,7 +138,7 @@ class MemorySlab
     [[nodiscard]] Result<Block> allocate(Timeout timeout = Timeout::forever()) noexcept
     {
         if (in_isr() && !timeout.is_no_wait()) {
-            return fail(Status::Invalid);
+            return fail<solar::Error>({.status = solar::Status::Invalid});
         }
 
         void* memory{};
@@ -149,12 +147,13 @@ class MemorySlab
             return Block{*this, memory};
         }
         if (result == -ENOMEM) {
-            return fail(Status::NoMemory);
+            return fail<solar::Error>({.status = solar::Status::NoMemory});
         }
         if (result == -EAGAIN) {
-            return fail(timeout.is_no_wait() ? Status::NoMemory : Status::Timeout);
+            return fail<Error>(
+                {.status = timeout.is_no_wait() ? Status::NoMemory : Status::Timeout});
         }
-        return fail(status_from_errno(result));
+        return fail<Error>(error_from_errno(result));
     }
 
     [[nodiscard]] Result<Block> allocate(const Deadline& deadline) noexcept

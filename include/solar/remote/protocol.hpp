@@ -106,6 +106,48 @@ enum class ErrorCode : std::uint16_t
     InternalFailure = 23,
 };
 
+[[nodiscard]] constexpr Status status_of(ErrorCode error) noexcept
+{
+    switch (error) {
+    case ErrorCode::UnsupportedVersion:
+    case ErrorCode::UnsupportedCapability:
+    case ErrorCode::UnsupportedOperation:
+        return Status::NotSupported;
+    case ErrorCode::SchemaMismatch:
+    case ErrorCode::MalformedFrame:
+    case ErrorCode::IntegrityFailure:
+    case ErrorCode::FragmentRejected:
+    case ErrorCode::DecodeFailure:
+    case ErrorCode::CreditViolation:
+        return Status::ProtocolError;
+    case ErrorCode::OversizedFrame:
+    case ErrorCode::OversizedMessage:
+        return Status::MessageTooLarge;
+    case ErrorCode::UnknownTarget:
+        return Status::NotFound;
+    case ErrorCode::Unauthorized:
+        return Status::PermissionDenied;
+    case ErrorCode::NotReady:
+    case ErrorCode::SessionClosing:
+        return Status::NotReady;
+    case ErrorCode::Busy:
+    case ErrorCode::RateRejected:
+        return Status::Busy;
+    case ErrorCode::NoCapacity:
+        return Status::NoSpace;
+    case ErrorCode::RequestExpired:
+    case ErrorCode::DuplicateResponseExpired:
+        return Status::NotFound;
+    case ErrorCode::Cancelled:
+        return Status::Cancelled;
+    case ErrorCode::TimedOut:
+        return Status::Timeout;
+    case ErrorCode::InternalFailure:
+        return Status::Error;
+    }
+    return Status::Error;
+}
+
 [[nodiscard]] constexpr bool valid(Kind kind) noexcept
 {
     const auto value = static_cast<std::uint8_t>(kind);
@@ -287,7 +329,7 @@ encode(const SubscriptionPolicy& policy) noexcept
 decode_subscription_request(std::span<const std::byte> input) noexcept
 {
     if (input.size() != subscription_policy_size) {
-        return fail(Error{Status::ProtocolError, Reason::Malformed, Operation::Decode});
+        return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::Decode});
     }
     return SubscriptionRequest{
         .minimum_interval_us = detail::get_u32(input, 0),
@@ -301,11 +343,11 @@ decode_subscription_request(std::span<const std::byte> input) noexcept
 decode_subscription_policy(std::span<const std::byte> input) noexcept
 {
     if (input.size() != subscription_policy_size) {
-        return fail(Error{Status::ProtocolError, Reason::Malformed, Operation::Decode});
+        return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::Decode});
     }
     const auto codec = static_cast<Codec>(std::to_integer<std::uint8_t>(input[6]));
     if (codec != Codec::Cbor && codec != Codec::Packed) {
-        return fail(Error{Status::ProtocolError, Reason::InvalidValue, Operation::Decode});
+        return fail<Error>({Status::ProtocolError, Reason::InvalidValue, Operation::Decode});
     }
     return SubscriptionPolicy{
         .minimum_interval_us = detail::get_u32(input, 0),
@@ -328,7 +370,7 @@ encode(const CreditGrant& grant) noexcept
 decode_credit_grant(std::span<const std::byte> input) noexcept
 {
     if (input.size() != credit_grant_size) {
-        return fail(Error{Status::ProtocolError, Reason::Malformed, Operation::Decode});
+        return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::Decode});
     }
     return CreditGrant{.credits = detail::get_u16(input, 0), .window = detail::get_u16(input, 2)};
 }
@@ -357,7 +399,7 @@ decode_introspection_summary(std::span<const std::byte> input) noexcept
 {
     if (input.size() != introspection_summary_size || input[0] != std::byte{1} ||
         input[1] != static_cast<std::byte>(major_version)) {
-        return fail(Error{Status::ProtocolError, Reason::Malformed, Operation::Decode});
+        return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::Decode});
     }
     return IntrospectionSummary{
         .schemas = detail::get_u16(input, 4),
@@ -384,7 +426,7 @@ encode(const CollectionRequest& request) noexcept
 decode_collection_request(std::span<const std::byte> input) noexcept
 {
     if (input.size() != collection_request_size) {
-        return fail(Error{Status::ProtocolError, Reason::Malformed, Operation::Decode});
+        return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::Decode});
     }
     return CollectionRequest{.offset = detail::get_u16(input, 0),
                              .limit = detail::get_u16(input, 2)};
@@ -394,7 +436,7 @@ decode_collection_request(std::span<const std::byte> input) noexcept
 decode_collection_page_header(std::span<const std::byte> input) noexcept
 {
     if (input.size() < collection_page_header_size || input[0] != std::byte{1}) {
-        return fail(Error{Status::ProtocolError, Reason::Malformed, Operation::Decode});
+        return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::Decode});
     }
     return CollectionPageHeader{
         .count = std::to_integer<std::uint8_t>(input[1]),
@@ -419,7 +461,7 @@ encode(const CollectionQueryRequest& request) noexcept
 decode_collection_query_request(std::span<const std::byte> input) noexcept
 {
     if (input.size() != collection_query_request_size) {
-        return fail(Error{Status::ProtocolError, Reason::Malformed, Operation::Decode});
+        return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::Decode});
     }
     return CollectionQueryRequest{
         .stable_id = detail::get_u32(input, 0),
@@ -443,12 +485,12 @@ encode(const BatchHeader& header) noexcept
 decode_batch_header(std::span<const std::byte> input) noexcept
 {
     if (input.size() < batch_header_size) {
-        return fail(Error{Status::ProtocolError, Reason::Malformed, Operation::Decode});
+        return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::Decode});
     }
     const auto codec = static_cast<Codec>(std::to_integer<std::uint8_t>(input[2]));
     const auto version = std::to_integer<std::uint8_t>(input[3]);
     if ((codec != Codec::Cbor && codec != Codec::Packed) || version != batch_version) {
-        return fail(Error{Status::ProtocolError, Reason::UnsupportedVersion, Operation::Decode});
+        return fail<Error>({Status::ProtocolError, Reason::UnsupportedVersion, Operation::Decode});
     }
     return BatchHeader{.count = detail::get_u16(input, 0), .codec = codec, .version = version};
 }
@@ -459,7 +501,7 @@ encode(const Envelope& envelope) noexcept
     if (envelope.major != major_version || !valid(envelope.kind) ||
         (static_cast<std::uint8_t>(envelope.flags) & 0xF0U) != 0 || envelope.fragment_count == 0 ||
         envelope.fragment_index >= envelope.fragment_count) {
-        return fail(Error{Status::Invalid, Reason::InvalidValue, Operation::FrameEncode});
+        return fail<Error>({Status::Invalid, Reason::InvalidValue, Operation::FrameEncode});
     }
 
     std::array<std::byte, envelope_size> output{};
@@ -483,11 +525,11 @@ encode(const Envelope& envelope) noexcept
 [[nodiscard]] constexpr Result<Envelope, Error> decode(std::span<const std::byte> input) noexcept
 {
     if (input.size() < envelope_size) {
-        return fail(Error{Status::ProtocolError, Reason::Malformed, Operation::FrameDecode});
+        return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::FrameDecode});
     }
     if (std::to_integer<std::uint8_t>(input[0]) != major_version ||
         detail::get_u16(input, 4) != envelope_size) {
-        return fail(
+        return fail<Error>(
             Error{Status::NotSupported, Reason::UnsupportedVersion, Operation::FrameDecode});
     }
 
@@ -507,11 +549,11 @@ encode(const Envelope& envelope) noexcept
         .reserved = detail::get_u32(input, 28),
     };
     if (!valid(envelope.kind)) {
-        return fail(Error{Status::NotSupported, Reason::UnsupportedKind, Operation::FrameDecode});
+        return fail<Error>({Status::NotSupported, Reason::UnsupportedKind, Operation::FrameDecode});
     }
     if ((static_cast<std::uint8_t>(envelope.flags) & 0xF0U) != 0 || envelope.fragment_count == 0 ||
         envelope.fragment_index >= envelope.fragment_count) {
-        return fail(Error{Status::ProtocolError, Reason::Malformed, Operation::FrameDecode});
+        return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::FrameDecode});
     }
     return envelope;
 }

@@ -48,17 +48,17 @@ template <auto Spec> struct Endpoint
     [[nodiscard]] static Result<void, Error> require_ready() noexcept
     {
         if constexpr (!requires { descriptor_value.native; }) {
-            return fail(Error{.status = Status::NotSupported,
-                              .reason = Reason::Unsupported,
-                              .operation = Operation::RequireReady,
-                              .native = -ENOTSUP,
-                              .endpoint = path()});
+            return fail<Error>({.status = solar::Status::NotSupported,
+                                .reason = Reason::Unsupported,
+                                .operation = Operation::RequireReady,
+                                .native = -ENOTSUP,
+                                .endpoint = path()});
         } else if (!ready()) {
-            return fail(Error{.status = Status::NotReady,
-                              .reason = Reason::NotReady,
-                              .operation = Operation::RequireReady,
-                              .native = -ENODEV,
-                              .endpoint = path()});
+            return fail<Error>({.status = solar::Status::NotReady,
+                                .reason = Reason::NotReady,
+                                .operation = Operation::RequireReady,
+                                .native = -ENODEV,
+                                .endpoint = path()});
         }
         return {};
     }

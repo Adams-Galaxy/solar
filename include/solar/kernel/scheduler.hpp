@@ -20,10 +20,10 @@ class SchedulerLock
     [[nodiscard]] static Result<SchedulerLock> acquire() noexcept
     {
         if (k_is_in_isr()) {
-            return fail(Status::Invalid);
+            return fail<solar::Error>({.status = solar::Status::Invalid});
         }
         if (!k_can_yield()) {
-            return fail(Status::NotReady);
+            return fail<solar::Error>({.status = solar::Status::NotReady});
         }
         k_sched_lock();
         return SchedulerLock{};

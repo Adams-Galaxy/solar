@@ -26,8 +26,7 @@ struct Bulk
     };
     using Value = Blob;
     using Capabilities = solar::remote::Capabilities<solar::remote::OutStream<
-        solar::remote::Push, solar::remote::Latest,
-        solar::remote::MaxRate<100>>>;
+        solar::remote::Push, solar::remote::Latest, solar::remote::MaxRate<100>>>;
 };
 
 struct TestLink : solar::remote::testing::InMemoryLink<TestLink, 512, 512>
@@ -70,18 +69,16 @@ namespace
 std::array<std::byte, 512> host_bytes{};
 std::array<std::byte, 256> decoded_bytes{};
 
-solar::Result<solar::remote::frame::Decoded, solar::remote::Error>
-receive_frame(int attempts = 300)
+solar::Result<solar::remote::frame::Decoded, solar::remote::Error> receive_frame(int attempts = 300)
 {
     for (int attempt = 0; attempt < attempts; ++attempt) {
         auto bytes = fixture::TestLink::take_transmitted(host_bytes);
         if (bytes) {
-            return solar::remote::frame::decode(std::span{host_bytes}.first(*bytes),
-                                                decoded_bytes);
+            return solar::remote::frame::decode(std::span{host_bytes}.first(*bytes), decoded_bytes);
         }
         k_sleep(K_MSEC(1));
     }
-    return solar::fail(solar::remote::Error{.status = solar::Status::Timeout});
+    return solar::fail<solar::remote::Error>({.status = solar::Status::Timeout});
 }
 
 void inject(const solar::remote::protocol::Envelope& envelope,
@@ -102,7 +99,7 @@ void inject(const solar::remote::protocol::Envelope& envelope,
 
 void establish_subscription()
 {
-    zassert_equal(fixture::TestLink::connect(), solar::Status::Ok);
+    zassert_true(fixture::TestLink::connect().has_value());
     zassert_true(receive_frame().has_value());
     solar::remote::protocol::Envelope hello{
         .kind = solar::remote::protocol::Kind::ClientHello,
@@ -153,8 +150,7 @@ ZTEST(remote_fragmentation, test_large_publication_is_bounded_and_reassemblable)
         zassert_true(fragment.has_value());
         zassert_equal(fragment->envelope.kind, solar::remote::protocol::Kind::Data);
         zassert_true((static_cast<std::uint8_t>(fragment->envelope.flags) &
-                      static_cast<std::uint8_t>(
-                          solar::remote::protocol::Flags::Fragmented)) != 0);
+                      static_cast<std::uint8_t>(solar::remote::protocol::Flags::Fragmented)) != 0);
         if (expected == 0) {
             fragment_id = fragment->envelope.fragment_id;
             fragment_count = fragment->envelope.fragment_count;
@@ -168,16 +164,15 @@ ZTEST(remote_fragmentation, test_large_publication_is_bounded_and_reassemblable)
                   logical.begin() + logical_size);
         logical_size += fragment->payload.size();
         const bool final = (static_cast<std::uint8_t>(fragment->envelope.flags) &
-                            static_cast<std::uint8_t>(
-                                solar::remote::protocol::Flags::Final)) != 0;
+                            static_cast<std::uint8_t>(solar::remote::protocol::Flags::Final)) != 0;
         zassert_equal(final, expected + 1U == fragment_count);
         if (final) {
             break;
         }
     }
 
-    auto decoded = solar::remote::cbor::decode<fixture::Blob>(
-        std::span{logical}.first(logical_size));
+    auto decoded =
+        solar::remote::cbor::decode<fixture::Blob>(std::span{logical}.first(logical_size));
     zassert_true(decoded.has_value());
     zassert_equal(decoded->bytes.size, authored.bytes.size);
     zassert_mem_equal(decoded->bytes.storage.data(), authored.bytes.storage.data(),

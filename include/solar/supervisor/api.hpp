@@ -29,7 +29,7 @@ template <typename ServiceT> [[nodiscard]] Result<StateRecord, Error> copy_state
     auto& storage = detail::storage<ServiceT>();
     auto guard = kernel::LockGuard<kernel::Mutex>::acquire(storage.mutex);
     if (!guard) {
-        return fail(query_error(guard.error()));
+        return fail<Error>(query_error(status_of(guard.error())));
     }
     return storage.state;
 }
@@ -39,7 +39,7 @@ template <typename ServiceT> [[nodiscard]] Result<WatchdogRecord, Error> copy_wa
     auto& storage = detail::storage<ServiceT>();
     auto guard = kernel::LockGuard<kernel::Mutex>::acquire(storage.mutex);
     if (!guard) {
-        return fail(query_error(guard.error()));
+        return fail<Error>(query_error(status_of(guard.error())));
     }
     return storage.watchdog;
 }
@@ -52,7 +52,7 @@ template <typename ServiceT, typename Component>
     auto& storage = detail::storage<ServiceT>();
     auto guard = kernel::LockGuard<kernel::Mutex>::acquire(storage.mutex);
     if (!guard) {
-        return fail(query_error(guard.error()));
+        return fail<Error>(query_error(status_of(guard.error())));
     }
     for_each_type<Rules>([&]<typename Rule> {
         if constexpr (std::is_same_v<typename RuleTraits<Rule>::Subject, Component>) {
@@ -75,7 +75,7 @@ copy_responses(ResponseCursor cursor, std::span<ResponseRecord> destination) noe
     auto& storage = detail::storage<ServiceT>();
     auto guard = kernel::LockGuard<kernel::Mutex>::acquire(storage.mutex);
     if (!guard) {
-        return fail(query_error(guard.error()));
+        return fail<Error>(query_error(status_of(guard.error())));
     }
     const auto oldest = storage.next_sequence > storage.history.size()
                             ? storage.next_sequence - storage.history.size()
@@ -145,33 +145,34 @@ template <typename Application = DefaultApplication> struct Of
 
 [[nodiscard]] constexpr Error disabled_error() noexcept
 {
-    return {
-        .status = Status::NotSupported, .reason = Reason::Disabled, .operation = Operation::Query};
+    return {.status = solar::Status::NotSupported,
+            .reason = Reason::Disabled,
+            .operation = Operation::Query};
 }
 
 template <typename Application = DefaultApplication>
 [[nodiscard]] Result<StateRecord, Error> state() noexcept
 {
-    return fail(disabled_error());
+    return fail<Error>(disabled_error());
 }
 
 template <typename Application = DefaultApplication>
 [[nodiscard]] Result<WatchdogRecord, Error> watchdog() noexcept
 {
-    return fail(disabled_error());
+    return fail<Error>(disabled_error());
 }
 
 template <typename Component, typename Application = DefaultApplication>
 [[nodiscard]] Result<SubjectRecord, Error> record() noexcept
 {
-    return fail(disabled_error());
+    return fail<Error>(disabled_error());
 }
 
 template <typename Application = DefaultApplication>
 [[nodiscard]] Result<ResponsePage, Error> responses(ResponseCursor,
                                                     std::span<ResponseRecord>) noexcept
 {
-    return fail(disabled_error());
+    return fail<Error>(disabled_error());
 }
 
 #endif

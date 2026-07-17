@@ -60,11 +60,11 @@ template <auto Spec> struct Output : hardware::Endpoint<Spec>
                                                         std::uint32_t pulse) noexcept
     {
         if (pulse > period) {
-            return fail(Error{.status = Status::Invalid,
-                              .reason = Reason::InvalidConfiguration,
-                              .operation = Operation::Configure,
-                              .native = -EINVAL,
-                              .endpoint = Base::path()});
+            return fail<Error>({.status = solar::Status::Invalid,
+                                .reason = Reason::InvalidConfiguration,
+                                .operation = Operation::Configure,
+                                .native = -EINVAL,
+                                .endpoint = Base::path()});
         }
         return hardware::detail::native_result(
             pwm_set_cycles(Base::native_device(), Base::descriptor_value.native.channel, period,
@@ -80,11 +80,11 @@ template <auto Spec> struct Output : hardware::Endpoint<Spec>
         const auto period_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(period).count();
         const auto pulse_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(pulse).count();
         if (period_ns < 0 || pulse_ns < 0 || pulse_ns > period_ns || period_ns > UINT32_MAX) {
-            return fail(Error{.status = Status::Invalid,
-                              .reason = Reason::InvalidConfiguration,
-                              .operation = Operation::Configure,
-                              .native = -EINVAL,
-                              .endpoint = Base::path()});
+            return fail<Error>({.status = solar::Status::Invalid,
+                                .reason = Reason::InvalidConfiguration,
+                                .operation = Operation::Configure,
+                                .native = -EINVAL,
+                                .endpoint = Base::path()});
         }
         return hardware::detail::native_result(pwm_set_dt(&Base::descriptor_value.native,
                                                           static_cast<std::uint32_t>(period_ns),
@@ -95,11 +95,11 @@ template <auto Spec> struct Output : hardware::Endpoint<Spec>
     [[nodiscard]] static Result<void, Error> set(DutyCycle duty) noexcept
     {
         if (duty.parts_per_million > 1'000'000U) {
-            return fail(Error{.status = Status::Invalid,
-                              .reason = Reason::InvalidConfiguration,
-                              .operation = Operation::Configure,
-                              .native = -EINVAL,
-                              .endpoint = Base::path()});
+            return fail<Error>({.status = solar::Status::Invalid,
+                                .reason = Reason::InvalidConfiguration,
+                                .operation = Operation::Configure,
+                                .native = -EINVAL,
+                                .endpoint = Base::path()});
         }
         const auto pulse = static_cast<std::uint32_t>(
             (static_cast<std::uint64_t>(Base::descriptor_value.native.period) *
@@ -133,11 +133,11 @@ template <auto Spec> struct Capture : hardware::Endpoint<Spec>
                                                        k_timeout_t timeout = K_FOREVER) noexcept
     {
         if (State::handler.load(std::memory_order_acquire) != nullptr) {
-            return fail(Error{.status = Status::Busy,
-                              .reason = Reason::AlreadyOwned,
-                              .operation = Operation::Read,
-                              .native = -EBUSY,
-                              .endpoint = Base::path()});
+            return fail<Error>({.status = solar::Status::Busy,
+                                .reason = Reason::AlreadyOwned,
+                                .operation = Operation::Read,
+                                .native = -EBUSY,
+                                .endpoint = Base::path()});
         }
         Sample value{};
         const auto result =
@@ -145,7 +145,8 @@ template <auto Spec> struct Capture : hardware::Endpoint<Spec>
                                Base::descriptor_value.native.flags | mode, &value.period_cycles,
                                &value.pulse_cycles, timeout);
         if (result != 0) {
-            return fail(hardware::detail::native_error(result, Operation::Read, Base::path()));
+            return fail<Error>(
+                hardware::detail::native_error(result, Operation::Read, Base::path()));
         }
         return value;
     }
@@ -155,26 +156,26 @@ template <auto Spec> struct Capture : hardware::Endpoint<Spec>
             pwm_flags_t mode = PWM_CAPTURE_TYPE_BOTH | PWM_CAPTURE_MODE_CONTINUOUS) noexcept
     {
         if (handler == nullptr) {
-            return fail(Error{.status = Status::Invalid,
-                              .reason = Reason::InvalidConfiguration,
-                              .operation = Operation::CallbackInstall,
-                              .native = -EINVAL,
-                              .endpoint = Base::path()});
+            return fail<Error>({.status = solar::Status::Invalid,
+                                .reason = Reason::InvalidConfiguration,
+                                .operation = Operation::CallbackInstall,
+                                .native = -EINVAL,
+                                .endpoint = Base::path()});
         }
         CaptureHandler expected{};
         if (!State::handler.compare_exchange_strong(expected, handler, std::memory_order_acq_rel)) {
-            return fail(Error{.status = Status::Already,
-                              .reason = Reason::AlreadyOwned,
-                              .operation = Operation::CallbackInstall,
-                              .native = -EALREADY,
-                              .endpoint = Base::path()});
+            return fail<Error>({.status = solar::Status::Already,
+                                .reason = Reason::AlreadyOwned,
+                                .operation = Operation::CallbackInstall,
+                                .native = -EALREADY,
+                                .endpoint = Base::path()});
         }
         const auto result =
             pwm_configure_capture(Base::native_device(), Base::descriptor_value.native.channel,
                                   Base::descriptor_value.native.flags | mode, &trampoline, nullptr);
         if (result != 0) {
             State::handler.store(nullptr, std::memory_order_release);
-            return fail(
+            return fail<Error>(
                 hardware::detail::native_error(result, Operation::CallbackInstall, Base::path()));
         }
         return {};
@@ -183,11 +184,11 @@ template <auto Spec> struct Capture : hardware::Endpoint<Spec>
     [[nodiscard]] static Result<void, Error> enable() noexcept
     {
         if (State::handler.load(std::memory_order_acquire) == nullptr) {
-            return fail(Error{.status = Status::NotReady,
-                              .reason = Reason::NotReady,
-                              .operation = Operation::Enable,
-                              .native = -ENOENT,
-                              .endpoint = Base::path()});
+            return fail<Error>({.status = solar::Status::NotReady,
+                                .reason = Reason::NotReady,
+                                .operation = Operation::Enable,
+                                .native = -ENOENT,
+                                .endpoint = Base::path()});
         }
         return hardware::detail::native_result(
             pwm_enable_capture(Base::native_device(), Base::descriptor_value.native.channel),
@@ -227,8 +228,8 @@ template <auto Spec> struct Capture : hardware::Endpoint<Spec>
             return;
         }
         if (status != 0) {
-            callback(
-                fail(hardware::detail::native_error(status, Operation::Complete, Base::path())));
+            callback(fail<Error>(
+                hardware::detail::native_error(status, Operation::Complete, Base::path())));
         } else {
             callback(CaptureSample{.period_cycles = period, .pulse_cycles = pulse});
         }

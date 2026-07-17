@@ -132,18 +132,18 @@ template <typename System> class OperationGuard
 };
 
 template <typename System, typename Function>
-[[nodiscard]] Status with_records(Function&& function) noexcept
+[[nodiscard]] Result<void> with_records(Function&& function) noexcept
 {
     auto lock = kernel::LockGuard<kernel::Mutex>::acquire(storage<System>().records_mutex);
     if (!lock) {
-        return lock.error();
+        return fail<solar::Error>(lock.error());
     }
     std::forward<Function>(function)(storage<System>());
-    return Status::Ok;
+    return {};
 }
 
 template <typename System, typename Component, typename Function>
-[[nodiscard]] Status mutate_record(Function&& function) noexcept
+[[nodiscard]] Result<void> mutate_record(Function&& function) noexcept
 {
     return with_records<System>([&](auto& state) {
         std::forward<Function>(function)(state.records[component_index<System, Component>()]);
@@ -200,7 +200,7 @@ template <typename System, typename Component>
 
     auto result = invoke_init<Component>();
     (void)mutate_record<System, Component>([&](ComponentRecord& record) {
-        record.last_status = result ? Status::Ok : result.error();
+        record.last_status = result ? Status::Ok : status_of(result.error());
         if constexpr (HasInit<Component>) {
             record.init.outcome = result ? HookOutcome::Succeeded : HookOutcome::Failed;
             record.init.status = record.last_status;
@@ -228,7 +228,7 @@ template <typename System, typename Component> [[nodiscard]] Result<void> start_
 
     auto result = invoke_start<Component>();
     (void)mutate_record<System, Component>([&](ComponentRecord& record) {
-        record.last_status = result ? Status::Ok : result.error();
+        record.last_status = result ? Status::Ok : status_of(result.error());
         if constexpr (HasStart<Component>) {
             record.start.outcome = result ? HookOutcome::Succeeded : HookOutcome::Failed;
             record.start.status = record.last_status;
@@ -246,7 +246,7 @@ template <typename System, typename Component> [[nodiscard]] Result<void> start_
         result = ExecutionProtocol<System, Component>::prepare();
         if (!result) {
             (void)mutate_record<System, Component>(
-                [&](ComponentRecord& record) { record.last_status = result.error(); });
+                [&](ComponentRecord& record) { record.last_status = status_of(result.error()); });
             return result;
         }
         (void)mutate_record<System, Component>([](ComponentRecord& record) {
@@ -280,7 +280,7 @@ template <typename System, typename Component>
         auto result = ExecutionProtocol<System, Component>::validate_activation();
         if (!result) {
             (void)mutate_record<System, Component>(
-                [&](ComponentRecord& record) { record.last_status = result.error(); });
+                [&](ComponentRecord& record) { record.last_status = status_of(result.error()); });
         }
         return result;
     }
@@ -321,7 +321,7 @@ stop_component(FailureDetails<report_failure_capacity>& failures) noexcept
     auto result = invoke_stop<Component>();
     (void)mutate_record<System, Component>([&](ComponentRecord& record) {
         record.start_succeeded = false;
-        record.last_status = result ? Status::Ok : result.error();
+        record.last_status = result ? Status::Ok : status_of(result.error());
         if constexpr (HasStop<Component>) {
             record.stop.outcome = result ? HookOutcome::Succeeded : HookOutcome::Failed;
             record.stop.status = record.last_status;
@@ -332,7 +332,7 @@ stop_component(FailureDetails<report_failure_capacity>& failures) noexcept
     });
     if (!result) {
         const auto failure =
-            make_failure<System, Component>(Operation::Stop, result.error(), false);
+            make_failure<System, Component>(Operation::Stop, status_of(result.error()), false);
         failures.add(failure);
         record_failure<System, Component>(failure);
     }
@@ -360,7 +360,7 @@ deinitialize_component(FailureDetails<report_failure_capacity>& failures) noexce
     auto result = invoke_deinit<Component>();
     (void)mutate_record<System, Component>([&](ComponentRecord& record) {
         record.init_succeeded = false;
-        record.last_status = result ? Status::Ok : result.error();
+        record.last_status = result ? Status::Ok : status_of(result.error());
         if constexpr (HasDeinit<Component>) {
             record.deinit.outcome = result ? HookOutcome::Succeeded : HookOutcome::Failed;
             record.deinit.status = record.last_status;
@@ -371,7 +371,7 @@ deinitialize_component(FailureDetails<report_failure_capacity>& failures) noexce
     });
     if (!result) {
         const auto failure =
-            make_failure<System, Component>(Operation::Deinit, result.error(), false);
+            make_failure<System, Component>(Operation::Deinit, status_of(result.error()), false);
         failures.add(failure);
         record_failure<System, Component>(failure);
     }
@@ -406,8 +406,9 @@ void request_execution_stop(Report& report) noexcept
             value.last_operation = Operation::RequestExecutionStop;
             ++value.attempts;
         });
-        const auto status = ExecutionProtocol<System, Component>::request_stop();
-        if (status != Status::Ok && status != Status::Already) {
+        const auto result = ExecutionProtocol<System, Component>::request_stop();
+        if (!result && status_of(result.error()) != Status::Already) {
+            const auto status = status_of(result.error());
             const auto failure =
                 make_failure<System, Component>(Operation::RequestExecutionStop, status, false);
             report.failures.add(failure);
@@ -479,8 +480,9 @@ void contain_execution(Report& report) noexcept
 template <typename System, typename Report> void request_system_execution_stop(Report& report)
 {
     if constexpr (SystemExecutionProtocol<System>::participates) {
-        const auto status = SystemExecutionProtocol<System>::request_stop();
-        if (status != Status::Ok && status != Status::Already) {
+        const auto result = SystemExecutionProtocol<System>::request_stop();
+        if (!result && status_of(result.error()) != Status::Already) {
+            const auto status = status_of(result.error());
             auto failure =
                 SystemExecutionProtocol<System>::failure(Operation::RequestExecutionStop, status);
             failure.primary = false;
@@ -546,7 +548,7 @@ template <typename System> [[nodiscard]] std::optional<Failure> commit_catalog_a
             auto result = Protocol::template commit<System>();
             if (!result) {
                 failure = Protocol::template failure<System>(Operation::ActivateExecution,
-                                                             result.error());
+                                                             status_of(result.error()));
                 failure->primary = true;
             }
         }
@@ -639,18 +641,19 @@ template <typename System> struct Engine
     {
         detail::OperationGuard<System> operation;
         if (!operation) {
-            return fail(BootError{.reason = BootErrorReason::Busy, .status = Status::Busy});
+            return fail<BootError>(
+                {.reason = BootErrorReason::Busy, .status = solar::Status::Busy});
         }
 
         auto& state = detail::storage<System>();
         const auto initial = state.system_state.load(std::memory_order_acquire);
         if (initial == SystemState::Running) {
-            return fail(
-                BootError{.reason = BootErrorReason::AlreadyRunning, .status = Status::Already});
+            return fail<BootError>(
+                {.reason = BootErrorReason::AlreadyRunning, .status = solar::Status::Already});
         }
         if (initial != SystemState::Dormant) {
-            return fail(BootError{.reason = BootErrorReason::RebootUnsupported,
-                                  .status = Status::NotSupported});
+            return fail<BootError>({.reason = BootErrorReason::RebootUnsupported,
+                                    .status = solar::Status::NotSupported});
         }
 
         BootReport report{.initial_state = initial};
@@ -664,8 +667,8 @@ template <typename System> struct Engine
             }
             auto result = detail::initialize_component<System, Component>();
             if (!result) {
-                primary =
-                    detail::make_failure<System, Component>(Operation::Init, result.error(), true);
+                primary = detail::make_failure<System, Component>(Operation::Init,
+                                                                  status_of(result.error()), true);
                 detail::record_failure<System, Component>(*primary);
                 return;
             }
@@ -676,9 +679,9 @@ template <typename System> struct Engine
             report.primary_failure = primary;
             detail::rollback<System>(report, false);
             detail::publish<System>(report);
-            return fail(BootError{.reason = BootErrorReason::ComponentFailure,
-                                  .status = primary->status,
-                                  .failure = primary});
+            return fail<BootError>({.reason = BootErrorReason::ComponentFailure,
+                                    .status = primary->status,
+                                    .failure = primary});
         }
         report.initialization_completed = true;
 
@@ -692,7 +695,7 @@ template <typename System> struct Engine
                 const auto record = detail::record_copy<System, Component>();
                 execution_failure = record.last_operation == Operation::PrepareExecution;
                 primary = detail::make_failure<System, Component>(record.last_operation,
-                                                                  result.error(), true);
+                                                                  status_of(result.error()), true);
                 detail::record_failure<System, Component>(*primary);
                 return;
             }
@@ -705,7 +708,7 @@ template <typename System> struct Engine
                 if (!result) {
                     execution_failure = true;
                     primary = SystemExecutionProtocol<System>::failure(Operation::PrepareExecution,
-                                                                       result.error());
+                                                                       status_of(result.error()));
                     primary->primary = true;
                 }
             }
@@ -719,8 +722,8 @@ template <typename System> struct Engine
                 auto result = detail::validate_execution<System, Component>();
                 if (!result) {
                     execution_failure = true;
-                    primary = detail::make_failure<System, Component>(Operation::ValidateExecution,
-                                                                      result.error(), true);
+                    primary = detail::make_failure<System, Component>(
+                        Operation::ValidateExecution, status_of(result.error()), true);
                     detail::record_failure<System, Component>(*primary);
                 }
             });
@@ -732,7 +735,7 @@ template <typename System> struct Engine
                 if (!result) {
                     execution_failure = true;
                     primary = SystemExecutionProtocol<System>::failure(Operation::ValidateExecution,
-                                                                       result.error());
+                                                                       status_of(result.error()));
                     primary->primary = true;
                 }
             }
@@ -746,10 +749,10 @@ template <typename System> struct Engine
             report.primary_failure = primary;
             detail::rollback<System>(report, true);
             detail::publish<System>(report);
-            return fail(BootError{.reason = execution_failure ? BootErrorReason::ExecutionFailure
-                                                              : BootErrorReason::ComponentFailure,
-                                  .status = primary->status,
-                                  .failure = primary});
+            return fail<BootError>({.reason = execution_failure ? BootErrorReason::ExecutionFailure
+                                                                : BootErrorReason::ComponentFailure,
+                                    .status = primary->status,
+                                    .failure = primary});
         }
 
         for_each_type<typename System::Graph::TopologicalOrder>([]<typename Component> {
@@ -776,15 +779,16 @@ template <typename System> struct Engine
     {
         detail::OperationGuard<System> operation;
         if (!operation) {
-            return fail(StopError{.reason = StopErrorReason::Busy, .status = Status::Busy});
+            return fail<StopError>(
+                {.reason = StopErrorReason::Busy, .status = solar::Status::Busy});
         }
 
         auto& state = detail::storage<System>();
         const auto initial = state.system_state.load(std::memory_order_acquire);
         if (initial != SystemState::Running &&
             !(initial == SystemState::Failed && detail::has_resources<System>())) {
-            return fail(
-                StopError{.reason = StopErrorReason::InvalidState, .status = Status::NotReady});
+            return fail<StopError>(
+                {.reason = StopErrorReason::InvalidState, .status = solar::Status::NotReady});
         }
 
         StopReport report{.initial_state = initial};
@@ -818,11 +822,11 @@ template <typename System> struct Engine
         state.system_state.store(report.final_state, std::memory_order_release);
         detail::publish<System>(report);
         if (!clean) {
-            return fail(StopError{.reason = StopErrorReason::ShutdownFailed,
-                                  .status = Status::Error,
-                                  .failure = report.failures.retained == 0
-                                                 ? std::nullopt
-                                                 : std::optional{report.failures.entries[0]}});
+            return fail<StopError>({.reason = StopErrorReason::ShutdownFailed,
+                                    .status = solar::Status::Error,
+                                    .failure = report.failures.retained == 0
+                                                   ? std::nullopt
+                                                   : std::optional{report.failures.entries[0]}});
         }
         return report;
     }
@@ -837,8 +841,8 @@ template <typename System> struct Engine
         std::array<ComponentRecord, component_count> copy{};
         const auto status =
             detail::with_records<System>([&](const auto& state) { copy = state.records; });
-        if (status != Status::Ok) {
-            return fail(status);
+        if (!status) {
+            return fail<solar::Error>(status.error());
         }
         return copy;
     }
@@ -847,7 +851,7 @@ template <typename System> struct Engine
     component_page(std::span<ComponentRecord> destination, std::size_t offset = 0) noexcept
     {
         if (offset > component_count) {
-            return fail(Status::Invalid);
+            return fail<solar::Error>({.status = solar::Status::Invalid});
         }
         const auto available = component_count - offset;
         const auto count = destination.size() < available ? destination.size() : available;
@@ -856,8 +860,8 @@ template <typename System> struct Engine
                 destination[index] = state.records[offset + index];
             }
         });
-        if (status != Status::Ok) {
-            return fail(status);
+        if (!status) {
+            return fail<solar::Error>(status.error());
         }
         return ComponentPage{.offset = offset, .count = count, .total = component_count};
     }
@@ -871,8 +875,8 @@ template <typename System> struct Engine
         const auto status = detail::with_records<System>([&](const auto& state) {
             copy = state.records[detail::component_index<System, Component>()];
         });
-        if (status != Status::Ok) {
-            return fail(status);
+        if (!status) {
+            return fail<solar::Error>(status.error());
         }
         return copy;
     }
@@ -882,11 +886,11 @@ template <typename System> struct Engine
         std::optional<BootReport> copy;
         const auto status =
             detail::with_records<System>([&](const auto& state) { copy = state.last_boot; });
-        if (status != Status::Ok) {
-            return fail(status);
+        if (!status) {
+            return fail<solar::Error>(status.error());
         }
         if (!copy) {
-            return fail(Status::NotReady);
+            return fail<solar::Error>({.status = solar::Status::NotReady});
         }
         return *copy;
     }
@@ -896,11 +900,11 @@ template <typename System> struct Engine
         std::optional<StopReport> copy;
         const auto status =
             detail::with_records<System>([&](const auto& state) { copy = state.last_stop; });
-        if (status != Status::Ok) {
-            return fail(status);
+        if (!status) {
+            return fail<solar::Error>(status.error());
         }
         if (!copy) {
-            return fail(Status::NotReady);
+            return fail<solar::Error>({.status = solar::Status::NotReady});
         }
         return *copy;
     }

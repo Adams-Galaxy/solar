@@ -16,7 +16,7 @@ struct Store
     [[nodiscard]] static solar::Result<std::size_t> load(solar::parameters::persistence::Key,
                                                          std::span<std::byte>)
     {
-        return solar::fail(solar::Status::NotFound);
+        return solar::fail<solar::Error>({.status = solar::Status::NotFound});
     }
     [[nodiscard]] static solar::Result<void> save(solar::parameters::persistence::Key,
                                                   std::span<const std::byte>)

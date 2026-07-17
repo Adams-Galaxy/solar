@@ -77,30 +77,23 @@ namespace detail
 {
 
 template <typename Component>
-concept StatusServiceRun = requires(StopToken token) {
-    { Component::run(token) } -> std::same_as<Status>;
-};
+concept ResultServiceRun = requires(StopToken token) { Component::run(token); } &&
+                           VoidResult<decltype(Component::run(std::declval<StopToken>()))>;
 
 template <typename Component>
-concept ResultServiceRun = requires(StopToken token) {
-    { Component::run(token) } -> std::same_as<Result<void>>;
-};
-
-template <typename Component>
-concept ValidServiceRun = StatusServiceRun<Component> || ResultServiceRun<Component>;
+concept ValidServiceRun = ResultServiceRun<Component>;
 
 template <typename Component> [[nodiscard]] Result<void> invoke_service(StopToken token) noexcept
 {
     static_assert(!DeclaredService<Component> || ValidServiceRun<Component>,
-                  "SOLAR_DIAGNOSTIC_INVALID_SERVICE_RUN: service must implement static Status or "
-                  "Result<void> run(StopToken)");
-    if constexpr (StatusServiceRun<Component>) {
-        const auto status = Component::run(token);
-        return status == Status::Ok ? Result<void>{} : Result<void>{fail(status)};
-    } else if constexpr (ResultServiceRun<Component>) {
-        return Component::run(token);
+                  "SOLAR_DIAGNOSTIC_INVALID_SERVICE_RUN: service must implement static "
+                  "Result<void, ErrorType> run(StopToken)");
+    if constexpr (ResultServiceRun<Component>) {
+        auto result = Component::run(token);
+        return result ? Result<void>{}
+                      : Result<void>{fail<solar::Error>({.status = status_of(result.error())})};
     } else {
-        return fail(Status::Invalid);
+        return fail<solar::Error>({.status = solar::Status::Invalid});
     }
 }
 

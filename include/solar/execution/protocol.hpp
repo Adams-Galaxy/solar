@@ -9,20 +9,21 @@ namespace solar::execution::detail
 {
     switch (error) {
     case frontend::Error::NotReady:
-        return {.status = Status::NotReady,
+        return {.status = solar::Status::NotReady,
                 .reason = ErrorReason::SubsystemNotReady,
                 .operation = operation};
     case frontend::Error::Disabled:
-        return {.status = Status::NotSupported,
+        return {.status = solar::Status::NotSupported,
                 .reason = ErrorReason::SubsystemNotReady,
                 .operation = operation};
     case frontend::Error::NotRegistered:
-        return {.status = Status::NotFound,
+        return {.status = solar::Status::NotFound,
                 .reason = ErrorReason::NotRegistered,
                 .operation = operation};
     }
-    return {
-        .status = Status::Error, .reason = ErrorReason::InternalInvariant, .operation = operation};
+    return {.status = solar::Status::Error,
+            .reason = ErrorReason::InternalInvariant,
+            .operation = operation};
 }
 
 struct SubmitFrontend
@@ -36,14 +37,14 @@ struct SubmitFrontend
         if constexpr (registration_traits<Registration>::kind == RegistrationKind::OnDemand) {
             return submit_registration<System, Registration>(false);
         } else {
-            return fail(make_error<System, Registration>(Operation::Submit, Status::NotSupported,
-                                                         ErrorReason::UnsupportedOperation));
+            return fail<Error>(make_error<System, Registration>(
+                Operation::Submit, Status::NotSupported, ErrorReason::UnsupportedOperation));
         }
     }
 
     [[nodiscard]] static Result<Submission, Error> unavailable(frontend::Error error) noexcept
     {
-        return fail(frontend_error(error, Operation::Submit));
+        return fail<Error>(frontend_error(error, Operation::Submit));
     }
 };
 
@@ -58,14 +59,14 @@ struct SubmitIsrFrontend
         if constexpr (registration_traits<Registration>::kind == RegistrationKind::OnDemand) {
             return submit_registration<System, Registration>(true);
         } else {
-            return fail(make_error<System, Registration>(Operation::SubmitIsr, Status::NotSupported,
-                                                         ErrorReason::UnsupportedOperation));
+            return fail<Error>(make_error<System, Registration>(
+                Operation::SubmitIsr, Status::NotSupported, ErrorReason::UnsupportedOperation));
         }
     }
 
     [[nodiscard]] static Result<Submission, Error> unavailable(frontend::Error error) noexcept
     {
-        return fail(frontend_error(error, Operation::SubmitIsr));
+        return fail<Error>(frontend_error(error, Operation::SubmitIsr));
     }
 };
 
@@ -80,7 +81,7 @@ template <bool Replace> struct ScheduleFrontend
         if constexpr (registration_traits<Registration>::kind == RegistrationKind::Delayable) {
             return schedule_registration<System, Registration>(delay, Replace);
         } else {
-            return fail(make_error<System, Registration>(
+            return fail<Error>(make_error<System, Registration>(
                 Replace ? Operation::Reschedule : Operation::Schedule, Status::NotSupported,
                 ErrorReason::UnsupportedOperation));
         }
@@ -88,7 +89,8 @@ template <bool Replace> struct ScheduleFrontend
 
     [[nodiscard]] static Result<Submission, Error> unavailable(frontend::Error error) noexcept
     {
-        return fail(frontend_error(error, Replace ? Operation::Reschedule : Operation::Schedule));
+        return fail<Error>(
+            frontend_error(error, Replace ? Operation::Reschedule : Operation::Schedule));
     }
 };
 
@@ -105,7 +107,8 @@ template <bool Synchronous> struct CancelFrontend
 
     [[nodiscard]] static Result<Cancellation, Error> unavailable(frontend::Error error) noexcept
     {
-        return fail(frontend_error(error, Synchronous ? Operation::CancelSync : Operation::Cancel));
+        return fail<Error>(
+            frontend_error(error, Synchronous ? Operation::CancelSync : Operation::Cancel));
     }
 };
 
@@ -122,7 +125,7 @@ struct FlushFrontend
 
     [[nodiscard]] static Result<Cancellation, Error> unavailable(frontend::Error error) noexcept
     {
-        return fail(frontend_error(error, Operation::Flush));
+        return fail<Error>(frontend_error(error, Operation::Flush));
     }
 };
 
@@ -140,7 +143,7 @@ struct RecordFrontend
     [[nodiscard]] static Result<RegistrationRecord, Error>
     unavailable(frontend::Error error) noexcept
     {
-        return fail(frontend_error(error, Operation::Submit));
+        return fail<Error>(frontend_error(error, Operation::Submit));
     }
 };
 
@@ -195,7 +198,7 @@ struct SystemExecutionProtocol<System>
         execution::detail::activate_registrations<System>();
     }
 
-    [[nodiscard]] static Status request_stop() noexcept
+    [[nodiscard]] static Result<void> request_stop() noexcept
     {
         return execution::detail::request_registrations_stop<System>();
     }
@@ -266,7 +269,7 @@ struct ExecutionProtocol<System, Component>
         execution::detail::activate_executor<System, Component>();
     }
 
-    [[nodiscard]] static Status request_stop() noexcept
+    [[nodiscard]] static Result<void> request_stop() noexcept
     {
         return execution::detail::request_executor_stop<System, Component>();
     }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cerrno>
+#include <concepts>
 #include <expected>
 #include <type_traits>
 #include <utility>
@@ -178,16 +179,59 @@ enum class Status : int
     return Status::Error;
 }
 
-template <typename T, typename E = Status> using Result = std::expected<T, E>;
+struct Error
+{
+    Status status{Status::Error};
+    int native{};
 
-template <typename E> using Failure = std::unexpected<E>;
+    constexpr bool operator==(const Error&) const = default;
+};
+
+[[nodiscard]] constexpr Status status_of(const Error& error) noexcept
+{
+    return error.status;
+}
+
+[[nodiscard]] constexpr Error error_from_errno(int error) noexcept
+{
+    return {.status = status_from_errno(error), .native = error};
+}
 
 template <typename E>
-[[nodiscard]] constexpr auto
-fail(E&& error) noexcept(std::is_nothrow_constructible_v<std::decay_t<E>, E&&>)
-    -> Failure<std::decay_t<E>>
+    requires(!std::same_as<std::remove_cv_t<E>, Error> &&
+             requires(const E& error) {
+                 requires std::same_as<std::remove_cvref_t<decltype(error.status)>, Status>;
+             })
+[[nodiscard]] constexpr Status status_of(const E& error) noexcept
 {
-    return Failure<std::decay_t<E>>{std::forward<E>(error)};
+    return error.status;
+}
+
+template <typename E>
+concept ErrorType = std::is_object_v<E> && !std::same_as<std::remove_cv_t<E>, Status> &&
+                    std::is_nothrow_destructible_v<E> && requires(const E& error) {
+                        { status_of(error) } noexcept -> std::same_as<Status>;
+                    };
+
+template <typename T, ErrorType E = Error> using Result = std::expected<T, E>;
+
+template <typename R>
+concept ResultType = requires {
+    typename std::remove_cvref_t<R>::value_type;
+    typename std::remove_cvref_t<R>::error_type;
+} && ErrorType<typename std::remove_cvref_t<R>::error_type>;
+
+template <typename R>
+concept VoidResult =
+    ResultType<R> && std::same_as<typename std::remove_cvref_t<R>::value_type, void>;
+
+template <ErrorType E> using Failure = std::unexpected<E>;
+
+template <ErrorType E>
+[[nodiscard]] constexpr auto fail(E error) noexcept(std::is_nothrow_move_constructible_v<E>)
+    -> Failure<E>
+{
+    return Failure<E>{std::move(error)};
 }
 
 } // namespace solar

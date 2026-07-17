@@ -28,8 +28,7 @@ struct LoanedData
     };
     using Value = Sample;
     using Capabilities = solar::remote::Capabilities<solar::remote::OutStream<
-        solar::remote::Loaned<solar::remote::LoanedPool<2, 16>>,
-        solar::remote::MaxRate<1000>>>;
+        solar::remote::Loaned<solar::remote::LoanedPool<2, 16>>, solar::remote::MaxRate<1000>>>;
 };
 
 struct TestLink : solar::remote::testing::InMemoryLink<TestLink, 256, 256>
@@ -59,8 +58,8 @@ template <> struct solar::remote::Schema<fixture::Sample>
         .id = TypeId{0xA201},
         .name = "fixture.LoanSample",
     };
-    using Fields = remote::Fields<Field<1, &fixture::Sample::sequence>,
-                                  Field<2, &fixture::Sample::value>>;
+    using Fields =
+        remote::Fields<Field<1, &fixture::Sample::sequence>, Field<2, &fixture::Sample::value>>;
     static constexpr std::size_t max_encoded_size = 6;
     static constexpr Codec codec = Codec::Packed;
 };
@@ -73,18 +72,16 @@ namespace
 std::array<std::byte, 256> host_bytes{};
 std::array<std::byte, 160> decoded_bytes{};
 
-solar::Result<solar::remote::frame::Decoded, solar::remote::Error>
-receive_frame(int attempts = 300)
+solar::Result<solar::remote::frame::Decoded, solar::remote::Error> receive_frame(int attempts = 300)
 {
     for (int attempt = 0; attempt < attempts; ++attempt) {
         auto bytes = fixture::TestLink::take_transmitted(host_bytes);
         if (bytes) {
-            return solar::remote::frame::decode(std::span{host_bytes}.first(*bytes),
-                                                decoded_bytes);
+            return solar::remote::frame::decode(std::span{host_bytes}.first(*bytes), decoded_bytes);
         }
         k_sleep(K_MSEC(1));
     }
-    return solar::fail(solar::remote::Error{.status = solar::Status::Timeout});
+    return solar::fail<solar::remote::Error>({.status = solar::Status::Timeout});
 }
 
 void inject(const solar::remote::protocol::Envelope& envelope,
@@ -105,7 +102,7 @@ void inject(const solar::remote::protocol::Envelope& envelope,
 
 void establish_subscription()
 {
-    zassert_equal(fixture::TestLink::connect(), solar::Status::Ok);
+    zassert_true(fixture::TestLink::connect().has_value());
     zassert_true(receive_frame().has_value());
 
     solar::remote::protocol::Envelope hello{
@@ -150,11 +147,10 @@ ZTEST(remote_loan, test_bounded_generation_checked_loan_lifecycle)
     auto unsubscribed = solar::remote::try_loan<fixture::LoanedData>();
     zassert_true(unsubscribed.has_value());
     auto unsubscribed_loan = std::move(*unsubscribed);
-    auto no_subscribers = solar::remote::commit<fixture::LoanedData>(
-        std::move(unsubscribed_loan), 0);
+    auto no_subscribers =
+        solar::remote::commit<fixture::LoanedData>(std::move(unsubscribed_loan), 0);
     zassert_true(no_subscribers.has_value());
-    zassert_equal(no_subscribers->disposition,
-                  solar::remote::WriteDisposition::NoSubscribers);
+    zassert_equal(no_subscribers->disposition, solar::remote::WriteDisposition::NoSubscribers);
 
     auto first_result = solar::remote::try_loan<fixture::LoanedData>();
     auto second_result = solar::remote::try_loan<fixture::LoanedData>();
@@ -189,8 +185,7 @@ ZTEST(remote_loan, test_bounded_generation_checked_loan_lifecycle)
     constexpr fixture::Sample expected{.sequence = 42, .value = -17};
     auto encoded = solar::remote::packed::encode(expected, replacement.data());
     zassert_true(encoded.has_value());
-    auto committed = solar::remote::commit<fixture::LoanedData>(
-        std::move(replacement), *encoded);
+    auto committed = solar::remote::commit<fixture::LoanedData>(std::move(replacement), *encoded);
     zassert_true(committed.has_value());
     zassert_true(committed->wake_queued);
 
@@ -215,7 +210,7 @@ ZTEST(remote_loan, test_bounded_generation_checked_loan_lifecycle)
     }
 
     second = {};
-    released = solar::fail(solar::remote::Error{});
+    released = solar::fail<solar::remote::Error>({});
     zassert_true(fixture::System::stop().has_value());
 }
 

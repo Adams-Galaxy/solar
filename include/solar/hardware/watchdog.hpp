@@ -74,11 +74,11 @@ template <auto Spec> class Channel
     [[nodiscard]] Result<void, Error> feed() const noexcept
     {
         if (id_ < 0) {
-            return fail(Error{.status = Status::Invalid,
-                              .reason = Reason::InvalidConfiguration,
-                              .operation = Operation::Feed,
-                              .native = -EINVAL,
-                              .endpoint = Spec.identity.path.view()});
+            return fail<Error>({.status = solar::Status::Invalid,
+                                .reason = Reason::InvalidConfiguration,
+                                .operation = Operation::Feed,
+                                .native = -EINVAL,
+                                .endpoint = Spec.identity.path.view()});
         }
         return hardware::detail::native_result(wdt_feed(Spec.native, id_), Operation::Feed,
                                                Spec.identity.path.view());
@@ -112,15 +112,16 @@ template <auto Spec> struct Device : hardware::Endpoint<Spec>
     {
         if (!timeout.valid || timeout.native.window.max == 0U ||
             timeout.native.window.min > timeout.native.window.max) {
-            return fail(Error{.status = Status::Invalid,
-                              .reason = Reason::InvalidConfiguration,
-                              .operation = Operation::Install,
-                              .native = -EINVAL,
-                              .endpoint = Base::path()});
+            return fail<Error>({.status = solar::Status::Invalid,
+                                .reason = Reason::InvalidConfiguration,
+                                .operation = Operation::Install,
+                                .native = -EINVAL,
+                                .endpoint = Base::path()});
         }
         const auto result = wdt_install_timeout(Base::native_device(), &timeout.native);
         if (result < 0) {
-            return fail(hardware::detail::native_error(result, Operation::Install, Base::path()));
+            return fail<Error>(
+                hardware::detail::native_error(result, Operation::Install, Base::path()));
         }
         return Channel<Spec>{result};
     }

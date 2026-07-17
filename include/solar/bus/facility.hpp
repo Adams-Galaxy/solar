@@ -101,35 +101,27 @@ concept HandlerVoid = requires(const Message& message) {
 };
 
 template <typename Handler, typename Message>
-concept HandlerStatus = requires(const Message& message) {
-    { Handler::handle(message) } -> std::same_as<Status>;
-};
+concept HandlerResult = requires(const Message& message) { Handler::handle(message); } &&
+                        VoidResult<decltype(Handler::handle(std::declval<const Message&>()))>;
 
 template <typename Handler, typename Message>
-concept HandlerResult = requires(const Message& message) {
-    { Handler::handle(message) } -> std::same_as<Result<void>>;
-};
-
-template <typename Handler, typename Message>
-concept ValidHandler = HandlerVoid<Handler, Message> || HandlerStatus<Handler, Message> ||
-                       HandlerResult<Handler, Message>;
+concept ValidHandler = HandlerVoid<Handler, Message> || HandlerResult<Handler, Message>;
 
 template <typename Handler, typename Message>
 [[nodiscard]] Result<void> invoke_handler(const Message& message) noexcept
 {
     static_assert(ValidHandler<Handler, Message>,
-                  "SOLAR_DIAGNOSTIC_INVALID_BUS_HANDLER: handler must expose static void, Status, "
-                  "or Result<void> handle(const Message&)");
+                  "SOLAR_DIAGNOSTIC_INVALID_BUS_HANDLER: handler must expose static void or "
+                  "Result<void, ErrorType> handle(const Message&)");
     if constexpr (HandlerVoid<Handler, Message>) {
         Handler::handle(message);
         return {};
-    } else if constexpr (HandlerStatus<Handler, Message>) {
-        const auto status = Handler::handle(message);
-        return status == Status::Ok ? Result<void>{} : Result<void>{fail(status)};
     } else if constexpr (HandlerResult<Handler, Message>) {
-        return Handler::handle(message);
+        auto result = Handler::handle(message);
+        return result ? Result<void>{}
+                      : Result<void>{fail<solar::Error>({.status = status_of(result.error())})};
     } else {
-        return fail(Status::Invalid);
+        return fail<solar::Error>({.status = solar::Status::Invalid});
     }
 }
 
@@ -270,12 +262,12 @@ class RouteStateCommon
             if (!result) {
                 ++record.handler_failed;
                 if (!record.has_handler_failure) {
-                    record.first_handler_failure = result.error();
+                    record.first_handler_failure = status_of(result.error());
                     record.has_handler_failure = true;
                 }
-                record.last_handler_failure = result.error();
+                record.last_handler_failure = status_of(result.error());
             }
-            record.last_status = result ? Status::Ok : result.error();
+            record.last_status = result ? Status::Ok : status_of(result.error());
             record.last_delivery_tick = kernel::now_ticks();
             --record.in_flight;
             record.quiescent = record.pending == 0 && record.in_flight == 0;
@@ -349,19 +341,19 @@ class RouteState<FacilityT, Subscription, DeliveryKind::Queued> : public RouteSt
     [[nodiscard]] RouteAcceptance accept(const Message& message, EmitMode mode) noexcept
     {
         using Overflow = typename Policy::Overflow;
-        Status slot_status = Status::WouldBlock;
+        Result<void> slot_result = fail<solar::Error>({.status = solar::Status::WouldBlock});
         if constexpr (requires { Overflow::timeout; }) {
             if (mode == EmitMode::Normal) {
-                slot_status = slots_.take(kernel::Timeout::after(Overflow::timeout.duration()));
+                slot_result = slots_.take(kernel::Timeout::after(Overflow::timeout.duration()));
             } else {
-                slot_status = mode == EmitMode::Isr ? slots_.try_take_isr() : slots_.try_take();
+                slot_result = mode == EmitMode::Isr ? slots_.try_take_isr() : slots_.try_take();
             }
         } else {
-            slot_status = mode == EmitMode::Isr ? slots_.try_take_isr() : slots_.try_take();
+            slot_result = mode == EmitMode::Isr ? slots_.try_take_isr() : slots_.try_take();
         }
 
         bool dropped_oldest_value = false;
-        if (slot_status != Status::Ok) {
+        if (!slot_result) {
             if constexpr (std::is_same_v<Overflow, overflow::DropNewest>) {
                 this->dropped_newest();
                 return {.accepted = false, .dropped = true};
@@ -928,8 +920,9 @@ template <typename ArchitectureT> struct Facility
         }
         for_each_type<RouteTypes>(
             []<typename Subscription> { route_state<Subscription>.finish_stop(); });
-        return status == Status::Ok && !waiting ? Result<void>{}
-                                                : Result<void>{fail(Status::Timeout)};
+        return status == Status::Ok && !waiting
+                   ? Result<void>{}
+                   : Result<void>{fail<solar::Error>({.status = solar::Status::Timeout})};
     }
 
     template <typename Subscription> static void drain() noexcept

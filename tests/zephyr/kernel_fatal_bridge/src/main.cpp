@@ -12,13 +12,14 @@ void observe(const solar::kernel::FatalError&) noexcept {}
 int main()
 {
     static_assert(solar::kernel::fatal_bridge_available);
-    if (solar::kernel::install_fatal_observer(&observe) != solar::Status::Ok) {
+    if (!solar::kernel::install_fatal_observer(&observe)) {
         return 1;
     }
-    if (solar::kernel::install_fatal_observer(&observe) != solar::Status::Already) {
+    const auto duplicate = solar::kernel::install_fatal_observer(&observe);
+    if (duplicate || solar::status_of(duplicate.error()) != solar::Status::Already) {
         return 2;
     }
-    if (solar::kernel::fatal_reason().error() != solar::Status::NotReady) {
+    if (solar::status_of(solar::kernel::fatal_reason().error()) != solar::Status::NotReady) {
         return 3;
     }
     printk("SOLAR_FATAL_BRIDGE_OK\n");

@@ -133,11 +133,11 @@ struct QueuedSubscriber
     using Subscriptions = solar::bus::Subscriptions<
         solar::bus::On<Ping, solar::bus::delivery::Queued<solar::execution::SystemWorkQueue, 4>>>;
 
-    static solar::Status handle(const Ping& message)
+    static solar::Result<void> handle(const Ping& message)
     {
         queued_value.store(message.value, std::memory_order_release);
         queued_runs.fetch_add(1, std::memory_order_release);
-        return solar::Status::Ok;
+        return {};
     }
 };
 
@@ -215,10 +215,10 @@ struct DeferredSubscriber
         concurrent_runs.fetch_add(1, std::memory_order_release);
     }
 
-    static solar::Status handle(const AsyncFaultUpdate&)
+    static solar::Result<void> handle(const AsyncFaultUpdate&)
     {
         async_fault_runs.fetch_add(1, std::memory_order_release);
-        return solar::Status::Error;
+        return solar::fail<solar::Error>({.status = solar::Status::Error});
     }
 };
 
@@ -277,9 +277,9 @@ struct FailingSubscriber
     using Subscriptions =
         solar::bus::Subscriptions<solar::bus::On<FaultUpdate, solar::bus::delivery::Inline>>;
 
-    static solar::Status handle(const FaultUpdate&)
+    static solar::Result<void> handle(const FaultUpdate&)
     {
-        return solar::Status::Error;
+        return solar::fail<solar::Error>({.status = solar::Status::Error});
     }
 };
 
@@ -655,10 +655,8 @@ ZTEST(solar_bus, test_concurrent_producers_share_route_without_lost_messages)
     const solar::kernel::ThreadConfiguration configuration{
         .priority = solar::kernel::Priority::preemptive<3>(),
     };
-    zassert_equal(first_thread.launch(&concurrent_producer, &first, configuration),
-                  solar::Status::Ok);
-    zassert_equal(second_thread.launch(&concurrent_producer, &second, configuration),
-                  solar::Status::Ok);
+    zassert_true(first_thread.launch(&concurrent_producer, &first, configuration).has_value());
+    zassert_true(second_thread.launch(&concurrent_producer, &second, configuration).has_value());
     for (int attempt = 0;
          attempt < 100 && fixture::concurrent_ready.load(std::memory_order_acquire) != 2;
          ++attempt) {
@@ -666,8 +664,8 @@ ZTEST(solar_bus, test_concurrent_producers_share_route_without_lost_messages)
     }
     zassert_equal(fixture::concurrent_ready.load(std::memory_order_acquire), 2);
     fixture::concurrent_go.store(true, std::memory_order_release);
-    zassert_equal(first_thread.join(solar::kernel::Timeout::after(200ms)), solar::Status::Ok);
-    zassert_equal(second_thread.join(solar::kernel::Timeout::after(200ms)), solar::Status::Ok);
+    zassert_true(first_thread.join(solar::kernel::Timeout::after(200ms)).has_value());
+    zassert_true(second_thread.join(solar::kernel::Timeout::after(200ms)).has_value());
     zassert_equal(fixture::concurrent_failures.load(std::memory_order_acquire), 0);
 
     release_control_executor();

@@ -20,6 +20,19 @@ enum class Error
     NotRegistered,
 };
 
+[[nodiscard]] constexpr Status status_of(Error error) noexcept
+{
+    switch (error) {
+    case Error::NotReady:
+        return Status::NotReady;
+    case Error::Disabled:
+        return Status::NotSupported;
+    case Error::NotRegistered:
+        return Status::NotFound;
+    }
+    return Status::Error;
+}
+
 #if defined(CONFIG_SOLAR_STRICT_CATALOG_BINDING)
 inline constexpr bool strict = true;
 #else
@@ -41,7 +54,7 @@ template <typename Policy, typename Declaration, typename Return>
                          }) {
         return Policy::unavailable(error);
     } else {
-        return solar::fail(error);
+        return solar::fail<Error>(error);
     }
 }
 

@@ -30,9 +30,9 @@ inline constexpr bool enabled_for = [] {
 
 template <typename SourceT, typename DomainT, Level LogLevel, Operation CaptureOperation,
           typename Application, Origin LogOrigin = Origin::Solar, typename... Arguments>
-[[nodiscard]] Result<Receipt, Error>
-emit(CaptureOptions options, FormatString<std::type_identity_t<Arguments>...> format,
-     Arguments&&... arguments) noexcept
+[[nodiscard]] Result<Receipt, Error> emit(CaptureOptions options,
+                                          FormatString<std::type_identity_t<Arguments>...> format,
+                                          Arguments&&... arguments) noexcept
 {
     static_assert(Source<SourceT>,
                   "SOLAR_DIAGNOSTIC_LOG_SOURCE: source requires a valid log descriptor");
@@ -48,17 +48,17 @@ emit(CaptureOptions options, FormatString<std::type_identity_t<Arguments>...> fo
                       "System");
     }
     if constexpr (!available) {
-        return fail(Error{.status = Status::NotSupported,
-                          .reason = Reason::Disabled,
-                          .operation = CaptureOperation,
-                          .level = LogLevel});
+        return fail<Error>({.status = solar::Status::NotSupported,
+                            .reason = Reason::Disabled,
+                            .operation = CaptureOperation,
+                            .level = LogLevel});
     } else if constexpr (!enabled_for<SourceT, DomainT, LogLevel, Application>) {
         return Receipt{.disposition = Disposition::CompileTimeFiltered};
     } else {
         CaptureRequest request{
             .level = LogLevel,
-            .context = CaptureOperation == Operation::IsrCapture ? ContextKind::Isr
-                                                                  : ContextKind::Thread,
+            .context =
+                CaptureOperation == Operation::IsrCapture ? ContextKind::Isr : ContextKind::Thread,
             .origin = LogOrigin,
             .encoding = Encoding::SolarArguments,
             .correlation = options.correlation,
@@ -67,7 +67,7 @@ emit(CaptureOptions options, FormatString<std::type_identity_t<Arguments>...> fo
         auto encoded = encode_native(request, format.data(), format.size(),
                                      std::forward<Arguments>(arguments)...);
         if (!encoded) {
-            return fail(encoded.error());
+            return fail<Error>(encoded.error());
         }
         using Frontend = CaptureFrontend<CaptureOperation>;
         return frontend::Operation<Frontend, SourceT, Application>::call(request);
@@ -77,45 +77,45 @@ emit(CaptureOptions options, FormatString<std::type_identity_t<Arguments>...> fo
 } // namespace detail
 
 template <typename SourceT, Level LogLevel>
-inline constexpr bool enabled =
-    detail::enabled_for<SourceT, domain::Unclassified, LogLevel>;
+inline constexpr bool enabled = detail::enabled_for<SourceT, domain::Unclassified, LogLevel>;
 
-#define SOLAR_DETAIL_LOG_LEVEL_API(NAME, LEVEL)                                                     \
-    template <typename SourceT, typename DomainT = domain::Unclassified,                            \
+#define SOLAR_DETAIL_LOG_LEVEL_API(NAME, LEVEL)                                                    \
+    template <typename SourceT, typename DomainT = domain::Unclassified,                           \
               typename Application = DefaultApplication, typename... Arguments>                    \
-    Result<Receipt, Error> NAME(                                                                    \
-        FormatString<std::type_identity_t<Arguments>...> format, Arguments&&... arguments) noexcept \
-    {                                                                                               \
-        return detail::emit<SourceT, DomainT, Level::LEVEL, Operation::Capture, Application>(        \
-            {}, format, std::forward<Arguments>(arguments)...);                                     \
-    }                                                                                               \
-                                                                                                    \
-    template <typename SourceT, typename DomainT = domain::Unclassified,                            \
+    Result<Receipt, Error> NAME(FormatString<std::type_identity_t<Arguments>...> format,           \
+                                Arguments&&... arguments) noexcept                                 \
+    {                                                                                              \
+        return detail::emit<SourceT, DomainT, Level::LEVEL, Operation::Capture, Application>(      \
+            {}, format, std::forward<Arguments>(arguments)...);                                    \
+    }                                                                                              \
+                                                                                                   \
+    template <typename SourceT, typename DomainT = domain::Unclassified,                           \
               typename Application = DefaultApplication, typename... Arguments>                    \
-    Result<Receipt, Error> NAME(                                                                    \
-        CaptureOptions options, FormatString<std::type_identity_t<Arguments>...> format,            \
-        Arguments&&... arguments) noexcept                                                          \
-    {                                                                                               \
-        return detail::emit<SourceT, DomainT, Level::LEVEL, Operation::Capture, Application>(        \
-            options, format, std::forward<Arguments>(arguments)...);                                \
-    }                                                                                               \
-                                                                                                    \
-    template <typename SourceT, typename DomainT = domain::Unclassified,                            \
+    Result<Receipt, Error> NAME(CaptureOptions options,                                            \
+                                FormatString<std::type_identity_t<Arguments>...> format,           \
+                                Arguments&&... arguments) noexcept                                 \
+    {                                                                                              \
+        return detail::emit<SourceT, DomainT, Level::LEVEL, Operation::Capture, Application>(      \
+            options, format, std::forward<Arguments>(arguments)...);                               \
+    }                                                                                              \
+                                                                                                   \
+    template <typename SourceT, typename DomainT = domain::Unclassified,                           \
               typename Application = DefaultApplication, typename... Arguments>                    \
-    Result<Receipt, Error> try_##NAME(                                                              \
-        FormatString<std::type_identity_t<Arguments>...> format, Arguments&&... arguments) noexcept \
-    {                                                                                               \
-        return detail::emit<SourceT, DomainT, Level::LEVEL, Operation::TryCapture, Application>(     \
-            {}, format, std::forward<Arguments>(arguments)...);                                     \
-    }                                                                                               \
-                                                                                                    \
-    template <typename SourceT, typename DomainT = domain::Unclassified,                            \
+    Result<Receipt, Error> try_##NAME(FormatString<std::type_identity_t<Arguments>...> format,     \
+                                      Arguments&&... arguments) noexcept                           \
+    {                                                                                              \
+        return detail::emit<SourceT, DomainT, Level::LEVEL, Operation::TryCapture, Application>(   \
+            {}, format, std::forward<Arguments>(arguments)...);                                    \
+    }                                                                                              \
+                                                                                                   \
+    template <typename SourceT, typename DomainT = domain::Unclassified,                           \
               typename Application = DefaultApplication, typename... Arguments>                    \
-    Result<Receipt, Error> try_##NAME##_isr(                                                        \
-        FormatString<std::type_identity_t<Arguments>...> format, Arguments&&... arguments) noexcept \
-    {                                                                                               \
-        return detail::emit<SourceT, DomainT, Level::LEVEL, Operation::IsrCapture, Application>(     \
-            {}, format, std::forward<Arguments>(arguments)...);                                     \
+    Result<Receipt, Error> try_##NAME##_isr(                                                       \
+        FormatString<std::type_identity_t<Arguments>...> format,                                   \
+        Arguments&&... arguments) noexcept                                                         \
+    {                                                                                              \
+        return detail::emit<SourceT, DomainT, Level::LEVEL, Operation::IsrCapture, Application>(   \
+            {}, format, std::forward<Arguments>(arguments)...);                                    \
     }
 
 SOLAR_DETAIL_LOG_LEVEL_API(trace, Trace)
@@ -160,10 +160,10 @@ Result<Receipt, Error> text(Level level, std::string_view value,
     static_assert(Domain<DomainT>,
                   "SOLAR_DIAGNOSTIC_LOG_DOMAIN: domain requires a valid log descriptor");
     if constexpr (!available) {
-        return fail(Error{.status = Status::NotSupported,
-                          .reason = Reason::Disabled,
-                          .operation = Operation::Capture,
-                          .level = level});
+        return fail<Error>({.status = solar::Status::NotSupported,
+                            .reason = Reason::Disabled,
+                            .operation = Operation::Capture,
+                            .level = level});
     } else {
         if constexpr (frontend::strict) {
             using System = bound_system_t<Application>;
@@ -185,8 +185,8 @@ Result<Receipt, Error> text(Level level, std::string_view value,
             .domain_token = &type_token<DomainT>,
         };
         const auto copied = std::min<std::size_t>(
-            value.size(), std::min<std::size_t>(detail::max_copied_string_bytes,
-                                                request.payload.size()));
+            value.size(),
+            std::min<std::size_t>(detail::max_copied_string_bytes, request.payload.size()));
         std::memcpy(request.payload.data(), value.data(), copied);
         request.payload_size = static_cast<std::uint16_t>(copied);
         if (copied != value.size()) {
@@ -199,19 +199,18 @@ Result<Receipt, Error> text(Level level, std::string_view value,
 
 template <typename SourceT, typename DomainT = domain::Unclassified,
           typename Application = DefaultApplication>
-Result<Receipt, Error>
-hexdump(Level level, std::string_view label, std::span<const std::byte> data,
-        CaptureOptions options = {}) noexcept
+Result<Receipt, Error> hexdump(Level level, std::string_view label, std::span<const std::byte> data,
+                               CaptureOptions options = {}) noexcept
 {
     static_assert(Source<SourceT>,
                   "SOLAR_DIAGNOSTIC_LOG_SOURCE: source requires a valid log descriptor");
     static_assert(Domain<DomainT>,
                   "SOLAR_DIAGNOSTIC_LOG_DOMAIN: domain requires a valid log descriptor");
     if constexpr (!available) {
-        return fail(Error{.status = Status::NotSupported,
-                          .reason = Reason::Disabled,
-                          .operation = Operation::Capture,
-                          .level = level});
+        return fail<Error>({.status = solar::Status::NotSupported,
+                            .reason = Reason::Disabled,
+                            .operation = Operation::Capture,
+                            .level = level});
     } else {
         if constexpr (frontend::strict) {
             using System = bound_system_t<Application>;
@@ -233,9 +232,8 @@ hexdump(Level level, std::string_view label, std::span<const std::byte> data,
         const auto label_size = std::min<std::size_t>(
             label.size(), std::min(detail::max_copied_string_bytes, label_capacity));
         const auto available = label_capacity - label_size;
-        const auto data_size =
-            std::min<std::size_t>(data.size(), std::min<std::size_t>(
-                                                   available, detail::max_hexdump_bytes));
+        const auto data_size = std::min<std::size_t>(
+            data.size(), std::min<std::size_t>(available, detail::max_hexdump_bytes));
         const detail::HexdumpPayloadHeader header{
             .label_size = static_cast<std::uint16_t>(label_size),
             .data_size = static_cast<std::uint16_t>(data_size),
@@ -252,19 +250,17 @@ hexdump(Level level, std::string_view label, std::span<const std::byte> data,
     }
 }
 
-template <typename Application = DefaultApplication>
-[[nodiscard]] Result<void> flush() noexcept
+template <typename Application = DefaultApplication> [[nodiscard]] Result<void> flush() noexcept
 {
     if constexpr (!available) {
-        return fail(Status::NotSupported);
+        return fail<solar::Error>({.status = solar::Status::NotSupported});
     } else {
         using System = bound_system_t<Application>;
         return System::LogFacility::flush();
     }
 }
 
-template <typename Application = DefaultApplication>
-[[nodiscard]] FacilityRecord record() noexcept
+template <typename Application = DefaultApplication> [[nodiscard]] FacilityRecord record() noexcept
 {
     if constexpr (!available) {
         return {.last_status = Status::NotSupported};
@@ -290,9 +286,9 @@ template <typename Application = DefaultApplication>
 [[nodiscard]] Result<Record, Error> latest() noexcept
 {
     if constexpr (!available) {
-        return fail(Error{.status = Status::NotSupported,
-                          .reason = Reason::Disabled,
-                          .operation = Operation::Query});
+        return fail<Error>({.status = solar::Status::NotSupported,
+                            .reason = Reason::Disabled,
+                            .operation = Operation::Query});
     } else {
         using System = bound_system_t<Application>;
         return detail::latest_history<System>();
@@ -304,9 +300,9 @@ template <typename SourceT, typename Application = DefaultApplication>
 {
 #if !defined(CONFIG_SOLAR_LOG) || !defined(CONFIG_SOLAR_LOG_RUNTIME_FILTERING)
     (void)level;
-    return fail(Error{.status = Status::NotSupported,
-                      .reason = Reason::Disabled,
-                      .operation = Operation::Query});
+    return fail<Error>({.status = solar::Status::NotSupported,
+                        .reason = Reason::Disabled,
+                        .operation = Operation::Query});
 #else
     using System = bound_system_t<Application>;
     static_assert(System::LogSourceCatalog::template contains<SourceT>,
@@ -337,9 +333,9 @@ template <typename SinkT, typename Application = DefaultApplication>
 [[nodiscard]] Result<SinkRecord, Error> sink_record() noexcept
 {
 #if !defined(CONFIG_SOLAR_LOG)
-    return fail(Error{.status = Status::NotSupported,
-                      .reason = Reason::Disabled,
-                      .operation = Operation::Query});
+    return fail<Error>({.status = solar::Status::NotSupported,
+                        .reason = Reason::Disabled,
+                        .operation = Operation::Query});
 #else
     using System = bound_system_t<Application>;
     std::optional<SinkRecord> found{};
@@ -350,9 +346,9 @@ template <typename SinkT, typename Application = DefaultApplication>
         }
     });
     if (!found) {
-        return fail(Error{.status = Status::NotFound,
-                          .reason = Reason::NotRegistered,
-                          .operation = Operation::Query});
+        return fail<Error>({.status = solar::Status::NotFound,
+                            .reason = Reason::NotRegistered,
+                            .operation = Operation::Query});
     }
     return *found;
 #endif
@@ -363,9 +359,9 @@ template <typename DomainT, typename Application = DefaultApplication>
 {
 #if !defined(CONFIG_SOLAR_LOG) || !defined(CONFIG_SOLAR_LOG_RUNTIME_FILTERING)
     (void)level;
-    return fail(Error{.status = Status::NotSupported,
-                      .reason = Reason::Disabled,
-                      .operation = Operation::Query});
+    return fail<Error>({.status = solar::Status::NotSupported,
+                        .reason = Reason::Disabled,
+                        .operation = Operation::Query});
 #else
     using System = bound_system_t<Application>;
     static_assert(System::LogDomainCatalog::template contains<DomainT>,
@@ -382,9 +378,9 @@ template <typename SinkT, typename Application = DefaultApplication>
 {
 #if !defined(CONFIG_SOLAR_LOG) || !defined(CONFIG_SOLAR_LOG_RUNTIME_FILTERING)
     (void)level;
-    return fail(Error{.status = Status::NotSupported,
-                      .reason = Reason::Disabled,
-                      .operation = Operation::Query});
+    return fail<Error>({.status = solar::Status::NotSupported,
+                        .reason = Reason::Disabled,
+                        .operation = Operation::Query});
 #else
     using System = bound_system_t<Application>;
     bool found{};
@@ -396,9 +392,9 @@ template <typename SinkT, typename Application = DefaultApplication>
         }
     });
     return found ? Result<void, Error>{}
-                 : Result<void, Error>{fail(Error{.status = Status::NotFound,
-                                                  .reason = Reason::NotRegistered,
-                                                  .operation = Operation::Query})};
+                 : Result<void, Error>{fail<Error>({.status = solar::Status::NotFound,
+                                                    .reason = Reason::NotRegistered,
+                                                    .operation = Operation::Query})};
 #endif
 }
 

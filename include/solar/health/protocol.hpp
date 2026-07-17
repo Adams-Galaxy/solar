@@ -47,7 +47,7 @@ struct ReportFrontend
     template <typename>
     [[nodiscard]] static Result<Receipt, Error> unavailable(frontend::Error error) noexcept
     {
-        return fail(frontend_error(error, Operation::Report));
+        return fail<Error>(frontend_error(error, Operation::Report));
     }
 };
 
@@ -62,7 +62,7 @@ struct ProgressFrontend
         if constexpr (!has_monitor_kind_v<System, Component, MonitorKind::Progress>) {
             constexpr auto subject =
                 System::Catalogs::template Of<component::Tag>::template Entry<Component>::local_id;
-            return fail(
+            return fail<Error>(
                 make_error(Status::NotFound, Reason::NotRegistered, Operation::Progress, subject));
         } else {
             return detail::progress<System, Component>();
@@ -79,7 +79,7 @@ struct ProgressFrontend
     template <typename>
     [[nodiscard]] static Result<ProgressReceipt, Error> unavailable(frontend::Error error) noexcept
     {
-        return fail(frontend_error(error, Operation::Progress));
+        return fail<Error>(frontend_error(error, Operation::Progress));
     }
 };
 
@@ -97,7 +97,7 @@ struct IsrReportFrontend
     template <typename>
     [[nodiscard]] static Result<void, Error> unavailable(frontend::Error error) noexcept
     {
-        return fail(frontend_error(error, Operation::ReportIsr));
+        return fail<Error>(frontend_error(error, Operation::ReportIsr));
     }
 };
 
@@ -115,7 +115,7 @@ struct RecordFrontend
     template <typename>
     [[nodiscard]] static Result<SubjectRecord, Error> unavailable(frontend::Error error) noexcept
     {
-        return fail(frontend_error(error, Operation::Query));
+        return fail<Error>(frontend_error(error, Operation::Query));
     }
 };
 
@@ -133,7 +133,7 @@ struct AssessFrontend
     template <typename>
     [[nodiscard]] static Result<Receipt, Error> unavailable(frontend::Error error) noexcept
     {
-        return fail(frontend_error(error, Operation::Assess));
+        return fail<Error>(frontend_error(error, Operation::Assess));
     }
 };
 

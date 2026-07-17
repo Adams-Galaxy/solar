@@ -53,7 +53,7 @@ inline constexpr bool fatal_bridge_available = IS_ENABLED(CONFIG_SOLAR_FATAL_BRI
 
 #if defined(CONFIG_SOLAR_FATAL_BRIDGE)
 
-[[nodiscard]] Status install_fatal_observer(FatalObserver observer) noexcept;
+[[nodiscard]] Result<void> install_fatal_observer(FatalObserver observer) noexcept;
 [[nodiscard]] Result<FatalError> fatal_reason() noexcept;
 
 namespace detail
@@ -65,14 +65,14 @@ void latch_requested_panic(Status status) noexcept;
 
 #else
 
-[[nodiscard]] inline Status install_fatal_observer(FatalObserver) noexcept
+[[nodiscard]] inline Result<void> install_fatal_observer(FatalObserver) noexcept
 {
-    return Status::NotSupported;
+    return fail<Error>({.status = Status::NotSupported});
 }
 
 [[nodiscard]] inline Result<FatalError> fatal_reason() noexcept
 {
-    return fail(Status::NotSupported);
+    return fail<solar::Error>({.status = solar::Status::NotSupported});
 }
 
 namespace detail

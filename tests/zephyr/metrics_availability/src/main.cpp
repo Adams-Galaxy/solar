@@ -22,7 +22,8 @@ struct Producer
     {
         auto updated = solar::metrics::inc<InitCount>();
         return updated ? solar::Result<void>{}
-                       : solar::Result<void>{solar::fail(updated.error().status)};
+                       : solar::Result<void>{
+                             solar::fail<solar::Error>({.status = updated.error().status})};
     }
 };
 

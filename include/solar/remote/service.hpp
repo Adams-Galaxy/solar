@@ -388,7 +388,7 @@ template <typename ArchitectureT> struct Service
         {
             return FacilityType::process_action_work != nullptr
                        ? FacilityType::process_action_work(DataT::descriptor.id.value, false)
-                       : Result<void>{fail(Status::NotReady)};
+                       : Result<void>{fail<solar::Error>({.status = solar::Status::NotReady})};
         }
     };
 
@@ -398,7 +398,7 @@ template <typename ArchitectureT> struct Service
         {
             return FacilityType::process_action_work != nullptr
                        ? FacilityType::process_action_work(ActionT::descriptor.id.value, true)
-                       : Result<void>{fail(Status::NotReady)};
+                       : Result<void>{fail<solar::Error>({.status = solar::Status::NotReady})};
         }
     };
 
@@ -450,7 +450,7 @@ template <typename ArchitectureT> struct Service
         {
             return FacilityType::process_poll_work != nullptr
                        ? FacilityType::process_poll_work(DataT::descriptor.id.value)
-                       : Result<void>{fail(Status::NotReady)};
+                       : Result<void>{fail<solar::Error>({.status = solar::Status::NotReady})};
         }
     };
 
@@ -460,7 +460,7 @@ template <typename ArchitectureT> struct Service
         {
             return FacilityType::process_in_stream_work != nullptr
                        ? FacilityType::process_in_stream_work(DataT::descriptor.id.value)
-                       : Result<void>{fail(Status::NotReady)};
+                       : Result<void>{fail<solar::Error>({.status = solar::Status::NotReady})};
         }
     };
 
@@ -614,8 +614,8 @@ template <typename ArchitectureT> struct Service
 
     static void post(detail::ServiceEvent event) noexcept
     {
-        const auto status = kernel::in_isr() ? events.try_send_isr(event) : events.try_send(event);
-        if (status != Status::Ok) {
+        const auto posted = kernel::in_isr() ? events.try_send_isr(event) : events.try_send(event);
+        if (!posted) {
             dropped_events.fetch_add(1, std::memory_order_relaxed);
         } else {
             update_event_high_water();
@@ -627,13 +627,13 @@ template <typename ArchitectureT> struct Service
         (void)events.try_send_front(detail::ServiceEvent{.kind = detail::ServiceEvent::Kind::Stop});
     }
 
-    [[nodiscard]] static Status notify_publication(std::uint16_t endpoint) noexcept
+    [[nodiscard]] static Result<void> notify_publication(std::uint16_t endpoint) noexcept
     {
         const auto status = events.try_send(detail::ServiceEvent{
             .kind = detail::ServiceEvent::Kind::Publication,
             .subject = endpoint,
         });
-        if (status != Status::Ok) {
+        if (!status) {
             dropped_events.fetch_add(1, std::memory_order_relaxed);
         } else {
             update_event_high_water();
@@ -646,7 +646,7 @@ template <typename ArchitectureT> struct Service
         using State = detail::LinkState<Service, LinkT, Index>;
         auto result = LinkT::open(LinkEventSink{.notify_function = &State::notify});
         if (!result) {
-            return fail(result.error().status);
+            return fail<solar::Error>({.status = result.error().status});
         }
         return {};
     }
@@ -659,13 +659,14 @@ template <typename ArchitectureT> struct Service
     {
         using State = detail::LinkState<Service, LinkT, Index>;
         if (payload.size() > CONFIG_SOLAR_REMOTE_MAX_MESSAGE_BYTES) {
-            return fail(Error{Status::MessageTooLarge, Reason::Oversized, Operation::Transmit});
+            return fail<Error>({Status::MessageTooLarge, Reason::Oversized, Operation::Transmit});
         }
         const auto lane = detail::lane_for(kind, request_id);
         if (payload.size() > max_frame_payload) {
             const auto count = (payload.size() + max_frame_payload - 1U) / max_frame_payload;
             if (count > UINT8_MAX) {
-                return fail(Error{Status::MessageTooLarge, Reason::Oversized, Operation::Transmit});
+                return fail<Error>(
+                    {Status::MessageTooLarge, Reason::Oversized, Operation::Transmit});
             }
             {
                 auto guard = State::output_lock.acquire();
@@ -674,7 +675,7 @@ template <typename ArchitectureT> struct Service
                                  [](const auto& candidate) { return !candidate.active; });
                 if (message == State::outbound_messages.end()) {
                     if (lane != OutputLane::Telemetry) {
-                        return fail(Error{Status::Busy, Reason::NoCapacity, Operation::Transmit});
+                        return fail<Error>({Status::Busy, Reason::NoCapacity, Operation::Transmit});
                     }
                     message = std::find_if(
                         State::outbound_messages.begin(), State::outbound_messages.end(),
@@ -682,7 +683,7 @@ template <typename ArchitectureT> struct Service
                             return candidate.active && candidate.kind == protocol::Kind::Data;
                         });
                     if (message == State::outbound_messages.end()) {
-                        return fail(Error{Status::Busy, Reason::NoCapacity, Operation::Transmit});
+                        return fail<Error>({Status::Busy, Reason::NoCapacity, Operation::Transmit});
                     }
                     ++State::lanes[static_cast<std::size_t>(OutputLane::Bulk)].record.replaced;
                 }
@@ -713,7 +714,7 @@ template <typename ArchitectureT> struct Service
             if (output.size == output.slots.size()) {
                 if (lane != OutputLane::Telemetry) {
                     ++output.record.dropped;
-                    return fail(Error{Status::Busy, Reason::NoCapacity, Operation::Transmit});
+                    return fail<Error>({Status::Busy, Reason::NoCapacity, Operation::Transmit});
                 }
                 slot_index = (output.head + output.size - 1U) % output.slots.size();
                 ++output.record.replaced;
@@ -918,7 +919,7 @@ template <typename ArchitectureT> struct Service
     {
         using State = detail::LinkState<Service, LinkT, Index>;
         if (payload.size() > CONFIG_SOLAR_REMOTE_RESPONSE_CACHE_BYTES) {
-            return fail(Error{Status::NoSpace, Reason::NoCapacity, Operation::Dispatch});
+            return fail<Error>({Status::NoSpace, Reason::NoCapacity, Operation::Dispatch});
         }
         {
             auto guard = State::response_lock.acquire();
@@ -931,7 +932,7 @@ template <typename ArchitectureT> struct Service
                                     [](const auto& candidate) { return !candidate.valid; });
             }
             if (slot == State::responses.end()) {
-                return fail(Error{Status::NoSpace, Reason::NoCapacity, Operation::Dispatch});
+                return fail<Error>({Status::NoSpace, Reason::NoCapacity, Operation::Dispatch});
             }
             std::copy(payload.begin(), payload.end(), slot->payload.begin());
             slot->size = static_cast<std::uint16_t>(payload.size());
@@ -961,9 +962,9 @@ template <typename ArchitectureT> struct Service
                     return candidate.reserved && candidate.request == request;
                 });
             if (pending != State::responses.end()) {
-                return fail(Error{Status::Busy, Reason::Busy, Operation::Dispatch});
+                return fail<Error>({Status::Busy, Reason::Busy, Operation::Dispatch});
             }
-            return fail(Error{Status::NotFound, Reason::NoCapacity, Operation::Dispatch});
+            return fail<Error>({Status::NotFound, Reason::NoCapacity, Operation::Dispatch});
         }
         slot->staged = false;
         post(detail::ServiceEvent{.kind = detail::ServiceEvent::Kind::Output, .subject = Index});
@@ -1165,13 +1166,13 @@ template <typename ArchitectureT> struct Service
         }
         if (!fragmented || decoded.envelope.fragment_count <= 1 ||
             decoded.envelope.fragment_id == 0) {
-            return fail(Error{Status::ProtocolError, Reason::Malformed, Operation::Receive});
+            return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::Receive});
         }
 
         const bool final = has_flag(decoded.envelope.flags, protocol::Flags::Final);
         const bool last = decoded.envelope.fragment_index + 1U == decoded.envelope.fragment_count;
         if (final != last) {
-            return fail(Error{Status::ProtocolError, Reason::Malformed, Operation::Receive});
+            return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::Receive});
         }
 
         const auto now = kernel::now_ticks();
@@ -1193,7 +1194,7 @@ template <typename ArchitectureT> struct Service
                                     [](const auto& candidate) { return !candidate.active; });
             }
             if (slot == State::reassembly.end()) {
-                return fail(Error{Status::NoSpace, Reason::NoCapacity, Operation::Receive});
+                return fail<Error>({Status::NoSpace, Reason::NoCapacity, Operation::Receive});
             }
             *slot = {};
             slot->active = true;
@@ -1201,7 +1202,7 @@ template <typename ArchitectureT> struct Service
             slot->deadline = now + kernel::to_ticks_ceil(std::chrono::milliseconds{
                                        CONFIG_SOLAR_REMOTE_REASSEMBLY_TIMEOUT_MS});
         } else if (slot == State::reassembly.end()) {
-            return fail(Error{Status::ProtocolError, Reason::Malformed, Operation::Receive});
+            return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::Receive});
         }
 
         const auto& authored = slot->envelope;
@@ -1218,7 +1219,7 @@ template <typename ArchitectureT> struct Service
             stable_flags(decoded.envelope.flags) != stable_flags(authored.flags) ||
             slot->size + decoded.payload.size() > slot->payload.size()) {
             *slot = {};
-            return fail(Error{Status::ProtocolError, Reason::Malformed, Operation::Receive});
+            return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::Receive});
         }
 
         std::copy(decoded.payload.begin(), decoded.payload.end(),
@@ -1595,10 +1596,11 @@ template <typename ArchitectureT> struct Service
     {
         auto event = events.receive(timeout);
         if (!event) {
-            return event.error() == Status::WouldBlock || event.error() == Status::Empty ||
-                           event.error() == Status::Timeout
+            const auto status = status_of(event.error());
+            return status == Status::WouldBlock || status == Status::Empty ||
+                           status == Status::Timeout
                        ? Result<void>{}
-                       : Result<void>{fail(event.error())};
+                       : Result<void>{fail<solar::Error>(event.error())};
         }
         dispatch(*event, Links{}, std::make_index_sequence<list_size_v<Links>>{});
         processed_events.fetch_add(1, std::memory_order_relaxed);

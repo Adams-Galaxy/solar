@@ -120,7 +120,7 @@ struct Parameter
     {
         auto result = parameters::get<ParameterT>();
         if (!result) {
-            return fail(result.error().status);
+            return fail<solar::Error>({.status = result.error().status});
         }
         return Value{.value = *result};
     }
@@ -130,7 +130,7 @@ struct Parameter
     {
         auto result = parameters::set<ParameterT>(value.value);
         if (!result) {
-            return fail(result.error().status);
+            return fail<solar::Error>({.status = result.error().status});
         }
         return {};
     }
@@ -171,7 +171,7 @@ struct Metric
     {
         auto result = metrics::get_view<MetricT, View>();
         if (!result) {
-            return fail(result.error().status);
+            return fail<solar::Error>({.status = result.error().status});
         }
         return Value{.value = *result};
     }
@@ -218,7 +218,7 @@ template <bus::Message MessageT, DataId EndpointId> struct BusInput
     {
         auto result = bus::emit<MessageT>(value);
         if (!result) {
-            return fail(result.error().status);
+            return fail<solar::Error>({.status = result.error().status});
         }
         return {};
     }
@@ -246,7 +246,7 @@ template <events::Event EventT, DataId EndpointId, TypeId SchemaId> struct Event
     {
         auto result = events::record<EventT>();
         if (!result) {
-            return fail(result.error().status);
+            return fail<solar::Error>({.status = result.error().status});
         }
         return Value{
             .attempts = result->attempts,
@@ -312,7 +312,7 @@ struct ExecutionStats
     {
         auto result = execution::registration<RegistrationT, Application>();
         if (!result) {
-            return fail(result.error().status);
+            return fail<solar::Error>({.status = result.error().status});
         }
         return Value{
             .submissions = result->submissions,
@@ -348,7 +348,7 @@ struct ComponentStats
     {
         auto result = lifecycle::Of<Application>::template record<Component>();
         if (!result) {
-            return fail(result.error());
+            return fail<solar::Error>({.status = status_of(result.error())});
         }
         return Value{
             .state = result->state,
@@ -426,10 +426,11 @@ struct EventTopic
     {
         auto payload = events::decode<EventT>(record);
         if (!payload) {
-            return fail(payload.error().status);
+            return fail<solar::Error>({.status = payload.error().status});
         }
         auto published = remote::publish<Topic>(*payload);
-        return published ? Result<void>{} : Result<void>{fail(published.error().status)};
+        return published ? Result<void>{}
+                         : Result<void>{fail<solar::Error>({.status = published.error().status})};
     }
 };
 
@@ -474,7 +475,9 @@ struct LogTopic
             std::memcpy(value.text.storage.data(), rendered.data(), size);
             value.text.size = static_cast<std::uint16_t>(size);
             auto published = remote::publish<Topic>(value);
-            return published ? Result<void>{} : Result<void>{fail(published.error().status)};
+            return published
+                       ? Result<void>{}
+                       : Result<void>{fail<solar::Error>({.status = published.error().status})};
         }
     };
 

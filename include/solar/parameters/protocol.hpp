@@ -11,14 +11,20 @@ namespace solar::parameters::detail
 {
     switch (error) {
     case frontend::Error::NotReady:
-        return {.status = Status::NotReady, .reason = Reason::NotReady, .operation = operation};
-    case frontend::Error::Disabled:
-        return {.status = Status::NotSupported, .reason = Reason::Disabled, .operation = operation};
-    case frontend::Error::NotRegistered:
         return {
-            .status = Status::NotFound, .reason = Reason::NotRegistered, .operation = operation};
+            .status = solar::Status::NotReady, .reason = Reason::NotReady, .operation = operation};
+    case frontend::Error::Disabled:
+        return {.status = solar::Status::NotSupported,
+                .reason = Reason::Disabled,
+                .operation = operation};
+    case frontend::Error::NotRegistered:
+        return {.status = solar::Status::NotFound,
+                .reason = Reason::NotRegistered,
+                .operation = operation};
     }
-    return {.status = Status::Error, .reason = Reason::InternalInvariant, .operation = operation};
+    return {.status = solar::Status::Error,
+            .reason = Reason::InternalInvariant,
+            .operation = operation};
 }
 
 template <bool Try> struct GetFrontend
@@ -36,7 +42,7 @@ template <bool Try> struct GetFrontend
     [[nodiscard]] static Result<typename ParameterT::Value, Error>
     unavailable(frontend::Error error) noexcept
     {
-        return fail(frontend_error(error, Try ? Operation::TryGet : Operation::Get));
+        return fail<Error>(frontend_error(error, Try ? Operation::TryGet : Operation::Get));
     }
 };
 
@@ -53,12 +59,12 @@ template <bool Try> struct SetFrontend
         using Policies = typename System::ParameterFacility::template Policies<ParameterT>;
         using Access = AccessTraits<typename Policies::Access>;
         if constexpr (!Access::writable) {
-            return fail(make_error<System, ParameterT>(Try ? Operation::TrySet : Operation::Set,
-                                                       Status::NotSupported, Reason::ReadOnly));
+            return fail<Error>(make_error<System, ParameterT>(
+                Try ? Operation::TrySet : Operation::Set, Status::NotSupported, Reason::ReadOnly));
         } else if constexpr (Access::privileged) {
-            return fail(make_error<System, ParameterT>(Try ? Operation::TrySet : Operation::Set,
-                                                       Status::PermissionDenied,
-                                                       Reason::PrivilegeRequired));
+            return fail<Error>(make_error<System, ParameterT>(
+                Try ? Operation::TrySet : Operation::Set, Status::PermissionDenied,
+                Reason::PrivilegeRequired));
         } else {
             return set_parameter<System, ParameterT>(std::move(value), Try, UpdateOrigin::LocalSet,
                                                      false);
@@ -80,7 +86,7 @@ template <bool Try> struct SetFrontend
     [[nodiscard]] static Result<Update<ParameterT>, Error>
     unavailable(frontend::Error error) noexcept
     {
-        return fail(frontend_error(error, Try ? Operation::TrySet : Operation::Set));
+        return fail<Error>(frontend_error(error, Try ? Operation::TrySet : Operation::Set));
     }
 };
 
@@ -95,11 +101,11 @@ struct ResetFrontend
         using Policies = typename System::ParameterFacility::template Policies<ParameterT>;
         using Access = AccessTraits<typename Policies::Access>;
         if constexpr (!Access::writable) {
-            return fail(make_error<System, ParameterT>(Operation::Reset, Status::NotSupported,
-                                                       Reason::ReadOnly));
+            return fail<Error>(make_error<System, ParameterT>(
+                Operation::Reset, Status::NotSupported, Reason::ReadOnly));
         } else if constexpr (Access::privileged) {
-            return fail(make_error<System, ParameterT>(Operation::Reset, Status::PermissionDenied,
-                                                       Reason::PrivilegeRequired));
+            return fail<Error>(make_error<System, ParameterT>(
+                Operation::Reset, Status::PermissionDenied, Reason::PrivilegeRequired));
         } else {
             return set_parameter<System, ParameterT>(
                 typename ParameterT::Value{ParameterT::default_value}, false, UpdateOrigin::Reset,
@@ -120,7 +126,7 @@ struct ResetFrontend
     [[nodiscard]] static Result<Update<ParameterT>, Error>
     unavailable(frontend::Error error) noexcept
     {
-        return fail(frontend_error(error, Operation::Reset));
+        return fail<Error>(frontend_error(error, Operation::Reset));
     }
 };
 
@@ -139,7 +145,7 @@ struct RecordFrontend
     [[nodiscard]] static Result<ParameterRecord<ParameterT>, Error>
     unavailable(frontend::Error error) noexcept
     {
-        return fail(frontend_error(error, Operation::Query));
+        return fail<Error>(frontend_error(error, Operation::Query));
     }
 };
 
@@ -166,7 +172,7 @@ template <bool Try> struct SaveFrontend
     template <typename ParameterT>
     [[nodiscard]] static Result<void, Error> unavailable(frontend::Error error) noexcept
     {
-        return fail(frontend_error(error, Operation::Save));
+        return fail<Error>(frontend_error(error, Operation::Save));
     }
 };
 

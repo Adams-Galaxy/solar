@@ -1,5 +1,5 @@
-#include <array>
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cstring>
 #include <string_view>
@@ -57,7 +57,7 @@ struct MemorySink
     {
         const auto index = count.fetch_add(1, std::memory_order_acq_rel);
         if (index >= messages.size()) {
-            return solar::fail(solar::Status::NoSpace);
+            return solar::fail<solar::Error>({.status = solar::Status::NoSpace});
         }
         headers[index] = record.header;
         const auto copied = std::min(rendered.size(), messages[index].size() - 1);
@@ -75,7 +75,7 @@ struct FailingSink
     static solar::Result<void> consume(solar::log::RecordView, std::string_view) noexcept
     {
         attempts.fetch_add(1, std::memory_order_relaxed);
-        return solar::fail(solar::Status::Error);
+        return solar::fail<solar::Error>({.status = solar::Status::Error});
     }
 };
 
@@ -133,8 +133,8 @@ ZTEST(solar_logging, test_sources_formatting_and_deferred_sink)
     static_assert(fixture::System::LogDomainCatalog::contains<solar::log::domain::Transport>);
 
     const auto before = fixture::MemorySink::count.load(std::memory_order_acquire);
-    auto first = solar::log::notice<fixture::Producer>(
-        solar::log::correlated(77), "value {} hex {:#x} ok {}", -4, 42U, true);
+    auto first = solar::log::notice<fixture::Producer>(solar::log::correlated(77),
+                                                       "value {} hex {:#x} ok {}", -4, 42U, true);
     auto second = solar::log::info<fixture::ParserSource, solar::log::domain::Transport>(
         "peer {} gain {:.2f}", std::string_view{"host"}, 1.25);
     zassert_true(first.has_value());
@@ -182,8 +182,7 @@ ZTEST(solar_logging, test_history_threshold_and_paged_query)
     auto page = solar::log::history({}, records);
     zassert_true(page.written > 0);
     for (std::size_t index{}; index < page.written; ++index) {
-        zassert_true(solar::log::at_least(records[index].header.level,
-                                          solar::log::Level::Notice));
+        zassert_true(solar::log::at_least(records[index].header.level, solar::log::Level::Notice));
     }
     auto latest = solar::log::latest();
     zassert_true(latest.has_value());
@@ -195,8 +194,8 @@ ZTEST(solar_logging, test_event_adapter_preserves_event_origin)
     const auto before = fixture::MemorySink::count.load(std::memory_order_acquire);
     auto observed = solar::events::observe<fixture::LinkLost>(5U);
     zassert_true(observed.has_value());
-    for (int attempt = 0; attempt < 20 &&
-                          fixture::MemorySink::count.load(std::memory_order_acquire) == before;
+    for (int attempt = 0;
+         attempt < 20 && fixture::MemorySink::count.load(std::memory_order_acquire) == before;
          ++attempt) {
         k_sleep(K_MSEC(1));
     }
@@ -269,36 +268,35 @@ ZTEST(solar_logging, test_priority_reservation_preserves_warning_capacity)
 
 ZTEST(solar_logging, test_runtime_source_domain_and_sink_filters)
 {
-    zassert_true(solar::log::set_source_level<fixture::Producer>(
-                     solar::log::Level::Warning)
-                     .has_value());
+    zassert_true(
+        solar::log::set_source_level<fixture::Producer>(solar::log::Level::Warning).has_value());
     auto filtered = solar::log::info<fixture::Producer>("filtered source");
     zassert_true(filtered.has_value());
     zassert_equal(filtered->disposition, solar::log::Disposition::RuntimeFiltered);
     auto accepted = solar::log::warn<fixture::Producer>("accepted source");
     zassert_true(accepted.has_value());
-    zassert_true(solar::log::set_source_level<fixture::Producer>(solar::log::Level::Trace)
-                     .has_value());
+    zassert_true(
+        solar::log::set_source_level<fixture::Producer>(solar::log::Level::Trace).has_value());
 
-    zassert_true(solar::log::set_domain_level<solar::log::domain::Transport>(
-                     solar::log::Level::Error)
-                     .has_value());
+    zassert_true(
+        solar::log::set_domain_level<solar::log::domain::Transport>(solar::log::Level::Error)
+            .has_value());
     auto domain_filtered =
         solar::log::notice<fixture::Producer, solar::log::domain::Transport>("filtered domain");
     zassert_true(domain_filtered.has_value());
     zassert_equal(domain_filtered->disposition, solar::log::Disposition::RuntimeFiltered);
-    zassert_true(solar::log::set_domain_level<solar::log::domain::Transport>(
-                     solar::log::Level::Trace)
-                     .has_value());
+    zassert_true(
+        solar::log::set_domain_level<solar::log::domain::Transport>(solar::log::Level::Trace)
+            .has_value());
 
-    zassert_true(solar::log::set_sink_level<fixture::MemorySink>(solar::log::Level::Error)
-                     .has_value());
+    zassert_true(
+        solar::log::set_sink_level<fixture::MemorySink>(solar::log::Level::Error).has_value());
     const auto before = fixture::MemorySink::count.load(std::memory_order_acquire);
     (void)solar::log::notice<fixture::Producer>("history not memory");
     zassert_true(solar::log::flush().has_value());
     zassert_equal(fixture::MemorySink::count.load(std::memory_order_acquire), before);
-    zassert_true(solar::log::set_sink_level<fixture::MemorySink>(solar::log::Level::Debug)
-                     .has_value());
+    zassert_true(
+        solar::log::set_sink_level<fixture::MemorySink>(solar::log::Level::Debug).has_value());
 }
 
 ZTEST(solar_logging, test_zz_panic_drains_only_panic_safe_routes)

@@ -60,82 +60,82 @@ template <std::size_t StackBytes> class Thread
     Thread(Thread&&) = delete;
     Thread& operator=(Thread&&) = delete;
 
-    [[nodiscard]] Status prepare(Entry entry, void* argument = nullptr,
-                                 ThreadConfiguration configuration = {}) noexcept
+    [[nodiscard]] Result<void> prepare(Entry entry, void* argument = nullptr,
+                                       ThreadConfiguration configuration = {}) noexcept
     {
         return create(entry, argument, configuration, Timeout::forever(), true);
     }
 
-    [[nodiscard]] Status launch(Entry entry, void* argument = nullptr,
-                                ThreadConfiguration configuration = {},
-                                Timeout delay = Timeout::no_wait()) noexcept
+    [[nodiscard]] Result<void> launch(Entry entry, void* argument = nullptr,
+                                      ThreadConfiguration configuration = {},
+                                      Timeout delay = Timeout::no_wait()) noexcept
     {
         return create(entry, argument, configuration, delay, false);
     }
 
-    [[nodiscard]] Status start() noexcept
+    [[nodiscard]] Result<void> start() noexcept
     {
         ThreadExecutionState expected = ThreadExecutionState::Prepared;
         if (!state_.compare_exchange_strong(expected, ThreadExecutionState::Scheduled,
                                             std::memory_order_acq_rel)) {
-            return expected == ThreadExecutionState::Scheduled ||
-                           expected == ThreadExecutionState::Running
-                       ? Status::Already
-                       : Status::NotReady;
+            return fail<Error>({.status = expected == ThreadExecutionState::Scheduled ||
+                                                  expected == ThreadExecutionState::Running
+                                              ? Status::Already
+                                              : Status::NotReady});
         }
         k_thread_start(&thread_);
-        return Status::Ok;
+        return {};
     }
 
-    [[nodiscard]] Status suspend() noexcept
+    [[nodiscard]] Result<void> suspend() noexcept
     {
         const auto id = id_.load(std::memory_order_acquire);
         if (id == nullptr) {
-            return Status::NotReady;
+            return fail<Error>({.status = Status::NotReady});
         }
         if (id == k_current_get()) {
-            return Status::Invalid;
+            return fail<Error>({.status = Status::Invalid});
         }
         if (!active()) {
-            return Status::NotReady;
+            return fail<Error>({.status = Status::NotReady});
         }
         k_thread_suspend(id);
         state_.store(ThreadExecutionState::Suspended, std::memory_order_release);
-        return Status::Ok;
+        return {};
     }
 
-    [[nodiscard]] Status resume() noexcept
+    [[nodiscard]] Result<void> resume() noexcept
     {
         const auto id = id_.load(std::memory_order_acquire);
         if (id == nullptr || state() != ThreadExecutionState::Suspended) {
-            return Status::NotReady;
+            return fail<Error>({.status = Status::NotReady});
         }
         state_.store(ThreadExecutionState::Scheduled, std::memory_order_release);
         k_thread_resume(id);
-        return Status::Ok;
+        return {};
     }
 
-    [[nodiscard]] Status join(Timeout timeout = Timeout::forever()) noexcept
+    [[nodiscard]] Result<void> join(Timeout timeout = Timeout::forever()) noexcept
     {
         if (id_.load(std::memory_order_acquire) == nullptr) {
-            return Status::NotReady;
+            return fail<Error>({.status = Status::NotReady});
         }
         if (state() == ThreadExecutionState::Prepared) {
-            return Status::NotReady;
+            return fail<Error>({.status = Status::NotReady});
         }
         if (in_isr() && !timeout.is_no_wait()) {
-            return Status::Invalid;
+            return fail<Error>({.status = Status::Invalid});
         }
 
         const int result = k_thread_join(&thread_, timeout.native_handle());
         const auto status = detail::map_wait(result, timeout, Status::WouldBlock);
-        if (status == Status::Ok && state() != ThreadExecutionState::Aborted) {
+        if (status && state() != ThreadExecutionState::Aborted) {
             state_.store(ThreadExecutionState::Exited, std::memory_order_release);
         }
         return status;
     }
 
-    [[nodiscard]] Status join(const Deadline& deadline) noexcept
+    [[nodiscard]] Result<void> join(const Deadline& deadline) noexcept
     {
         return join(deadline.remaining());
     }
@@ -143,7 +143,7 @@ template <std::size_t StackBytes> class Thread
     [[nodiscard]] Result<bool> exited() const noexcept
     {
         if (id_.load(std::memory_order_acquire) == nullptr) {
-            return fail(Status::NotReady);
+            return fail<solar::Error>({.status = solar::Status::NotReady});
         }
         if (state() == ThreadExecutionState::Prepared) {
             return false;
@@ -156,29 +156,29 @@ template <std::size_t StackBytes> class Thread
         if (result == -EBUSY) {
             return false;
         }
-        return fail(status_from_errno(result));
+        return fail<Error>(error_from_errno(result));
     }
 
-    [[nodiscard]] Status abort() noexcept
+    [[nodiscard]] Result<void> abort() noexcept
     {
         const auto id = id_.load(std::memory_order_acquire);
         if (id == nullptr) {
-            return Status::NotReady;
+            return fail<Error>({.status = Status::NotReady});
         }
         if (id == k_current_get()) {
-            return Status::Invalid;
+            return fail<Error>({.status = Status::Invalid});
         }
         const auto already_exited = exited();
         if (already_exited && *already_exited) {
-            return Status::Already;
+            return fail<Error>({.status = Status::Already});
         }
-        if (!already_exited && already_exited.error() != Status::NotReady) {
-            return already_exited.error();
+        if (!already_exited && status_of(already_exited.error()) != Status::NotReady) {
+            return fail<Error>(already_exited.error());
         }
 
         k_thread_abort(id);
         state_.store(ThreadExecutionState::Aborted, std::memory_order_release);
-        return Status::Ok;
+        return {};
     }
 
     [[nodiscard]] ThreadExecutionState state() const noexcept
@@ -221,37 +221,38 @@ template <std::size_t StackBytes> class Thread
     }
 
   private:
-    [[nodiscard]] Status validate(Entry entry, const ThreadConfiguration& configuration) const
-        noexcept
+    [[nodiscard]] Result<void> validate(Entry entry,
+                                        const ThreadConfiguration& configuration) const noexcept
     {
         if (entry == nullptr) {
-            return Status::Invalid;
+            return fail<Error>({.status = Status::Invalid});
         }
         if (active()) {
-            return Status::Already;
+            return fail<Error>({.status = Status::Already});
         }
         if (configuration.name != nullptr) {
             if (!IS_ENABLED(CONFIG_THREAD_NAME)) {
-                return Status::NotSupported;
+                return fail<Error>({.status = Status::NotSupported});
             }
 #if defined(CONFIG_THREAD_NAME)
             if (std::strlen(configuration.name) >= CONFIG_THREAD_MAX_NAME_LEN) {
-                return Status::Invalid;
+                return fail<Error>({.status = Status::Invalid});
             }
 #endif
         }
-        return Status::Ok;
+        return {};
     }
 
-    [[nodiscard]] Status create(Entry entry, void* argument, ThreadConfiguration configuration,
-                                Timeout delay, bool prepared_only) noexcept
+    [[nodiscard]] Result<void> create(Entry entry, void* argument,
+                                      ThreadConfiguration configuration, Timeout delay,
+                                      bool prepared_only) noexcept
     {
         const auto valid = validate(entry, configuration);
-        if (valid != Status::Ok) {
+        if (!valid) {
             return valid;
         }
         if (!prepared_only && delay.is_forever()) {
-            return Status::Invalid;
+            return fail<Error>({.status = Status::Invalid});
         }
 
         entry_ = entry;
@@ -262,19 +263,18 @@ template <std::size_t StackBytes> class Thread
 
         const bool controlled_start = prepared_only || delay.is_no_wait();
         const auto native_delay = controlled_start ? K_FOREVER : delay.native_handle();
-        const auto id = k_thread_create(&thread_, stack_, K_KERNEL_STACK_SIZEOF(stack_),
-                                        &Thread::trampoline, this, nullptr, nullptr,
-                                        configuration.priority.native_handle(),
-                                        configuration.options, native_delay);
+        const auto id = k_thread_create(
+            &thread_, stack_, K_KERNEL_STACK_SIZEOF(stack_), &Thread::trampoline, this, nullptr,
+            nullptr, configuration.priority.native_handle(), configuration.options, native_delay);
         if (id == nullptr) {
             state_.store(ThreadExecutionState::Empty, std::memory_order_release);
-            return Status::Error;
+            return fail<Error>({.status = Status::Error});
         }
         id_.store(id, std::memory_order_release);
 
         if (configuration.name != nullptr) {
             const auto name_status = detail::map_native(k_thread_name_set(id, configuration.name));
-            if (name_status != Status::Ok) {
+            if (!name_status) {
                 k_thread_abort(id);
                 state_.store(ThreadExecutionState::Aborted, std::memory_order_release);
                 return name_status;
@@ -284,7 +284,7 @@ template <std::size_t StackBytes> class Thread
         if (!prepared_only && controlled_start) {
             k_thread_start(id);
         }
-        return Status::Ok;
+        return {};
     }
 
     static void trampoline(void* self_pointer, void*, void*) noexcept

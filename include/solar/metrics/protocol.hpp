@@ -14,14 +14,20 @@ namespace solar::metrics::detail
 {
     switch (error) {
     case frontend::Error::NotReady:
-        return {.status = Status::NotReady, .reason = Reason::NotReady, .operation = operation};
-    case frontend::Error::Disabled:
-        return {.status = Status::NotSupported, .reason = Reason::Disabled, .operation = operation};
-    case frontend::Error::NotRegistered:
         return {
-            .status = Status::NotFound, .reason = Reason::NotRegistered, .operation = operation};
+            .status = solar::Status::NotReady, .reason = Reason::NotReady, .operation = operation};
+    case frontend::Error::Disabled:
+        return {.status = solar::Status::NotSupported,
+                .reason = Reason::Disabled,
+                .operation = operation};
+    case frontend::Error::NotRegistered:
+        return {.status = solar::Status::NotFound,
+                .reason = Reason::NotRegistered,
+                .operation = operation};
     }
-    return {.status = Status::Error, .reason = Reason::InternalInvariant, .operation = operation};
+    return {.status = solar::Status::Error,
+            .reason = Reason::InternalInvariant,
+            .operation = operation};
 }
 
 enum class AccessMode : std::uint8_t
@@ -46,14 +52,14 @@ template <AccessMode Mode, Operation Verb> struct AddFrontend
     {
 #if defined(CONFIG_SOLAR_METRICS)
         if constexpr (!InstrumentTraits<typename MetricT::Instrument>::counter) {
-            return fail(
+            return fail<Error>(
                 make_error<System, MetricT>(Verb, Status::NotSupported, Reason::ReducerFailure));
         } else {
             return add_metric<System, MetricT>(amount, Mode != AccessMode::Normal,
                                                Mode == AccessMode::Isr, Verb);
         }
 #else
-        return fail(frontend_error(frontend::Error::Disabled, Verb));
+        return fail<Error>(frontend_error(frontend::Error::Disabled, Verb));
 #endif
     }
 
@@ -76,7 +82,7 @@ template <AccessMode Mode, Operation Verb> struct AddFrontend
     template <typename MetricT>
     [[nodiscard]] static Result<Update, Error> unavailable(frontend::Error error) noexcept
     {
-        return fail(frontend_error(error, Verb));
+        return fail<Error>(frontend_error(error, Verb));
     }
 };
 
@@ -90,14 +96,14 @@ template <AccessMode Mode> struct SetFrontend
     {
 #if defined(CONFIG_SOLAR_METRICS)
         if constexpr (!InstrumentTraits<typename MetricT::Instrument>::gauge) {
-            return fail(make_error<System, MetricT>(Operation::Set, Status::NotSupported,
-                                                    Reason::ReducerFailure));
+            return fail<Error>(make_error<System, MetricT>(Operation::Set, Status::NotSupported,
+                                                           Reason::ReducerFailure));
         } else {
             return set_metric<System, MetricT>(value, Mode != AccessMode::Normal,
                                                Mode == AccessMode::Isr, Operation::Set);
         }
 #else
-        return fail(frontend_error(frontend::Error::Disabled, Operation::Set));
+        return fail<Error>(frontend_error(frontend::Error::Disabled, Operation::Set));
 #endif
     }
 
@@ -119,7 +125,7 @@ template <AccessMode Mode> struct SetFrontend
     template <typename MetricT>
     [[nodiscard]] static Result<Update, Error> unavailable(frontend::Error error) noexcept
     {
-        return fail(frontend_error(error, Operation::Set));
+        return fail<Error>(frontend_error(error, Operation::Set));
     }
 };
 
@@ -138,14 +144,14 @@ template <AccessMode Mode, bool TimerOperation = false> struct ObserveFrontend
         using Instrument = InstrumentTraits<typename MetricT::Instrument>;
         if constexpr (TimerOperation ? !Instrument::timer
                                      : (!Instrument::distribution || Instrument::timer)) {
-            return fail(make_error<System, MetricT>(operation, Status::NotSupported,
-                                                    Reason::ReducerFailure));
+            return fail<Error>(make_error<System, MetricT>(operation, Status::NotSupported,
+                                                           Reason::ReducerFailure));
         } else {
             return observe_metric<System, MetricT>(value, Mode != AccessMode::Normal,
                                                    Mode == AccessMode::Isr, operation);
         }
 #else
-        return fail(frontend_error(frontend::Error::Disabled, operation));
+        return fail<Error>(frontend_error(frontend::Error::Disabled, operation));
 #endif
     }
 
@@ -169,7 +175,7 @@ template <AccessMode Mode, bool TimerOperation = false> struct ObserveFrontend
     template <typename MetricT>
     [[nodiscard]] static Result<Update, Error> unavailable(frontend::Error error) noexcept
     {
-        return fail(frontend_error(error, operation));
+        return fail<Error>(frontend_error(error, operation));
     }
 };
 
@@ -183,8 +189,8 @@ template <AccessMode Mode> struct DurationFrontend
     {
 #if defined(CONFIG_SOLAR_METRICS)
         if constexpr (!InstrumentTraits<typename MetricT::Instrument>::timer) {
-            return fail(make_error<System, MetricT>(Operation::RecordDuration, Status::NotSupported,
-                                                    Reason::ReducerFailure));
+            return fail<Error>(make_error<System, MetricT>(
+                Operation::RecordDuration, Status::NotSupported, Reason::ReducerFailure));
         } else {
             using Value = typename MetricT::Value;
             using Ratio = typename MetricT::Unit::Ratio;
@@ -196,14 +202,14 @@ template <AccessMode Mode> struct DurationFrontend
                 const auto error = reject_metric<System, MetricT>(
                     Operation::RecordDuration, Status::Overflow, Reason::ConversionOverflow,
                     Mode == AccessMode::Try);
-                return fail(error);
+                return fail<Error>(error);
             }
             return observe_metric<System, MetricT>(static_cast<Value>(converted),
                                                    Mode != AccessMode::Normal, false,
                                                    Operation::RecordDuration);
         }
 #else
-        return fail(frontend_error(frontend::Error::Disabled, Operation::RecordDuration));
+        return fail<Error>(frontend_error(frontend::Error::Disabled, Operation::RecordDuration));
 #endif
     }
 
@@ -219,7 +225,7 @@ template <AccessMode Mode> struct DurationFrontend
     template <typename MetricT>
     [[nodiscard]] static Result<Update, Error> unavailable(frontend::Error error) noexcept
     {
-        return fail(frontend_error(error, Operation::RecordDuration));
+        return fail<Error>(frontend_error(error, Operation::RecordDuration));
     }
 };
 
@@ -234,7 +240,7 @@ template <bool Try> struct GetFrontend
 #if defined(CONFIG_SOLAR_METRICS)
         return read_metric<System, MetricT>(Try);
 #else
-        return fail(
+        return fail<Error>(
             frontend_error(frontend::Error::Disabled, Try ? Operation::TryGet : Operation::Get));
 #endif
     }
@@ -242,7 +248,7 @@ template <bool Try> struct GetFrontend
     template <typename MetricT>
     [[nodiscard]] static Result<Reading<MetricT>, Error> unavailable(frontend::Error error) noexcept
     {
-        return fail(frontend_error(error, Try ? Operation::TryGet : Operation::Get));
+        return fail<Error>(frontend_error(error, Try ? Operation::TryGet : Operation::Get));
     }
 };
 
@@ -257,13 +263,13 @@ template <bool Try> struct ResetFrontend
 #if defined(CONFIG_SOLAR_METRICS)
         using Policies = typename System::MetricFacility::template Policies<MetricT>;
         if constexpr (!std::is_same_v<typename Policies::Reset, RuntimeResettable>) {
-            return fail(make_error<System, MetricT>(Operation::Reset, Status::NotSupported,
-                                                    Reason::ResetForbidden));
+            return fail<Error>(make_error<System, MetricT>(Operation::Reset, Status::NotSupported,
+                                                           Reason::ResetForbidden));
         } else {
             return reset_metric<System, MetricT>(Try);
         }
 #else
-        return fail(frontend_error(frontend::Error::Disabled, Operation::Reset));
+        return fail<Error>(frontend_error(frontend::Error::Disabled, Operation::Reset));
 #endif
     }
 
@@ -279,7 +285,7 @@ template <bool Try> struct ResetFrontend
     template <typename MetricT>
     [[nodiscard]] static Result<Update, Error> unavailable(frontend::Error error) noexcept
     {
-        return fail(frontend_error(error, Operation::Reset));
+        return fail<Error>(frontend_error(error, Operation::Reset));
     }
 };
 
@@ -294,14 +300,14 @@ struct MetricRecordFrontend
 #if defined(CONFIG_SOLAR_METRICS)
         return metric_record<System, MetricT>();
 #else
-        return fail(frontend_error(frontend::Error::Disabled, Operation::Query));
+        return fail<Error>(frontend_error(frontend::Error::Disabled, Operation::Query));
 #endif
     }
 
     template <typename MetricT>
     [[nodiscard]] static Result<MetricRecord, Error> unavailable(frontend::Error error) noexcept
     {
-        return fail(frontend_error(error, Operation::Query));
+        return fail<Error>(frontend_error(error, Operation::Query));
     }
 };
 

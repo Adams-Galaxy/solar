@@ -11,6 +11,11 @@
 static_assert(solar::parameters::persistence::Adapter<solar::parameters::settings::ZephyrStore>);
 #endif
 
+template <solar::ResultType R> [[nodiscard]] solar::Status result_status(const R& result)
+{
+    return result ? solar::Status::Ok : solar::status_of(result.error());
+}
+
 namespace fixture
 {
 
@@ -59,7 +64,7 @@ struct FakeStore
             if (entry.occupied && entry.key.kind == key.kind &&
                 entry.key.stable_id == key.stable_id) {
                 if (output.size() < entry.size) {
-                    return solar::fail(solar::Status::NoBuffer);
+                    return solar::fail<solar::Error>({.status = solar::Status::NoBuffer});
                 }
                 for (std::size_t index = 0; index < entry.size; ++index) {
                     output[index] = entry.bytes[index];
@@ -67,7 +72,7 @@ struct FakeStore
                 return entry.size;
             }
         }
-        return solar::fail(solar::Status::NotFound);
+        return solar::fail<solar::Error>({.status = solar::Status::NotFound});
     }
 
     [[nodiscard]] static solar::Result<void> save(solar::parameters::persistence::Key key,
@@ -75,17 +80,17 @@ struct FakeStore
     {
         if (fail_save_stable_id.load(std::memory_order_acquire) == key.stable_id) {
             fail_save_stable_id.store(0, std::memory_order_release);
-            return solar::fail(solar::Status::Error);
+            return solar::fail<solar::Error>({.status = solar::Status::Error});
         }
         if (fail_next_save.exchange(false, std::memory_order_acq_rel)) {
-            return solar::fail(solar::Status::Error);
+            return solar::fail<solar::Error>({.status = solar::Status::Error});
         }
         if (block_next_save.exchange(false, std::memory_order_acq_rel)) {
             save_started.give();
             const auto released =
                 allow_save.take(solar::kernel::Timeout::after(std::chrono::seconds{1}));
-            if (released != solar::Status::Ok) {
-                return solar::fail(released);
+            if (!released) {
+                return solar::fail<solar::Error>(released.error());
             }
         }
         Entry* destination = nullptr;
@@ -100,7 +105,7 @@ struct FakeStore
             }
         }
         if (destination == nullptr || input.size() > destination->bytes.size()) {
-            return solar::fail(solar::Status::NoSpace);
+            return solar::fail<solar::Error>({.status = solar::Status::NoSpace});
         }
         destination->key = key;
         destination->size = input.size();
@@ -156,12 +161,12 @@ struct FakeStore
         std::array<std::byte, CONFIG_SOLAR_PARAMETERS_MAX_ENCODED_RECORD_BYTES> bytes{};
         auto loaded = load(solar::parameters::detail::persistence_key<ParameterT>(), bytes);
         if (!loaded) {
-            return solar::fail(loaded.error());
+            return solar::fail<solar::Error>({.status = status_of(loaded.error())});
         }
         auto record = solar::parameters::persistence::detail::decode_record(
             std::span<const std::byte>{bytes}.first(*loaded));
         if (!record) {
-            return solar::fail(record.error());
+            return solar::fail<solar::Error>({.status = status_of(record.error())});
         }
         return solar::parameters::detail::codec_for_t<ParameterT>::decode(record->payload);
     }
@@ -256,7 +261,7 @@ struct NonnegativeEven
     normalize(int candidate) noexcept
     {
         if (candidate < 0) {
-            return solar::fail(solar::parameters::ValidationError{});
+            return solar::fail<solar::parameters::ValidationError>({});
         }
         return candidate % 2 == 0 ? candidate : candidate + 1;
     }
@@ -339,7 +344,7 @@ struct MigratedGain
                                                           std::span<const std::byte> payload)
         {
             if (version != 1) {
-                return solar::fail(solar::Status::NotSupported);
+                return solar::fail<solar::Error>({.status = solar::Status::NotSupported});
             }
             return solar::parameters::ScalarCodec<Value>::decode(payload).transform(
                 [](Value old_value) { return old_value + 1; });
@@ -497,8 +502,8 @@ struct DriveController
 
     static solar::Result<void> init();
     static solar::Result<void> start();
-    static solar::Status changed(const solar::parameters::Change<DriveKp>& change);
-    static solar::Status changed(const solar::parameters::Change<HookFailureProbe>& change);
+    static solar::Result<void> changed(const solar::parameters::Change<DriveKp>& change);
+    static solar::Result<void> changed(const solar::parameters::Change<HookFailureProbe>& change);
 };
 
 using Blueprint =
@@ -533,7 +538,7 @@ struct Store
     [[nodiscard]] static solar::Result<std::size_t> load(solar::parameters::persistence::Key,
                                                          std::span<std::byte>)
     {
-        return solar::fail(solar::Status::ProtocolError);
+        return solar::fail<solar::Error>({.status = solar::Status::ProtocolError});
     }
     [[nodiscard]] static solar::Result<void> save(solar::parameters::persistence::Key,
                                                   std::span<const std::byte>)
@@ -571,7 +576,7 @@ solar::Result<void> fixture::DriveController::init()
     auto value = solar::parameters::get<DriveKp>();
     init_read_succeeded.store(value.has_value() && *value == 1.0F, std::memory_order_release);
     if (!value) {
-        return solar::fail(value.error().status);
+        return solar::fail<solar::Error>({.status = value.error().status});
     }
     return {};
 }
@@ -580,16 +585,17 @@ solar::Result<void> fixture::DriveController::start()
 {
     auto first = solar::parameters::set<DriveKp>(2.0F);
     if (!first) {
-        return solar::fail(first.error().status);
+        return solar::fail<solar::Error>({.status = first.error().status});
     }
     auto second = solar::parameters::set<DriveKp>(3.0F);
     if (!second) {
-        return solar::fail(second.error().status);
+        return solar::fail<solar::Error>({.status = second.error().status});
     }
     return {};
 }
 
-solar::Status fixture::DriveController::changed(const solar::parameters::Change<DriveKp>& change)
+solar::Result<void>
+fixture::DriveController::changed(const solar::parameters::Change<DriveKp>& change)
 {
     change_runs.fetch_add(1, std::memory_order_release);
     last_revision.store(static_cast<unsigned>(change.revision), std::memory_order_release);
@@ -602,13 +608,14 @@ solar::Status fixture::DriveController::changed(const solar::parameters::Change<
                                                  snapshot->get<DriveKi>() == 0.4F,
                                              std::memory_order_release);
     }
-    return solar::Status::Ok;
+    return {};
 }
 
-solar::Status fixture::DriveController::changed(const solar::parameters::Change<HookFailureProbe>&)
+solar::Result<void>
+fixture::DriveController::changed(const solar::parameters::Change<HookFailureProbe>&)
 {
     failed_change_runs.fetch_add(1, std::memory_order_release);
-    return solar::Status::Error;
+    return solar::fail<solar::Error>({.status = solar::Status::Error});
 }
 
 namespace
@@ -637,7 +644,8 @@ void hold_parameter_gate(void* raw) noexcept
 {
     auto& context = *static_cast<ContentionContext*>(raw);
     auto gate = solar::kernel::unique_lock(fixture::System::ParameterFacility::write_gate);
-    context.status.store(gate ? solar::Status::Ok : gate.error(), std::memory_order_release);
+    context.status.store(gate ? solar::Status::Ok : solar::status_of(gate.error()),
+                         std::memory_order_release);
     context.ready.give();
     if (gate) {
         (void)context.release.take(solar::kernel::Timeout::after(std::chrono::seconds{1}));
@@ -649,7 +657,8 @@ void hold_persistence_gate(void* raw) noexcept
 {
     auto& context = *static_cast<ContentionContext*>(raw);
     auto gate = solar::kernel::unique_lock(fixture::System::ParameterFacility::persistence_gate);
-    context.status.store(gate ? solar::Status::Ok : gate.error(), std::memory_order_release);
+    context.status.store(gate ? solar::Status::Ok : solar::status_of(gate.error()),
+                         std::memory_order_release);
     context.ready.give();
     if (gate) {
         (void)context.release.take(solar::kernel::Timeout::after(std::chrono::seconds{1}));
@@ -882,31 +891,37 @@ ZTEST(solar_parameters, test_concurrent_transactions_keep_snapshots_coherent_and
     ConcurrencyContext context{};
     solar::kernel::Thread<4096> reader;
     solar::kernel::Thread<4096> writer;
-    zassert_equal(reader.launch(&snapshot_reader, &context,
-                                {.priority = solar::kernel::Priority::preemptive<1>()}),
-                  solar::Status::Ok);
-    zassert_equal(writer.launch(&transaction_writer, &context,
-                                {.priority = solar::kernel::Priority::preemptive<1>()}),
-                  solar::Status::Ok);
-    zassert_equal(writer.join(solar::kernel::Timeout::after(std::chrono::seconds{1})),
-                  solar::Status::Ok);
-    zassert_equal(reader.join(solar::kernel::Timeout::after(std::chrono::seconds{1})),
-                  solar::Status::Ok);
+    zassert_equal(
+        result_status(reader.launch(&snapshot_reader, &context,
+                                    {.priority = solar::kernel::Priority::preemptive<1>()})),
+        solar::Status::Ok);
+    zassert_equal(
+        result_status(writer.launch(&transaction_writer, &context,
+                                    {.priority = solar::kernel::Priority::preemptive<1>()})),
+        solar::Status::Ok);
+    zassert_equal(
+        result_status(writer.join(solar::kernel::Timeout::after(std::chrono::seconds{1}))),
+        solar::Status::Ok);
+    zassert_equal(
+        result_status(reader.join(solar::kernel::Timeout::after(std::chrono::seconds{1}))),
+        solar::Status::Ok);
     zassert_equal(context.failures.load(std::memory_order_acquire), 0);
     zassert_equal(context.mismatches.load(std::memory_order_acquire), 0);
 
     ContentionContext contention{};
     solar::kernel::Thread<2048> holder;
-    zassert_equal(holder.launch(&hold_parameter_gate, &contention,
-                                {.priority = solar::kernel::Priority::preemptive<1>()}),
-                  solar::Status::Ok);
     zassert_equal(
-        contention.ready.take(solar::kernel::Timeout::after(std::chrono::milliseconds{100})),
+        result_status(holder.launch(&hold_parameter_gate, &contention,
+                                    {.priority = solar::kernel::Priority::preemptive<1>()})),
         solar::Status::Ok);
+    zassert_equal(result_status(contention.ready.take(
+                      solar::kernel::Timeout::after(std::chrono::milliseconds{100}))),
+                  solar::Status::Ok);
     auto blocked = solar::parameters::try_set<fixture::DriveKp>(2.5F);
     contention.release.give();
-    zassert_equal(holder.join(solar::kernel::Timeout::after(std::chrono::milliseconds{100})),
-                  solar::Status::Ok);
+    zassert_equal(
+        result_status(holder.join(solar::kernel::Timeout::after(std::chrono::milliseconds{100}))),
+        solar::Status::Ok);
     zassert_equal(contention.status.load(std::memory_order_acquire), solar::Status::Ok);
     zassert_false(blocked.has_value());
     zassert_equal(blocked.error().reason, solar::parameters::Reason::WouldBlock);
@@ -978,7 +993,7 @@ ZTEST(solar_parameters, test_persistence_load_immediate_manual_deferred_and_rese
 
     auto reset = solar::parameters::reset<fixture::ImmediateGain>();
     zassert_true(reset.has_value());
-    zassert_true(fixture::FakeStore::value<fixture::ImmediateGain>().error() ==
+    zassert_true(solar::status_of(fixture::FakeStore::value<fixture::ImmediateGain>().error()) ==
                  solar::Status::NotFound);
     zassert_true(fixture::FakeStore::erases.load(std::memory_order_acquire) >= 1);
 
@@ -999,17 +1014,19 @@ ZTEST(solar_parameters, test_newer_revision_stays_dirty_across_older_save_comple
 
     SaveContext context{};
     solar::kernel::Thread<2048> saver;
-    zassert_equal(saver.launch(&save_manual_gain, &context,
-                               {.priority = solar::kernel::Priority::preemptive<1>()}),
-                  solar::Status::Ok);
-    zassert_equal(fixture::FakeStore::save_started.take(
-                      solar::kernel::Timeout::after(std::chrono::milliseconds{100})),
+    zassert_equal(
+        result_status(saver.launch(&save_manual_gain, &context,
+                                   {.priority = solar::kernel::Priority::preemptive<1>()})),
+        solar::Status::Ok);
+    zassert_equal(result_status(fixture::FakeStore::save_started.take(
+                      solar::kernel::Timeout::after(std::chrono::milliseconds{100}))),
                   solar::Status::Ok);
 
     zassert_true(solar::parameters::set<fixture::ManualGain>(34).has_value());
     fixture::FakeStore::allow_save.give();
-    zassert_equal(saver.join(solar::kernel::Timeout::after(std::chrono::milliseconds{100})),
-                  solar::Status::Ok);
+    zassert_equal(
+        result_status(saver.join(solar::kernel::Timeout::after(std::chrono::milliseconds{100}))),
+        solar::Status::Ok);
     zassert_equal(context.status.load(std::memory_order_acquire), solar::Status::Ok);
 
     auto pending = solar::parameters::record<fixture::ManualGain>();
@@ -1047,18 +1064,20 @@ ZTEST(solar_parameters, test_save_all_and_flush_cover_manual_and_deferred_state)
     zassert_true(solar::parameters::set<fixture::DeferredGain>(46).has_value());
     ContentionContext contention{};
     solar::kernel::Thread<2048> holder;
-    zassert_equal(holder.launch(&hold_persistence_gate, &contention,
-                                {.priority = solar::kernel::Priority::preemptive<1>()}),
-                  solar::Status::Ok);
     zassert_equal(
-        contention.ready.take(solar::kernel::Timeout::after(std::chrono::milliseconds{100})),
+        result_status(holder.launch(&hold_persistence_gate, &contention,
+                                    {.priority = solar::kernel::Priority::preemptive<1>()})),
         solar::Status::Ok);
+    zassert_equal(result_status(contention.ready.take(
+                      solar::kernel::Timeout::after(std::chrono::milliseconds{100}))),
+                  solar::Status::Ok);
     auto blocked = solar::parameters::try_flush();
     zassert_false(blocked.has_value());
     zassert_equal(blocked.error().reason, solar::parameters::Reason::WouldBlock);
     contention.release.give();
-    zassert_equal(holder.join(solar::kernel::Timeout::after(std::chrono::milliseconds{100})),
-                  solar::Status::Ok);
+    zassert_equal(
+        result_status(holder.join(solar::kernel::Timeout::after(std::chrono::milliseconds{100}))),
+        solar::Status::Ok);
 
     auto flushed = solar::parameters::flush();
     zassert_true(flushed.has_value());
@@ -1073,8 +1092,8 @@ ZTEST(solar_parameters, test_flush_times_out_on_in_flight_backend_work)
 {
     fixture::FakeStore::block_next_save.store(true, std::memory_order_release);
     zassert_true(solar::parameters::set<fixture::DeferredGain>(47).has_value());
-    zassert_equal(fixture::FakeStore::save_started.take(
-                      solar::kernel::Timeout::after(std::chrono::milliseconds{100})),
+    zassert_equal(result_status(fixture::FakeStore::save_started.take(
+                      solar::kernel::Timeout::after(std::chrono::milliseconds{100}))),
                   solar::Status::Ok);
 
     auto timed_out = solar::parameters::flush();

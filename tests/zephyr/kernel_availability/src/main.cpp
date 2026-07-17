@@ -9,7 +9,7 @@ ZTEST(kernel_availability, test_remaining_primitives_work_without_optional_featu
 {
     solar::kernel::Semaphore semaphore;
     semaphore.give();
-    zassert_equal(semaphore.try_take(), solar::Status::Ok);
+    zassert_true(semaphore.try_take().has_value());
 }
 
 ZTEST_SUITE(kernel_availability, nullptr, nullptr, nullptr, nullptr, nullptr);

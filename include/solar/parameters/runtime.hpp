@@ -72,7 +72,8 @@ template <typename ParameterT>
     std::array<std::byte, Codec::encoded_size> payload{};
     auto encoded = Codec::encode(value, payload);
     if (!encoded || *encoded != Codec::encoded_size) {
-        return fail(encoded ? Status::ProtocolError : encoded.error());
+        return fail<solar::Error>(
+            {.status = encoded ? Status::ProtocolError : status_of(encoded.error())});
     }
     return persistence::detail::encode_record(
         persistence_key<ParameterT>(), descriptor_traits<Tag, ParameterT>::descriptor.version,
@@ -89,7 +90,7 @@ template <typename ParameterT, typename Store>
     std::array<std::byte, CONFIG_SOLAR_PARAMETERS_MAX_ENCODED_RECORD_BYTES> record{};
     auto encoded = encode_persistent_value<ParameterT>(value, record);
     if (!encoded) {
-        return fail(encoded.error());
+        return fail<solar::Error>(encoded.error());
     }
     return Store::save(persistence_key<ParameterT>(),
                        std::span<const std::byte>{record}.first(*encoded));
@@ -118,7 +119,7 @@ template <typename Group, typename Provider>
                   "SOLAR_DIAGNOSTIC_PARAMETER_GROUP_RECORD_SIZE: transactional group record "
                   "exceeds the configured hard ceiling");
     if (output.size() < group_payload_size_v<Group>) {
-        return fail(Status::NoBuffer);
+        return fail<solar::Error>({.status = solar::Status::NoBuffer});
     }
     Result<void> result{};
     std::size_t offset{};
@@ -130,19 +131,20 @@ template <typename Group, typename Provider>
         if (result) {
             auto value = provider.template operator()<ParameterT>();
             if (!value) {
-                result = fail(value.error());
+                result = fail<solar::Error>(value.error());
                 return;
             }
             auto encoded = Codec::encode(*value, output.subspan(offset, Codec::encoded_size));
             if (!encoded || *encoded != Codec::encoded_size) {
-                result = fail(encoded ? Status::ProtocolError : encoded.error());
+                result = fail<solar::Error>(
+                    {.status = encoded ? Status::ProtocolError : status_of(encoded.error())});
                 return;
             }
             offset += Codec::encoded_size;
         }
     });
     if (!result) {
-        return fail(result.error());
+        return fail<solar::Error>(result.error());
     }
     return offset;
 }
@@ -154,14 +156,14 @@ template <typename Group, typename Provider>
     std::array<std::byte, CONFIG_SOLAR_PARAMETERS_MAX_GROUP_RECORD_BYTES> payload{};
     auto payload_size = encode_group_payload<Group>(payload, std::forward<Provider>(provider));
     if (!payload_size) {
-        return fail(payload_size.error());
+        return fail<solar::Error>(payload_size.error());
     }
     std::array<std::byte, CONFIG_SOLAR_PARAMETERS_MAX_GROUP_RECORD_BYTES> record{};
     auto encoded = persistence::detail::encode_record(
         group_key<Group>(), Group::version,
         std::span<const std::byte>{payload}.first(*payload_size), record);
     if (!encoded) {
-        return fail(encoded.error());
+        return fail<solar::Error>(encoded.error());
     }
     return Traits::Store::save(group_key<Group>(),
                                std::span<const std::byte>{record}.first(*encoded));
@@ -173,17 +175,18 @@ template <std::size_t Index = 0, typename Group, typename Values>
 {
     using Members = typename GroupTraits<Group>::Members;
     if constexpr (Index == list_size_v<Members>) {
-        return offset == payload.size() ? Result<void>{}
-                                        : Result<void>{fail(Status::MessageTooLarge)};
+        return offset == payload.size()
+                   ? Result<void>{}
+                   : Result<void>{fail<solar::Error>({.status = solar::Status::MessageTooLarge})};
     } else {
         using ParameterT = type_at_t<Index, Members>;
         using Codec = codec_for_t<ParameterT>;
         if (offset + Codec::encoded_size > payload.size()) {
-            return fail(Status::MessageTooLarge);
+            return fail<solar::Error>({.status = solar::Status::MessageTooLarge});
         }
         auto decoded = Codec::decode(payload.subspan(offset, Codec::encoded_size));
         if (!decoded) {
-            return fail(decoded.error());
+            return fail<solar::Error>(decoded.error());
         }
         std::get<Index>(values) = *decoded;
         offset += Codec::encoded_size;
@@ -203,7 +206,7 @@ template <std::size_t Index = 0, typename Architecture, typename Group, typename
             ParameterPolicies<ParameterT, typename Architecture::ConfigurationPolicies>;
         auto normalized = normalize<typename Policies::Validation>(std::get<Index>(values));
         if (!normalized) {
-            return fail(Status::Invalid);
+            return fail<solar::Error>({.status = solar::Status::Invalid});
         }
         std::get<Index>(values) = normalized->value;
         return normalize_group_values<Index + 1, Architecture, Group>(values);
@@ -273,7 +276,7 @@ template <typename Architecture, typename ParameterT>
     using Policies = ParameterPolicies<ParameterT, typename Architecture::ConfigurationPolicies>;
     record_load_failure<Architecture, ParameterT>(status, reason, observed_version);
     if constexpr (std::is_same_v<typename Policies::LoadFailure, load::FailBoot>) {
-        return fail(status);
+        return fail<solar::Error>({.status = status});
     }
     return {};
 }
@@ -293,7 +296,7 @@ template <typename Architecture, typename ParameterT>
         std::array<std::byte, CONFIG_SOLAR_PARAMETERS_MAX_ENCODED_RECORD_BYTES> buffer{};
         auto loaded = Store::load(persistence_key<ParameterT>(), buffer);
         if (!loaded) {
-            if (loaded.error() == Status::NotFound) {
+            if (status_of(loaded.error()) == Status::NotFound) {
                 Facility::template slot<ParameterT>.mutate_record([](auto& record) {
                     record.load_source = LoadSource::Default;
                     record.load_outcome = LoadOutcome::MissingDefault;
@@ -301,7 +304,7 @@ template <typename Architecture, typename ParameterT>
                 });
                 return {};
             }
-            return load_failure<Architecture, ParameterT>(loaded.error(),
+            return load_failure<Architecture, ParameterT>(status_of(loaded.error()),
                                                           Reason::PersistenceFailed);
         }
         if (*loaded > buffer.size()) {
@@ -312,11 +315,13 @@ template <typename Architecture, typename ParameterT>
             persistence::detail::decode_record(std::span<const std::byte>{buffer}.first(*loaded));
         if (!decoded || decoded->key.kind != persistence::RecordKind::Parameter ||
             decoded->key.stable_id != persistence_key<ParameterT>().stable_id) {
-            return load_failure<Architecture, ParameterT>(
-                decoded ? Status::ProtocolError : decoded.error(), Reason::CorruptRecord);
+            return load_failure<Architecture, ParameterT>(decoded ? Status::ProtocolError
+                                                                  : status_of(decoded.error()),
+                                                          Reason::CorruptRecord);
         }
 
-        Result<typename ParameterT::Value> value = fail(Status::ProtocolError);
+        Result<typename ParameterT::Value> value =
+            fail<solar::Error>({.status = solar::Status::ProtocolError});
         LoadSource source = LoadSource::Store;
         if (decoded->version == descriptor_traits<Tag, ParameterT>::descriptor.version) {
             value = Codec::decode(decoded->payload);
@@ -332,9 +337,11 @@ template <typename Architecture, typename ParameterT>
             }
         }
         if (!value) {
-            const auto reason = value.error() == Status::ProtocolError ? Reason::VersionMismatch
-                                                                       : Reason::CodecFailed;
-            return load_failure<Architecture, ParameterT>(value.error(), reason, decoded->version);
+            const auto reason = status_of(value.error()) == Status::ProtocolError
+                                    ? Reason::VersionMismatch
+                                    : Reason::CodecFailed;
+            return load_failure<Architecture, ParameterT>(status_of(value.error()), reason,
+                                                          decoded->version);
         }
         auto normalized = normalize<typename Policies::Validation>(*value);
         if (!normalized) {
@@ -363,7 +370,7 @@ template <typename Architecture, typename Group>
         record_load_failure<Architecture, ParameterT>(status, reason, observed_version);
         fail_boot = fail_boot || std::is_same_v<typename Policies::LoadFailure, load::FailBoot>;
     });
-    return fail_boot ? Result<void>{fail(status)} : Result<void>{};
+    return fail_boot ? Result<void>{fail<solar::Error>({.status = status})} : Result<void>{};
 }
 
 template <typename Architecture, typename Group>
@@ -374,7 +381,7 @@ template <typename Architecture, typename Group>
     std::array<std::byte, CONFIG_SOLAR_PARAMETERS_MAX_GROUP_RECORD_BYTES> buffer{};
     auto loaded = Traits::Store::load(group_key<Group>(), buffer);
     if (!loaded) {
-        if (loaded.error() == Status::NotFound) {
+        if (status_of(loaded.error()) == Status::NotFound) {
             for_each_type<typename Traits::Members>([]<typename ParameterT> {
                 Facility::template slot<ParameterT>.mutate_record([](auto& record) {
                     record.load_source = LoadSource::Default;
@@ -384,7 +391,8 @@ template <typename Architecture, typename Group>
             });
             return {};
         }
-        return group_load_failure<Architecture, Group>(loaded.error(), Reason::PersistenceFailed);
+        return group_load_failure<Architecture, Group>(status_of(loaded.error()),
+                                                       Reason::PersistenceFailed);
     }
     if (*loaded > buffer.size()) {
         return group_load_failure<Architecture, Group>(Status::MessageTooLarge,
@@ -395,12 +403,12 @@ template <typename Architecture, typename Group>
     if (!decoded || decoded->key.kind != persistence::RecordKind::Group ||
         decoded->key.stable_id != group_key<Group>().stable_id) {
         return group_load_failure<Architecture, Group>(
-            decoded ? Status::ProtocolError : decoded.error(), Reason::CorruptRecord);
+            decoded ? Status::ProtocolError : status_of(decoded.error()), Reason::CorruptRecord);
     }
 
     auto values = GroupValues<typename Traits::Members>::defaults();
     LoadSource source = LoadSource::Store;
-    Result<void> decoded_values = fail(Status::ProtocolError);
+    Result<void> decoded_values = fail<solar::Error>({.status = solar::Status::ProtocolError});
     if (decoded->version == Group::version) {
         std::size_t offset{};
         decoded_values = decode_group_values<0, Group>(decoded->payload, values, offset);
@@ -414,13 +422,13 @@ template <typename Architecture, typename Group>
                 decoded_values = {};
                 source = LoadSource::Migration;
             } else {
-                decoded_values = fail(migrated.error());
+                decoded_values = fail<solar::Error>(migrated.error());
             }
         }
     }
     if (!decoded_values) {
         return group_load_failure<Architecture, Group>(
-            decoded_values.error(),
+            status_of(decoded_values.error()),
             decoded->version == Group::version ? Reason::CodecFailed : Reason::VersionMismatch,
             decoded->version);
     }
@@ -481,16 +489,17 @@ template <typename System, typename ParameterT>
     using Facility = typename System::ParameterFacility;
     const auto operation = no_wait ? Operation::TryGet : Operation::Get;
     if (kernel::in_isr()) {
-        return fail(
+        return fail<Error>(
             make_error<System, ParameterT>(operation, Status::Invalid, Reason::InvalidContext));
     }
     if (!Facility::ready.load(std::memory_order_acquire)) {
-        return fail(make_error<System, ParameterT>(operation, Status::NotReady, Reason::NotReady));
+        return fail<Error>(
+            make_error<System, ParameterT>(operation, Status::NotReady, Reason::NotReady));
     }
     auto value = Facility::template slot<ParameterT>.read(no_wait);
     if (!value) {
-        const auto status = value.error();
-        return fail(make_error<System, ParameterT>(
+        const auto status = status_of(value.error());
+        return fail<Error>(make_error<System, ParameterT>(
             operation, status,
             status == Status::WouldBlock ? Reason::WouldBlock : Reason::InternalInvariant));
     }
@@ -504,16 +513,19 @@ template <typename Handler, typename ParameterT>
     if constexpr (std::same_as<Return, void>) {
         Handler::changed(change);
         return {};
-    } else if constexpr (std::same_as<Return, Status>) {
-        const auto status = Handler::changed(change);
-        return status == Status::Ok ? Result<void>{} : Result<void>{fail(status)};
+    } else if constexpr (VoidResult<Return>) {
+        auto result = Handler::changed(change);
+        return result ? Result<void>{}
+                      : Result<void>{fail<solar::Error>({.status = status_of(result.error())})};
     } else {
-        return Handler::changed(change);
+        static_assert(solar::detail::dependent_false_v<Handler>,
+                      "SOLAR_DIAGNOSTIC_PARAMETER_CHANGE_RETURN: changed() must return void or "
+                      "Result<void, ErrorType>");
     }
 }
 
 template <typename System, typename ChangeT>
-[[nodiscard]] Status
+[[nodiscard]] Result<void>
 invoke_change(const Change<typename change_traits<ChangeT>::ParameterType>& change) noexcept
 {
     using Facility = typename System::ParameterFacility;
@@ -521,7 +533,7 @@ invoke_change(const Change<typename change_traits<ChangeT>::ParameterType>& chan
     auto& state = Facility::template change_state<ChangeT>;
     state.begin_invoke();
     auto result = invoke_change_handler<typename Traits::HandlerType>(change);
-    const auto status = result ? Status::Ok : result.error();
+    const auto status = result ? Status::Ok : status_of(result.error());
     state.finish_invoke(change.revision, status);
     if (!result) {
         Facility::template slot<typename Traits::ParameterType>.mutate_record([&](auto& record) {
@@ -530,7 +542,7 @@ invoke_change(const Change<typename change_traits<ChangeT>::ParameterType>& chan
                 Operation::ActivateChanges, status, Reason::ChangeHandlerFailed);
         });
     }
-    return status;
+    return result;
 }
 
 template <typename System, typename ParameterT>
@@ -543,7 +555,7 @@ template <typename System, typename ParameterT>
         if constexpr (std::is_same_v<ParameterT, typename Traits::ParameterType>) {
             if (deferred) {
                 Facility::template change_state<ChangeT>.defer(change);
-            } else if (invoke_change<System, ChangeT>(change) != Status::Ok) {
+            } else if (!invoke_change<System, ChangeT>(change)) {
                 ++failures;
             }
         }
@@ -562,16 +574,17 @@ prepare_immediate_persistence(const typename ParameterT::Value& value, bool rese
 #if defined(CONFIG_SOLAR_PARAMETERS_PERSISTENCE)
         auto persistence_guard = kernel::lock_guard(Facility::persistence_gate);
         if (!persistence_guard) {
-            return fail(make_error<System, ParameterT>(Operation::Save, persistence_guard.error(),
-                                                       Reason::PersistenceUnavailable));
+            return fail<Error>(make_error<System, ParameterT>(Operation::Save,
+                                                              status_of(persistence_guard.error()),
+                                                              Reason::PersistenceUnavailable));
         }
         auto persisted = persist_value<ParameterT, typename Persistence::Store>(value, reset);
         if (!persisted) {
             Facility::template slot<ParameterT>.mark_persistence_failure(
-                persisted.error(), reset ? Operation::Reset : Operation::Save);
-            return fail(make_error<System, ParameterT>(reset ? Operation::Reset : Operation::Save,
-                                                       persisted.error(),
-                                                       Reason::PersistenceFailed));
+                status_of(persisted.error()), reset ? Operation::Reset : Operation::Save);
+            return fail<Error>(make_error<System, ParameterT>(
+                reset ? Operation::Reset : Operation::Save, status_of(persisted.error()),
+                Reason::PersistenceFailed));
         }
 #else
         static_assert(solar::detail::dependent_false_v<ParameterT>,
@@ -585,8 +598,9 @@ prepare_immediate_persistence(const typename ParameterT::Value& value, bool rese
         if constexpr (GroupCommit::kind == PersistenceKind::Immediate) {
             auto persistence_guard = kernel::lock_guard(Facility::persistence_gate);
             if (!persistence_guard) {
-                return fail(make_error<System, ParameterT>(
-                    Operation::Save, persistence_guard.error(), Reason::PersistenceUnavailable));
+                return fail<Error>(make_error<System, ParameterT>(
+                    Operation::Save, status_of(persistence_guard.error()),
+                    Reason::PersistenceUnavailable));
             }
             auto persisted = persist_group_image<Group>([&]<typename MemberT>() {
                 if constexpr (std::is_same_v<MemberT, ParameterT>) {
@@ -597,10 +611,10 @@ prepare_immediate_persistence(const typename ParameterT::Value& value, bool rese
             });
             if (!persisted) {
                 Facility::template slot<ParameterT>.mark_persistence_failure(
-                    persisted.error(), reset ? Operation::Reset : Operation::Save);
-                return fail(
-                    make_error<System, ParameterT>(reset ? Operation::Reset : Operation::Save,
-                                                   persisted.error(), Reason::PersistenceFailed));
+                    status_of(persisted.error()), reset ? Operation::Reset : Operation::Save);
+                return fail<Error>(make_error<System, ParameterT>(
+                    reset ? Operation::Reset : Operation::Save, status_of(persisted.error()),
+                    Reason::PersistenceFailed));
             }
         }
 #endif
@@ -687,7 +701,7 @@ template <typename System> [[nodiscard]] Result<void> schedule_deferred_persiste
                                                      typename Facility::DeferredRegistration>(delay,
                                                                                               true);
         if (!scheduled) {
-            return fail(scheduled.error().status);
+            return fail<solar::Error>({.status = scheduled.error().status});
         }
         return {};
     }
@@ -707,11 +721,11 @@ template <typename Architecture, typename ParameterT>
             kernel::unique_lock(Facility::write_gate,
                                 no_wait ? kernel::Timeout::no_wait() : kernel::Timeout::forever());
         if (!write_guard) {
-            return fail(write_guard.error());
+            return fail<solar::Error>(write_guard.error());
         }
         auto value = Facility::template slot<ParameterT>.peek();
         if (!value) {
-            return fail(value.error());
+            return fail<solar::Error>(value.error());
         }
         auto work = Facility::template slot<ParameterT>.persistence_work(*value);
         (void)(*write_guard).unlock();
@@ -723,14 +737,14 @@ template <typename Architecture, typename ParameterT>
             kernel::lock_guard(Facility::persistence_gate,
                                no_wait ? kernel::Timeout::no_wait() : kernel::Timeout::forever());
         if (!persistence_guard) {
-            return fail(persistence_guard.error());
+            return fail<solar::Error>(persistence_guard.error());
         }
         auto persisted =
             persist_value<ParameterT, typename Persistence::Store>(work.value, work.erase);
         Facility::template slot<ParameterT>.finish_persistence(
-            work.revision, persisted ? Status::Ok : persisted.error());
+            work.revision, persisted ? Status::Ok : status_of(persisted.error()));
         if (!persisted) {
-            return fail(persisted.error());
+            return fail<solar::Error>(persisted.error());
         }
         return true;
 #else
@@ -758,13 +772,13 @@ template <typename Architecture, typename Group>
             kernel::lock_guard(Facility::write_gate,
                                no_wait ? kernel::Timeout::no_wait() : kernel::Timeout::forever());
         if (!write_guard) {
-            return fail(write_guard.error());
+            return fail<solar::Error>(write_guard.error());
         }
         auto encoded = encode_group_payload<Group>(payload, []<typename ParameterT>() {
             return Facility::template slot<ParameterT>.peek();
         });
         if (!encoded) {
-            return fail(encoded.error());
+            return fail<solar::Error>(encoded.error());
         }
         payload_size = *encoded;
     }
@@ -773,7 +787,7 @@ template <typename Architecture, typename Group>
         kernel::lock_guard(Facility::persistence_gate,
                            no_wait ? kernel::Timeout::no_wait() : kernel::Timeout::forever());
     if (!persistence_guard) {
-        return fail(persistence_guard.error());
+        return fail<solar::Error>(persistence_guard.error());
     }
     std::array<std::byte, CONFIG_SOLAR_PARAMETERS_MAX_GROUP_RECORD_BYTES> record{};
     auto encoded = persistence::detail::encode_record(
@@ -782,7 +796,7 @@ template <typename Architecture, typename Group>
     Result<void> persisted =
         encoded ? GroupTraits<Group>::Store::save(
                       group_key<Group>(), std::span<const std::byte>{record}.first(*encoded))
-                : Result<void>{fail(encoded.error())};
+                : Result<void>{fail<solar::Error>(encoded.error())};
     const bool cleared =
         Facility::template group_state<Group>.finish(work.revision, persisted.has_value());
     for_each_type<typename GroupTraits<Group>::Members>([&]<typename ParameterT> {
@@ -791,19 +805,19 @@ template <typename Architecture, typename Group>
             auto member_work = Facility::template slot<ParameterT>.persistence_work(*value);
             if (!persisted || cleared) {
                 Facility::template slot<ParameterT>.finish_persistence(
-                    member_work.revision, persisted ? Status::Ok : persisted.error());
+                    member_work.revision, persisted ? Status::Ok : status_of(persisted.error()));
             }
         }
     });
     if (!persisted) {
-        return fail(persisted.error());
+        return fail<solar::Error>(persisted.error());
     }
     return true;
 #else
     static_assert(solar::detail::dependent_false_v<Group>,
                   "SOLAR_DIAGNOSTIC_PARAMETER_PERSISTENCE_DISABLED: transactional persistence "
                   "requires CONFIG_SOLAR_PARAMETERS_PERSISTENCE");
-    return fail(Status::NotSupported);
+    return fail<solar::Error>({.status = solar::Status::NotSupported});
 #endif
 }
 
@@ -821,7 +835,7 @@ template <typename Architecture>
             auto persisted = persist_parameter_slot<Architecture, ParameterT>(force, no_wait);
             if (!persisted) {
                 if (!first_error) {
-                    first_error = persisted.error();
+                    first_error = status_of(persisted.error());
                 }
             } else {
                 saved += *persisted ? 1U : 0U;
@@ -834,7 +848,7 @@ template <typename Architecture>
             auto persisted = persist_group_slot<Architecture, Group>(force, no_wait);
             if (!persisted) {
                 if (!first_error) {
-                    first_error = persisted.error();
+                    first_error = status_of(persisted.error());
                 }
             } else {
                 saved += *persisted ? 1U : 0U;
@@ -842,7 +856,7 @@ template <typename Architecture>
         }
     });
     if (first_error) {
-        return fail(*first_error);
+        return fail<solar::Error>({.status = *first_error});
     }
     return saved;
 }
@@ -898,7 +912,7 @@ template <typename System, typename ParameterT>
         reset ? Operation::Reset : (no_wait ? Operation::TrySet : Operation::Set);
 
     if (kernel::in_isr()) {
-        return fail(
+        return fail<Error>(
             make_error<System, ParameterT>(operation, Status::Invalid, Reason::InvalidContext));
     }
     const auto system_state = lifecycle::Engine<System>::state();
@@ -908,7 +922,8 @@ template <typename System, typename ParameterT>
         system_state == lifecycle::SystemState::RollingBack ||
         system_state == lifecycle::SystemState::Stopped ||
         system_state == lifecycle::SystemState::Failed) {
-        return fail(make_error<System, ParameterT>(operation, Status::NotReady, Reason::NotReady));
+        return fail<Error>(
+            make_error<System, ParameterT>(operation, Status::NotReady, Reason::NotReady));
     }
 
     auto normalized = normalize<typename Policies::Validation>(candidate);
@@ -918,15 +933,15 @@ template <typename System, typename ParameterT>
             record.last_error = make_error<System, ParameterT>(operation, Status::Invalid,
                                                                Reason::ValidationRejected);
         });
-        return fail(
+        return fail<Error>(
             make_error<System, ParameterT>(operation, Status::Invalid, Reason::ValidationRejected));
     }
 
     auto gate = kernel::unique_lock(Facility::write_gate, no_wait ? kernel::Timeout::no_wait()
                                                                   : kernel::Timeout::forever());
     if (!gate) {
-        const auto status = gate.error();
-        return fail(make_error<System, ParameterT>(
+        const auto status = status_of(gate.error());
+        return fail<Error>(make_error<System, ParameterT>(
             operation, status,
             status == Status::WouldBlock ? Reason::WouldBlock : Reason::InternalInvariant));
     }
@@ -934,9 +949,10 @@ template <typename System, typename ParameterT>
     auto& slot = Facility::template slot<ParameterT>;
     auto old = slot.peek(no_wait);
     if (!old) {
-        return fail(make_error<System, ParameterT>(
-            operation, old.error(),
-            old.error() == Status::WouldBlock ? Reason::WouldBlock : Reason::InternalInvariant));
+        return fail<Error>(make_error<System, ParameterT>(
+            operation, status_of(old.error()),
+            status_of(old.error()) == Status::WouldBlock ? Reason::WouldBlock
+                                                         : Reason::InternalInvariant));
     }
 
     auto before = slot.copy_record(*old);
@@ -946,7 +962,7 @@ template <typename System, typename ParameterT>
             auto persisted =
                 prepare_immediate_persistence<System, ParameterT>(normalized->value, true);
             if (!persisted) {
-                return fail(persisted.error());
+                return fail<Error>(persisted.error());
             }
             persistence = mark_committed_persistence<System, ParameterT>(before.revision, true);
         }
@@ -962,7 +978,7 @@ template <typename System, typename ParameterT>
             if constexpr (EffectiveDeferred<typename Policies::Persistence>::value) {
                 auto scheduled = schedule_deferred_persistence<System>();
                 if (!scheduled) {
-                    slot.mark_schedule_failure(scheduled.error());
+                    slot.mark_schedule_failure(status_of(scheduled.error()));
                     persistence = PersistenceState::Failed;
                 }
             }
@@ -978,13 +994,13 @@ template <typename System, typename ParameterT>
 
     auto persisted = prepare_immediate_persistence<System, ParameterT>(normalized->value, reset);
     if (!persisted) {
-        return fail(persisted.error());
+        return fail<Error>(persisted.error());
     }
 
     const auto write_status = slot.write(normalized->value);
-    if (write_status != Status::Ok) {
-        return fail(
-            make_error<System, ParameterT>(operation, write_status, Reason::InternalInvariant));
+    if (!write_status) {
+        return fail<Error>(make_error<System, ParameterT>(
+            operation, status_of(write_status.error()), Reason::InternalInvariant));
     }
     const auto revision = before.revision + 1U;
     slot.mutate_record([&](auto& record) {
@@ -1004,7 +1020,7 @@ template <typename System, typename ParameterT>
     if constexpr (EffectiveDeferred<typename Policies::Persistence>::value) {
         auto scheduled = schedule_deferred_persistence<System>();
         if (!scheduled) {
-            slot.mark_schedule_failure(scheduled.error());
+            slot.mark_schedule_failure(status_of(scheduled.error()));
             persistence = PersistenceState::Failed;
         }
     }
@@ -1036,18 +1052,18 @@ template <typename System, typename ParameterT>
 {
     using Facility = typename System::ParameterFacility;
     if (!Facility::ready.load(std::memory_order_acquire)) {
-        return fail(
+        return fail<Error>(
             make_error<System, ParameterT>(Operation::Query, Status::NotReady, Reason::NotReady));
     }
     auto gate = kernel::lock_guard(Facility::write_gate);
     if (!gate) {
-        return fail(make_error<System, ParameterT>(Operation::Query, gate.error(),
-                                                   Reason::InternalInvariant));
+        return fail<Error>(make_error<System, ParameterT>(Operation::Query, status_of(gate.error()),
+                                                          Reason::InternalInvariant));
     }
     auto value = Facility::template slot<ParameterT>.peek();
     if (!value) {
-        return fail(make_error<System, ParameterT>(Operation::Query, value.error(),
-                                                   Reason::InternalInvariant));
+        return fail<Error>(make_error<System, ParameterT>(
+            Operation::Query, status_of(value.error()), Reason::InternalInvariant));
     }
     auto record = Facility::template slot<ParameterT>.copy_record(*value);
     record.ready = true;
@@ -1101,9 +1117,10 @@ template <typename System, typename Tuple, std::size_t Index, typename Head, typ
 {
     auto value = System::ParameterFacility::template slot<Head>.peek(no_wait);
     if (!value) {
-        return fail(make_error<System, Head>(
-            Operation::Snapshot, value.error(),
-            value.error() == Status::WouldBlock ? Reason::WouldBlock : Reason::InternalInvariant));
+        return fail<Error>(make_error<System, Head>(Operation::Snapshot, status_of(value.error()),
+                                                    status_of(value.error()) == Status::WouldBlock
+                                                        ? Reason::WouldBlock
+                                                        : Reason::InternalInvariant));
     }
     std::get<Index>(values) = *value;
     if constexpr (sizeof...(Tail) != 0) {
@@ -1117,28 +1134,29 @@ template <typename System, typename... ParametersT>
 {
     using Facility = typename System::ParameterFacility;
     if (kernel::in_isr()) {
-        return fail(Error{.status = Status::Invalid,
-                          .reason = Reason::InvalidContext,
-                          .operation = Operation::Snapshot});
+        return fail<Error>({.status = solar::Status::Invalid,
+                            .reason = Reason::InvalidContext,
+                            .operation = Operation::Snapshot});
     }
     if (!Facility::ready.load(std::memory_order_acquire)) {
-        return fail(Error{.status = Status::NotReady,
-                          .reason = Reason::NotReady,
-                          .operation = Operation::Snapshot});
+        return fail<Error>({.status = solar::Status::NotReady,
+                            .reason = Reason::NotReady,
+                            .operation = Operation::Snapshot});
     }
     auto gate = kernel::lock_guard(Facility::write_gate, no_wait ? kernel::Timeout::no_wait()
                                                                  : kernel::Timeout::forever());
     if (!gate) {
-        return fail(Error{.status = gate.error(),
-                          .reason = gate.error() == Status::WouldBlock ? Reason::WouldBlock
-                                                                       : Reason::InternalInvariant,
-                          .operation = Operation::Snapshot});
+        return fail<Error>({.status = status_of(gate.error()),
+                            .reason = status_of(gate.error()) == Status::WouldBlock
+                                          ? Reason::WouldBlock
+                                          : Reason::InternalInvariant,
+                            .operation = Operation::Snapshot});
     }
     std::tuple<typename ParametersT::Value...> values{
         typename ParametersT::Value{ParametersT::default_value}...};
     auto read = read_snapshot_values<System, decltype(values), 0, ParametersT...>(values, no_wait);
     if (!read) {
-        return fail(read.error());
+        return fail<Error>(read.error());
     }
     return Snapshot<ParametersT...>{std::move(values)};
 }
@@ -1167,8 +1185,8 @@ template <std::size_t Index = 0, typename System, typename Assignments, typename
         auto normalized =
             normalize<typename Policies::Validation>(std::get<Index>(assignments).value);
         if (!normalized) {
-            return fail(make_error<System, ParameterT>(Operation::Transaction, Status::Invalid,
-                                                       Reason::ValidationRejected));
+            return fail<Error>(make_error<System, ParameterT>(
+                Operation::Transaction, Status::Invalid, Reason::ValidationRejected));
         }
         std::get<Index>(states).normalized = *normalized;
         return normalize_transaction<Index + 1, System>(assignments, states);
@@ -1187,10 +1205,10 @@ template <std::size_t Index = 0, typename System, typename States>
         auto& slot = System::ParameterFacility::template slot<ParameterT>;
         auto old = slot.peek(no_wait);
         if (!old) {
-            return fail(make_error<System, ParameterT>(Operation::Transaction, old.error(),
-                                                       old.error() == Status::WouldBlock
-                                                           ? Reason::WouldBlock
-                                                           : Reason::InternalInvariant));
+            return fail<Error>(make_error<System, ParameterT>(
+                Operation::Transaction, status_of(old.error()),
+                status_of(old.error()) == Status::WouldBlock ? Reason::WouldBlock
+                                                             : Reason::InternalInvariant));
         }
         state.old_value = *old;
         state.before = slot.copy_record(*old);
@@ -1211,9 +1229,9 @@ template <std::size_t Index = 0, typename System, typename States>
         if (state.changed) {
             const auto status =
                 System::ParameterFacility::template slot<ParameterT>.write(state.normalized.value);
-            if (status != Status::Ok) {
-                return fail(make_error<System, ParameterT>(Operation::Transaction, status,
-                                                           Reason::InternalInvariant));
+            if (!status) {
+                return fail<Error>(make_error<System, ParameterT>(
+                    Operation::Transaction, status_of(status.error()), Reason::InternalInvariant));
             }
         }
         return write_transaction_values<Index + 1, System>(states);
@@ -1227,10 +1245,10 @@ void restore_transaction_values(std::tuple<States...>& states) noexcept
         apply(
             []<typename... StateT>(StateT&... state) {
                 ((void)(state.changed
-                        ? System::ParameterFacility::template slot<
-                              typename StateT::ParameterType>.write(state.old_value)
-                        : Status::Ok),
-             ...);
+                            ? System::ParameterFacility::template slot<
+                                  typename StateT::ParameterType>.write(state.old_value)
+                            : Result<void>{}),
+                 ...);
             },
             states);
 }
@@ -1307,10 +1325,10 @@ prepare_transaction_persistence(std::tuple<States...>& states) noexcept
             }
             auto persistence_guard = kernel::lock_guard(Facility::persistence_gate);
             if (!persistence_guard) {
-                result = fail(Error{.status = persistence_guard.error(),
-                                    .reason = Reason::PersistenceUnavailable,
-                                    .operation = Operation::Transaction,
-                                    .group_id = Group::stable_id.raw()});
+                result = fail<Error>({.status = status_of(persistence_guard.error()),
+                                      .reason = Reason::PersistenceUnavailable,
+                                      .operation = Operation::Transaction,
+                                      .group_id = Group::stable_id.raw()});
                 return;
             }
             auto persisted = persist_group_image<Group>([&]<typename MemberT>() {
@@ -1322,10 +1340,10 @@ prepare_transaction_persistence(std::tuple<States...>& states) noexcept
                 }
             });
             if (!persisted) {
-                result = fail(Error{.status = persisted.error(),
-                                    .reason = Reason::PersistenceFailed,
-                                    .operation = Operation::Transaction,
-                                    .group_id = Group::stable_id.raw()});
+                result = fail<Error>({.status = status_of(persisted.error()),
+                                      .reason = Reason::PersistenceFailed,
+                                      .operation = Operation::Transaction,
+                                      .group_id = Group::stable_id.raw()});
             }
         }
     });
@@ -1379,7 +1397,7 @@ dispatch_transaction_changes(std::tuple<TransactionState<ParameterTypes>...>& st
                 };
                 if (deferred) {
                     Facility::template change_state<ChangeT>.defer(change);
-                } else if (invoke_change<System, ChangeT>(change) != Status::Ok) {
+                } else if (!invoke_change<System, ChangeT>(change)) {
                     ++update.change_failures;
                 }
             }
@@ -1420,9 +1438,9 @@ set_all_parameters(std::tuple<Assignment<ParameterTypes>...> assignments,
         "transaction cannot imply atomic durability across independent immediate records");
 
     if (kernel::in_isr()) {
-        return fail(Error{.status = Status::Invalid,
-                          .reason = Reason::InvalidContext,
-                          .operation = Operation::Transaction});
+        return fail<Error>({.status = solar::Status::Invalid,
+                            .reason = Reason::InvalidContext,
+                            .operation = Operation::Transaction});
     }
     const auto system_state = lifecycle::Engine<System>::state();
     if (!Facility::ready.load(std::memory_order_acquire) ||
@@ -1431,37 +1449,38 @@ set_all_parameters(std::tuple<Assignment<ParameterTypes>...> assignments,
         system_state == lifecycle::SystemState::RollingBack ||
         system_state == lifecycle::SystemState::Stopped ||
         system_state == lifecycle::SystemState::Failed) {
-        return fail(Error{.status = Status::NotReady,
-                          .reason = Reason::NotReady,
-                          .operation = Operation::Transaction});
+        return fail<Error>({.status = solar::Status::NotReady,
+                            .reason = Reason::NotReady,
+                            .operation = Operation::Transaction});
     }
 
     std::tuple<TransactionState<ParameterTypes>...> states{};
     auto normalized = normalize_transaction<0, System>(assignments, states);
     if (!normalized) {
-        return fail(normalized.error());
+        return fail<Error>(normalized.error());
     }
 
     auto gate = kernel::unique_lock(Facility::write_gate, no_wait ? kernel::Timeout::no_wait()
                                                                   : kernel::Timeout::forever());
     if (!gate) {
-        return fail(Error{.status = gate.error(),
-                          .reason = gate.error() == Status::WouldBlock ? Reason::WouldBlock
-                                                                       : Reason::InternalInvariant,
-                          .operation = Operation::Transaction});
+        return fail<Error>({.status = status_of(gate.error()),
+                            .reason = status_of(gate.error()) == Status::WouldBlock
+                                          ? Reason::WouldBlock
+                                          : Reason::InternalInvariant,
+                            .operation = Operation::Transaction});
     }
     auto captured = capture_transaction<0, System>(states, no_wait);
     if (!captured) {
-        return fail(captured.error());
+        return fail<Error>(captured.error());
     }
     auto prepared = prepare_transaction_persistence<System>(states);
     if (!prepared) {
-        return fail(prepared.error());
+        return fail<Error>(prepared.error());
     }
     auto written = write_transaction_values<0, System>(states);
     if (!written) {
         restore_transaction_values<System>(states);
-        return fail(written.error());
+        return fail<Error>(written.error());
     }
     update_transaction_records<System>(states);
     mark_transaction_persistence<System>(states);
@@ -1475,7 +1494,8 @@ set_all_parameters(std::tuple<Assignment<ParameterTypes>...> assignments,
             for_each_type<TypeList<ParameterTypes...>>([&]<typename ParameterT> {
                 if constexpr (EffectiveDeferred<typename Facility::template Policies<
                                   ParameterT>::Persistence>::value) {
-                    Facility::template slot<ParameterT>.mark_schedule_failure(scheduled.error());
+                    Facility::template slot<ParameterT>.mark_schedule_failure(
+                        status_of(scheduled.error()));
                 }
             });
         }
@@ -1496,34 +1516,34 @@ template <typename System, typename ParameterT>
                   "SOLAR_DIAGNOSTIC_PARAMETER_SAVE_NOT_REGISTERED: saved parameter is absent "
                   "from the bound catalog");
     if constexpr (!Persistence::persistent) {
-        return fail(make_error<System, ParameterT>(Operation::Save, Status::NotSupported,
-                                                   Reason::PersistenceUnavailable));
+        return fail<Error>(make_error<System, ParameterT>(Operation::Save, Status::NotSupported,
+                                                          Reason::PersistenceUnavailable));
     }
     if (kernel::in_isr()) {
-        return fail(make_error<System, ParameterT>(Operation::Save, Status::Invalid,
-                                                   Reason::InvalidContext));
+        return fail<Error>(make_error<System, ParameterT>(Operation::Save, Status::Invalid,
+                                                          Reason::InvalidContext));
     }
     if (!Facility::ready.load(std::memory_order_acquire)) {
-        return fail(
+        return fail<Error>(
             make_error<System, ParameterT>(Operation::Save, Status::NotReady, Reason::NotReady));
     }
     if constexpr (Persistence::kind == PersistenceKind::Transactional) {
         using Group = typename Persistence::Group;
         auto persisted = persist_group_slot<typename Facility::Architecture, Group>(true, no_wait);
         if (!persisted) {
-            return fail(make_error<System, ParameterT>(Operation::Save, persisted.error(),
-                                                       persisted.error() == Status::WouldBlock
-                                                           ? Reason::WouldBlock
-                                                           : Reason::PersistenceFailed));
+            return fail<Error>(make_error<System, ParameterT>(
+                Operation::Save, status_of(persisted.error()),
+                status_of(persisted.error()) == Status::WouldBlock ? Reason::WouldBlock
+                                                                   : Reason::PersistenceFailed));
         }
     } else if constexpr (Persistence::persistent) {
         auto persisted =
             persist_parameter_slot<typename Facility::Architecture, ParameterT>(true, no_wait);
         if (!persisted) {
-            return fail(make_error<System, ParameterT>(Operation::Save, persisted.error(),
-                                                       persisted.error() == Status::WouldBlock
-                                                           ? Reason::WouldBlock
-                                                           : Reason::PersistenceFailed));
+            return fail<Error>(make_error<System, ParameterT>(
+                Operation::Save, status_of(persisted.error()),
+                status_of(persisted.error()) == Status::WouldBlock ? Reason::WouldBlock
+                                                                   : Reason::PersistenceFailed));
         }
     }
     return {};
@@ -1534,14 +1554,14 @@ template <typename System>
 {
     using Facility = typename System::ParameterFacility;
     if (kernel::in_isr()) {
-        return fail(Error{.status = Status::Invalid,
-                          .reason = Reason::InvalidContext,
-                          .operation = Operation::SaveAll});
+        return fail<Error>({.status = solar::Status::Invalid,
+                            .reason = Reason::InvalidContext,
+                            .operation = Operation::SaveAll});
     }
     if (!Facility::ready.load(std::memory_order_acquire)) {
-        return fail(Error{.status = Status::NotReady,
-                          .reason = Reason::NotReady,
-                          .operation = Operation::SaveAll});
+        return fail<Error>({.status = solar::Status::NotReady,
+                            .reason = Reason::NotReady,
+                            .operation = Operation::SaveAll});
     }
     PersistenceReport report{};
     std::optional<Error> first_error{};
@@ -1557,9 +1577,10 @@ template <typename System>
                 ++report.failed;
                 if (!first_error) {
                     first_error = make_error<System, ParameterT>(
-                        Operation::SaveAll, persisted.error(),
-                        persisted.error() == Status::WouldBlock ? Reason::WouldBlock
-                                                                : Reason::PersistenceFailed);
+                        Operation::SaveAll, status_of(persisted.error()),
+                        status_of(persisted.error()) == Status::WouldBlock
+                            ? Reason::WouldBlock
+                            : Reason::PersistenceFailed);
                 }
             } else if (*persisted) {
                 ++report.saved;
@@ -1574,8 +1595,8 @@ template <typename System>
         if (!persisted) {
             ++report.failed;
             if (!first_error) {
-                first_error = Error{.status = persisted.error(),
-                                    .reason = persisted.error() == Status::WouldBlock
+                first_error = Error{.status = status_of(persisted.error()),
+                                    .reason = status_of(persisted.error()) == Status::WouldBlock
                                                   ? Reason::WouldBlock
                                                   : Reason::PersistenceFailed,
                                     .operation = Operation::SaveAll,
@@ -1588,7 +1609,7 @@ template <typename System>
         }
     });
     if (first_error) {
-        return fail(*first_error);
+        return fail<Error>(*first_error);
     }
     return report;
 }
@@ -1601,37 +1622,37 @@ template <typename System>
         return PersistenceReport{};
     } else {
         if (kernel::in_isr()) {
-            return fail(Error{.status = Status::Invalid,
-                              .reason = Reason::InvalidContext,
-                              .operation = Operation::Flush});
+            return fail<Error>({.status = solar::Status::Invalid,
+                                .reason = Reason::InvalidContext,
+                                .operation = Operation::Flush});
         }
         if (!Facility::ready.load(std::memory_order_acquire)) {
-            return fail(Error{.status = Status::NotReady,
-                              .reason = Reason::NotReady,
-                              .operation = Operation::Flush});
+            return fail<Error>({.status = solar::Status::NotReady,
+                                .reason = Reason::NotReady,
+                                .operation = Operation::Flush});
         }
         auto cancelled =
             execution::detail::cancel_registration<System, typename Facility::DeferredRegistration>(
                 false);
         if (!cancelled && cancelled.error().status != Status::NotReady) {
-            return fail(Error{.status = cancelled.error().status,
-                              .reason = Reason::PersistenceUnavailable,
-                              .operation = Operation::Flush});
+            return fail<Error>({.status = cancelled.error().status,
+                                .reason = Reason::PersistenceUnavailable,
+                                .operation = Operation::Flush});
         }
         if (no_wait) {
             if (!execution::detail::registration_quiescent<
                     System, typename Facility::DeferredRegistration>()) {
-                return fail(Error{.status = Status::WouldBlock,
-                                  .reason = Reason::WouldBlock,
-                                  .operation = Operation::Flush});
+                return fail<Error>({.status = solar::Status::WouldBlock,
+                                    .reason = Reason::WouldBlock,
+                                    .operation = Operation::Flush});
             }
         } else {
             const auto deadline = kernel::Deadline::after(persistence_timeout);
             if (!execution::detail::wait_registration_quiescent<
                     System, typename Facility::DeferredRegistration>(deadline)) {
-                return fail(Error{.status = Status::Timeout,
-                                  .reason = Reason::PersistenceUnavailable,
-                                  .operation = Operation::Flush});
+                return fail<Error>({.status = solar::Status::Timeout,
+                                    .reason = Reason::PersistenceUnavailable,
+                                    .operation = Operation::Flush});
             }
         }
         PersistenceReport report{};
@@ -1648,9 +1669,10 @@ template <typename System>
                     ++report.failed;
                     if (!first_error) {
                         first_error = make_error<System, ParameterT>(
-                            Operation::Flush, persisted.error(),
-                            persisted.error() == Status::WouldBlock ? Reason::WouldBlock
-                                                                    : Reason::PersistenceFailed);
+                            Operation::Flush, status_of(persisted.error()),
+                            status_of(persisted.error()) == Status::WouldBlock
+                                ? Reason::WouldBlock
+                                : Reason::PersistenceFailed);
                     }
                 } else if (*persisted) {
                     ++report.saved;
@@ -1668,12 +1690,13 @@ template <typename System>
                 if (!persisted) {
                     ++report.failed;
                     if (!first_error) {
-                        first_error = Error{.status = persisted.error(),
-                                            .reason = persisted.error() == Status::WouldBlock
-                                                          ? Reason::WouldBlock
-                                                          : Reason::PersistenceFailed,
-                                            .operation = Operation::Flush,
-                                            .group_id = Group::stable_id.raw()};
+                        first_error =
+                            Error{.status = status_of(persisted.error()),
+                                  .reason = status_of(persisted.error()) == Status::WouldBlock
+                                                ? Reason::WouldBlock
+                                                : Reason::PersistenceFailed,
+                                  .operation = Operation::Flush,
+                                  .group_id = Group::stable_id.raw()};
                     }
                 } else if (*persisted) {
                     ++report.saved;
@@ -1683,7 +1706,7 @@ template <typename System>
             }
         });
         if (first_error) {
-            return fail(*first_error);
+            return fail<Error>(*first_error);
         }
         return report;
     }
@@ -1747,7 +1770,7 @@ template <typename Architecture> Result<void> Facility<Architecture>::stop() noe
                   std::is_same_v<PersistenceStopPolicy, stop::FlushDeferred>) {
         auto flushed = detail::persist_deferred_parameters<Architecture>(true);
         if (!flushed) {
-            return fail(flushed.error());
+            return fail<solar::Error>(flushed.error());
         }
     }
     return {};
@@ -1766,7 +1789,7 @@ template <typename Architecture> Result<void> Facility<Architecture>::run_deferr
 {
     auto persisted = detail::persist_deferred_parameters<Architecture>(false);
     if (!persisted) {
-        return fail(persisted.error());
+        return fail<solar::Error>(persisted.error());
     }
     return detail::schedule_next_deferred<Facility>();
 }
@@ -1776,18 +1799,18 @@ template <typename System>
 Result<void> Facility<Architecture>::activate_changes() noexcept
 {
     activating_changes.store(true, std::memory_order_release);
-    Status status = Status::Ok;
+    Result<void> result{};
     for_each_type<ChangeTypes>([&]<typename ChangeT> {
         auto pending = change_state<ChangeT>.take_pending();
         if (pending && !(pending->old_value == pending->new_value)) {
-            const auto current = detail::invoke_change<System, ChangeT>(*pending);
-            if (status == Status::Ok && current != Status::Ok) {
-                status = current;
+            auto current = detail::invoke_change<System, ChangeT>(*pending);
+            if (result && !current) {
+                result = fail<solar::Error>(current.error());
             }
         }
     });
     activating_changes.store(false, std::memory_order_release);
-    return status == Status::Ok ? Result<void>{} : Result<void>{fail(status)};
+    return result;
 }
 
 template <typename Architecture>
@@ -1798,7 +1821,9 @@ void Facility<Architecture>::activate_runtime() noexcept
         schedule_persistence = +[](std::chrono::nanoseconds delay) noexcept -> Result<void> {
             auto scheduled =
                 execution::detail::schedule_registration<System, DeferredRegistration>(delay, true);
-            return scheduled ? Result<void>{} : Result<void>{fail(scheduled.error().status)};
+            return scheduled
+                       ? Result<void>{}
+                       : Result<void>{fail<solar::Error>({.status = scheduled.error().status})};
         };
         persistence_active.store(true, std::memory_order_release);
         (void)detail::schedule_deferred_persistence<System>();
@@ -1815,7 +1840,7 @@ namespace solar::parameters::detail
 [[nodiscard]] constexpr Error disabled_error(Operation operation) noexcept
 {
     return {
-        .status = Status::NotSupported,
+        .status = solar::Status::NotSupported,
         .reason = Reason::Disabled,
         .operation = operation,
     };
@@ -1824,20 +1849,20 @@ namespace solar::parameters::detail
 template <typename System, typename ParameterT>
 [[nodiscard]] Result<typename ParameterT::Value, Error> read_parameter(bool) noexcept
 {
-    return fail(disabled_error(Operation::Get));
+    return fail<Error>(disabled_error(Operation::Get));
 }
 
 template <typename System, typename ParameterT>
 [[nodiscard]] Result<Update<ParameterT>, Error> set_parameter(typename ParameterT::Value, bool,
                                                               UpdateOrigin, bool) noexcept
 {
-    return fail(disabled_error(Operation::Set));
+    return fail<Error>(disabled_error(Operation::Set));
 }
 
 template <typename System, typename ParameterT>
 [[nodiscard]] Result<ParameterRecord<ParameterT>, Error> parameter_record() noexcept
 {
-    return fail(disabled_error(Operation::Query));
+    return fail<Error>(disabled_error(Operation::Query));
 }
 
 template <typename Observer, typename ParameterT, typename RouteTag, typename Changes>
@@ -1858,32 +1883,32 @@ template <typename System, typename ChangeT> [[nodiscard]] ChangeRecord change_r
 template <typename System, typename... ParametersT>
 [[nodiscard]] Result<Snapshot<ParametersT...>, Error> snapshot_parameters(bool) noexcept
 {
-    return fail(disabled_error(Operation::Snapshot));
+    return fail<Error>(disabled_error(Operation::Snapshot));
 }
 
 template <typename System, typename... ParameterTypes>
 [[nodiscard]] Result<TransactionUpdate, Error>
 set_all_parameters(std::tuple<Assignment<ParameterTypes>...>, bool = false) noexcept
 {
-    return fail(disabled_error(Operation::Transaction));
+    return fail<Error>(disabled_error(Operation::Transaction));
 }
 
 template <typename System, typename ParameterT>
 [[nodiscard]] Result<void, Error> save_parameter(bool) noexcept
 {
-    return fail(disabled_error(Operation::Save));
+    return fail<Error>(disabled_error(Operation::Save));
 }
 
 template <typename System>
 [[nodiscard]] Result<PersistenceReport, Error> save_all_parameters(bool) noexcept
 {
-    return fail(disabled_error(Operation::SaveAll));
+    return fail<Error>(disabled_error(Operation::SaveAll));
 }
 
 template <typename System>
 [[nodiscard]] Result<PersistenceReport, Error> flush_parameters(bool) noexcept
 {
-    return fail(disabled_error(Operation::Flush));
+    return fail<Error>(disabled_error(Operation::Flush));
 }
 
 } // namespace solar::parameters::detail

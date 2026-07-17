@@ -104,6 +104,36 @@ enum class Reason : std::uint8_t
     InternalInvariant,
 };
 
+[[nodiscard]] constexpr Status status_of(Reason reason) noexcept
+{
+    switch (reason) {
+    case Reason::None:
+        return Status::Error;
+    case Reason::NotReady:
+    case Reason::Closed:
+        return Status::NotReady;
+    case Reason::Disabled:
+    case Reason::UnsupportedView:
+    case Reason::ResetForbidden:
+        return Status::NotSupported;
+    case Reason::NotRegistered:
+        return Status::NotFound;
+    case Reason::WouldBlock:
+        return Status::WouldBlock;
+    case Reason::InvalidContext:
+    case Reason::InvalidNumeric:
+        return Status::Invalid;
+    case Reason::Overflow:
+    case Reason::ConversionOverflow:
+        return Status::Overflow;
+    case Reason::ReducerFailure:
+    case Reason::ClockFailure:
+    case Reason::InternalInvariant:
+        return Status::Error;
+    }
+    return Status::Error;
+}
+
 struct Error
 {
     Status status{Status::Error};

@@ -31,8 +31,7 @@ void latch_fatal(unsigned int native_reason) noexcept
         const FatalError error{
             .reason = normalize_fatal_reason(native_reason),
             .native_reason = native_reason,
-            .trigger_status =
-                static_cast<Status>(requested_status.load(std::memory_order_acquire)),
+            .trigger_status = static_cast<Status>(requested_status.load(std::memory_order_acquire)),
         };
         observer(error);
     }
@@ -40,23 +39,23 @@ void latch_fatal(unsigned int native_reason) noexcept
 
 } // namespace detail
 
-Status install_fatal_observer(FatalObserver observer) noexcept
+Result<void> install_fatal_observer(FatalObserver observer) noexcept
 {
     if (observer == nullptr) {
-        return Status::Invalid;
+        return fail<Error>({.status = Status::Invalid});
     }
     FatalObserver expected = nullptr;
     if (fatal_observer.compare_exchange_strong(expected, observer, std::memory_order_acq_rel)) {
-        return Status::Ok;
+        return {};
     }
-    return expected == observer ? Status::Already : Status::Busy;
+    return fail<Error>({.status = expected == observer ? Status::Already : Status::Busy});
 }
 
 Result<FatalError> fatal_reason() noexcept
 {
     const auto native = latched_native_reason.load(std::memory_order_acquire);
     if (native == no_fatal_reason) {
-        return fail(Status::NotReady);
+        return fail<solar::Error>({.status = solar::Status::NotReady});
     }
     return FatalError{
         .reason = normalize_fatal_reason(native),

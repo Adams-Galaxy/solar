@@ -70,19 +70,19 @@ namespace detail
 {
     switch (native_error) {
     case -EBUSY:
-        return {.status = Status::Busy,
+        return {.status = solar::Status::Busy,
                 .reason = WorkErrorReason::Busy,
                 .native_error = native_error};
     case -EINVAL:
-        return {.status = Status::Invalid,
+        return {.status = solar::Status::Invalid,
                 .reason = WorkErrorReason::InvalidQueue,
                 .native_error = native_error};
     case -ENODEV:
-        return {.status = Status::NotReady,
+        return {.status = solar::Status::NotReady,
                 .reason = WorkErrorReason::QueueNotStarted,
                 .native_error = native_error};
     case -EADDRINUSE:
-        return {.status = Status::Already,
+        return {.status = solar::Status::Already,
                 .reason = WorkErrorReason::DifferentQueue,
                 .native_error = native_error};
     default:
@@ -102,29 +102,28 @@ namespace detail
     case 2:
         return WorkSubmission::RequeuedAfterCurrent;
     default:
-        return fail(work_error(result));
+        return fail<WorkError>(work_error(result));
     }
 }
 
 [[nodiscard]] constexpr WorkError invalid_work_context() noexcept
 {
-    return {.status = Status::Invalid,
+    return {.status = solar::Status::Invalid,
             .reason = WorkErrorReason::InvalidContext,
             .native_error = 0};
 }
 
 [[nodiscard]] constexpr WorkError invalid_work_events() noexcept
 {
-    return {.status = Status::Invalid,
+    return {.status = solar::Status::Invalid,
             .reason = WorkErrorReason::InvalidEvents,
             .native_error = 0};
 }
 
 [[nodiscard]] constexpr WorkError work_deadlock() noexcept
 {
-    return {.status = Status::Deadlock,
-            .reason = WorkErrorReason::Deadlock,
-            .native_error = 0};
+    return {
+        .status = solar::Status::Deadlock, .reason = WorkErrorReason::Deadlock, .native_error = 0};
 }
 
 template <typename Target>
@@ -171,8 +170,7 @@ class Work
     }
 
     template <detail::WorkTarget Target>
-    [[nodiscard]] Result<WorkSubmission, WorkError>
-    try_submit_isr(const Target& target) noexcept
+    [[nodiscard]] Result<WorkSubmission, WorkError> try_submit_isr(const Target& target) noexcept
     {
         return submit(target);
     }
@@ -190,10 +188,10 @@ class Work
     [[nodiscard]] Result<bool, WorkError> cancel_sync() noexcept
     {
         if (in_isr()) {
-            return fail(detail::invalid_work_context());
+            return fail<WorkError>(detail::invalid_work_context());
         }
         if (running_on_current_thread()) {
-            return fail(detail::work_deadlock());
+            return fail<WorkError>(detail::work_deadlock());
         }
         k_work_sync sync{};
         return k_work_cancel_sync(&work_, &sync);
@@ -202,10 +200,10 @@ class Work
     [[nodiscard]] Result<bool, WorkError> flush() noexcept
     {
         if (in_isr()) {
-            return fail(detail::invalid_work_context());
+            return fail<WorkError>(detail::invalid_work_context());
         }
         if (running_on_current_thread()) {
-            return fail(detail::work_deadlock());
+            return fail<WorkError>(detail::work_deadlock());
         }
         k_work_sync sync{};
         return k_work_flush(&work_, &sync);
@@ -287,7 +285,7 @@ class DelayableWork
 
     template <detail::WorkTarget Target>
     [[nodiscard]] Result<WorkSubmission, WorkError> schedule(const Target& target,
-                                                              Timeout delay) noexcept
+                                                             Timeout delay) noexcept
     {
         return detail::work_submission(
             k_work_schedule_for_queue(target.native_handle(), &work_, delay.native_handle()));
@@ -315,7 +313,7 @@ class DelayableWork
 
     template <detail::WorkTarget Target>
     [[nodiscard]] Result<WorkSubmission, WorkError> reschedule(const Target& target,
-                                                                Timeout delay) noexcept
+                                                               Timeout delay) noexcept
     {
         return detail::work_submission(
             k_work_reschedule_for_queue(target.native_handle(), &work_, delay.native_handle()));
@@ -341,10 +339,10 @@ class DelayableWork
     [[nodiscard]] Result<bool, WorkError> cancel_sync() noexcept
     {
         if (in_isr()) {
-            return fail(detail::invalid_work_context());
+            return fail<WorkError>(detail::invalid_work_context());
         }
         if (running_on_current_thread()) {
-            return fail(detail::work_deadlock());
+            return fail<WorkError>(detail::work_deadlock());
         }
         k_work_sync sync{};
         return k_work_cancel_delayable_sync(&work_, &sync);
@@ -353,10 +351,10 @@ class DelayableWork
     [[nodiscard]] Result<bool, WorkError> flush() noexcept
     {
         if (in_isr()) {
-            return fail(detail::invalid_work_context());
+            return fail<WorkError>(detail::invalid_work_context());
         }
         if (running_on_current_thread()) {
-            return fail(detail::work_deadlock());
+            return fail<WorkError>(detail::work_deadlock());
         }
         k_work_sync sync{};
         return k_work_flush_delayable(&work_, &sync);

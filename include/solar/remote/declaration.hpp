@@ -354,7 +354,7 @@ template <typename T> struct ActionResponse<T, std::void_t<typename T::Response>
 };
 template <typename T, typename = void> struct ActionError
 {
-    using type = Status;
+    using type = solar::Error;
 };
 template <typename T> struct ActionError<T, std::void_t<typename T::Error>>
 {
@@ -442,7 +442,7 @@ template <typename ActionT> class Responder
     [[nodiscard]] Result<void> complete(Response response) noexcept
     {
         if (!active_ || success_ == nullptr) {
-            return fail(Status::NotReady);
+            return fail<solar::Error>({.status = solar::Status::NotReady});
         }
         active_ = false;
         return success_(token_, std::move(response));
@@ -457,7 +457,7 @@ template <typename ActionT> class Responder
     [[nodiscard]] Result<void> reject(Error error) noexcept
     {
         if (!active_ || failure_ == nullptr) {
-            return fail(Status::NotReady);
+            return fail<solar::Error>({.status = solar::Status::NotReady});
         }
         active_ = false;
         return failure_(token_, std::move(error));
@@ -558,6 +558,15 @@ template <> struct Schema<Status>
     static constexpr std::size_t max_encoded_size = 2;
     static constexpr Codec codec = Codec::Cbor;
     static constexpr SchemaShape shape = SchemaShape::StatusCode;
+};
+
+template <> struct Schema<solar::Error>
+{
+    static constexpr SchemaDescriptor descriptor{.id = TypeId{3}, .name = "solar.Error"};
+    using Fields = remote::Fields<remote::Field<1, &solar::Error::status>,
+                                  remote::Field<2, &solar::Error::native>>;
+    static constexpr std::size_t max_encoded_size = 16;
+    static constexpr Codec codec = Codec::Cbor;
 };
 
 } // namespace solar::remote

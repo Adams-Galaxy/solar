@@ -140,9 +140,9 @@ inline Result<Record, Error> CompactHistory::latest() const noexcept
         offset += total;
     }
     if (!found) {
-        return fail(Error{.status = Status::NotFound,
-                          .reason = Reason::HistoryEmpty,
-                          .operation = Operation::Query});
+        return fail<Error>({.status = solar::Status::NotFound,
+                            .reason = Reason::HistoryEmpty,
+                            .operation = Operation::Query});
     }
     return *found;
 }
@@ -180,8 +180,8 @@ template <typename Routes> [[nodiscard]] bool any_runtime_route_accepts(Level le
 {
     bool accepted{};
     for_each_route<Routes>([&]<typename Route> {
-        const auto minimum = static_cast<Level>(
-            RouteRuntime<Route>::minimum.load(std::memory_order_acquire));
+        const auto minimum =
+            static_cast<Level>(RouteRuntime<Route>::minimum.load(std::memory_order_acquire));
         accepted = accepted || at_least(level, minimum);
     });
     return accepted;
@@ -217,14 +217,12 @@ template <typename System> struct RuntimeFilters
 
     [[nodiscard]] static bool accepts(SourceId source, DomainId domain, Level level) noexcept
     {
-        if (source.valid() &&
-            !at_least(level, static_cast<Level>(
-                                 sources[source.index()].load(std::memory_order_acquire)))) {
+        if (source.valid() && !at_least(level, static_cast<Level>(sources[source.index()].load(
+                                                   std::memory_order_acquire)))) {
             return false;
         }
-        return !domain.valid() ||
-               at_least(level, static_cast<Level>(
-                                   domains[domain.index()].load(std::memory_order_acquire)));
+        return !domain.valid() || at_least(level, static_cast<Level>(domains[domain.index()].load(
+                                                      std::memory_order_acquire)));
     }
 };
 
@@ -277,19 +275,19 @@ template <typename System>
 
     if (!Facility::ready.load(std::memory_order_acquire) ||
         !Facility::accepting.load(std::memory_order_acquire)) {
-        return fail(Error{.status = Status::NotReady,
-                          .reason = Reason::CaptureClosed,
-                          .operation = operation,
-                          .source = source,
-                          .level = request.level});
+        return fail<Error>({.status = solar::Status::NotReady,
+                            .reason = Reason::CaptureClosed,
+                            .operation = operation,
+                            .source = source,
+                            .level = request.level});
     }
     const bool isr = kernel::in_isr();
     if ((operation == Operation::IsrCapture) != isr) {
-        return fail(Error{.status = Status::Invalid,
-                          .reason = Reason::InvalidContext,
-                          .operation = operation,
-                          .source = source,
-                          .level = request.level});
+        return fail<Error>({.status = solar::Status::Invalid,
+                            .reason = Reason::InvalidContext,
+                            .operation = operation,
+                            .source = source,
+                            .level = request.level});
     }
     if (!any_runtime_route_accepts<typename Facility::Routes>(request.level) ||
         !RuntimeFilters<System>::accepts(source, domain, request.level)) {
@@ -303,11 +301,11 @@ template <typename System>
         return Receipt{.disposition = Disposition::RuntimeFiltered};
     }
     if (sizeof(RecordHeader) + request.payload_size > CONFIG_SOLAR_LOG_MAX_RECORD_BYTES) {
-        return fail(Error{.status = Status::MessageTooLarge,
-                          .reason = Reason::RecordTooLarge,
-                          .operation = operation,
-                          .source = source,
-                          .level = request.level});
+        return fail<Error>({.status = solar::Status::MessageTooLarge,
+                            .reason = Reason::RecordTooLarge,
+                            .operation = operation,
+                            .source = source,
+                            .level = request.level});
     }
 
     std::optional<kernel::SpinLock::Guard> guard{};
@@ -316,11 +314,11 @@ template <typename System>
     } else {
         auto attempted = Facility::lock.try_acquire();
         if (!attempted) {
-            return fail(Error{.status = Status::WouldBlock,
-                              .reason = Reason::Contended,
-                              .operation = operation,
-                              .source = source,
-                              .level = request.level});
+            return fail<Error>({.status = solar::Status::WouldBlock,
+                                .reason = Reason::Contended,
+                                .operation = operation,
+                                .source = source,
+                                .level = request.level});
         }
         guard.emplace(std::move(*attempted));
     }
@@ -359,8 +357,7 @@ template <typename System>
         emergency ? std::size_t{CONFIG_SOLAR_LOG_INGRESS_BYTES}
         : elevated
             ? std::size_t{CONFIG_SOLAR_LOG_INGRESS_BYTES - CONFIG_SOLAR_LOG_EMERGENCY_BYTES}
-            : std::size_t{CONFIG_SOLAR_LOG_INGRESS_BYTES -
-                          CONFIG_SOLAR_LOG_ELEVATED_RESERVE_BYTES -
+            : std::size_t{CONFIG_SOLAR_LOG_INGRESS_BYTES - CONFIG_SOLAR_LOG_ELEVATED_RESERVE_BYTES -
                           CONFIG_SOLAR_LOG_EMERGENCY_BYTES};
     if (!Facility::ingress.push(std::span<const std::byte>{encoded}.first(encoded_size),
                                 admission_limit)) {
@@ -373,11 +370,11 @@ template <typename System>
             source_record.last_status = Status::NoBuffer;
             source_record.last_failure_at = timestamp;
         }
-        return fail(Error{.status = Status::NoBuffer,
-                          .reason = Reason::CapacityExhausted,
-                          .operation = operation,
-                          .source = source,
-                          .level = request.level});
+        return fail<Error>({.status = solar::Status::NoBuffer,
+                            .reason = Reason::CapacityExhausted,
+                            .operation = operation,
+                            .source = source,
+                            .level = request.level});
     }
     ++Facility::record.next_sequence;
     ++Facility::record.captured;
@@ -393,7 +390,7 @@ template <typename System>
     guard.reset();
     (void)request_processing<Facility>(isr);
     return Receipt{
-        .disposition = emergency   ? Disposition::Emergency
+        .disposition = emergency  ? Disposition::Emergency
                        : elevated ? Disposition::Elevated
                                   : Disposition::Captured,
         .sequence = header.sequence,
@@ -410,11 +407,11 @@ template <typename System, typename SourceT>
     constexpr auto source = System::LogSourceCatalog::template Entry<SourceT>::local_id;
     const auto domain = resolve_domain<System>(request.domain_token);
     if (!domain) {
-        return fail(Error{.status = Status::NotFound,
-                          .reason = Reason::NotRegistered,
-                          .operation = operation,
-                          .source = source,
-                          .level = request.level});
+        return fail<Error>({.status = solar::Status::NotFound,
+                            .reason = Reason::NotRegistered,
+                            .operation = operation,
+                            .source = source,
+                            .level = request.level});
     }
     return capture_resolved<System>(request, operation, source, *domain);
 }
@@ -447,60 +444,59 @@ inline int cbprintf_out(int character, void* context)
         const auto size = std::min(record.payload.size(), output.size());
         std::memcpy(output.data(), record.payload.data(), size);
         if (size != record.payload.size()) {
-            return fail(Error{.status = Status::MessageTooLarge,
-                              .reason = Reason::RecordTooLarge,
-                              .operation = Operation::Render});
+            return fail<Error>({.status = solar::Status::MessageTooLarge,
+                                .reason = Reason::RecordTooLarge,
+                                .operation = Operation::Render});
         }
         return size;
     }
     case Encoding::ZephyrCbprintf: {
         if (record.payload.size() < sizeof(PlatformPayloadHeader)) {
-            return fail(Error{.status = Status::ProtocolError,
-                              .reason = Reason::InternalInvariant,
-                              .operation = Operation::Render});
+            return fail<Error>({.status = solar::Status::ProtocolError,
+                                .reason = Reason::InternalInvariant,
+                                .operation = Operation::Render});
         }
         PlatformPayloadHeader platform{};
         std::memcpy(&platform, record.payload.data(), sizeof(platform));
         if (sizeof(platform) + platform.package_size + platform.data_size > record.payload.size()) {
-            return fail(Error{.status = Status::ProtocolError,
-                              .reason = Reason::InternalInvariant,
-                              .operation = Operation::Render});
+            return fail<Error>({.status = solar::Status::ProtocolError,
+                                .reason = Reason::InternalInvariant,
+                                .operation = Operation::Render});
         }
         if (platform.package_size == 0) {
             constexpr std::string_view label{"<hexdump>"};
             if (label.size() > output.size()) {
-                return fail(Error{.status = Status::MessageTooLarge,
-                                  .reason = Reason::RecordTooLarge,
-                                  .operation = Operation::Render});
+                return fail<Error>({.status = solar::Status::MessageTooLarge,
+                                    .reason = Reason::RecordTooLarge,
+                                    .operation = Operation::Render});
             }
             std::memcpy(output.data(), label.data(), label.size());
             return label.size();
         }
         CbprintfOutput state{.output = output};
-        const auto result = cbpprintf(reinterpret_cast<cbprintf_cb>(cbprintf_out), &state,
-                                      const_cast<std::byte*>(record.payload.data() +
-                                                             sizeof(platform)));
+        const auto result =
+            cbpprintf(reinterpret_cast<cbprintf_cb>(cbprintf_out), &state,
+                      const_cast<std::byte*>(record.payload.data() + sizeof(platform)));
         if (result < 0 || state.truncated) {
-            return fail(Error{.status = state.truncated ? Status::MessageTooLarge
-                                                        : Status::ProtocolError,
-                              .reason = state.truncated ? Reason::RecordTooLarge
-                                                        : Reason::InternalInvariant,
-                              .operation = Operation::Render});
+            return fail<Error>(
+                {.status = state.truncated ? Status::MessageTooLarge : Status::ProtocolError,
+                 .reason = state.truncated ? Reason::RecordTooLarge : Reason::InternalInvariant,
+                 .operation = Operation::Render});
         }
         return state.size;
     }
     case Encoding::Hexdump:
         if (record.payload.size() < sizeof(HexdumpPayloadHeader)) {
-            return fail(Error{.status = Status::ProtocolError,
-                              .reason = Reason::InternalInvariant,
-                              .operation = Operation::Render});
+            return fail<Error>({.status = solar::Status::ProtocolError,
+                                .reason = Reason::InternalInvariant,
+                                .operation = Operation::Render});
         } else {
             HexdumpPayloadHeader header{};
             std::memcpy(&header, record.payload.data(), sizeof(header));
             if (sizeof(header) + header.label_size + header.data_size > record.payload.size()) {
-                return fail(Error{.status = Status::ProtocolError,
-                                  .reason = Reason::InternalInvariant,
-                                  .operation = Operation::Render});
+                return fail<Error>({.status = solar::Status::ProtocolError,
+                                    .reason = Reason::InternalInvariant,
+                                    .operation = Operation::Render});
             }
             TextWriter writer{output};
             writer.append({reinterpret_cast<const char*>(record.payload.data() + sizeof(header)),
@@ -519,28 +515,27 @@ inline int cbprintf_out(int character, void* context)
                 writer.append(digits[value & 0x0FU]);
             }
             if (writer.truncated()) {
-                return fail(Error{.status = Status::MessageTooLarge,
-                                  .reason = Reason::RecordTooLarge,
-                                  .operation = Operation::Render});
+                return fail<Error>({.status = solar::Status::MessageTooLarge,
+                                    .reason = Reason::RecordTooLarge,
+                                    .operation = Operation::Render});
             }
             return writer.size();
         }
     }
-    return fail(Error{.status = Status::ProtocolError,
-                      .reason = Reason::InternalInvariant,
-                      .operation = Operation::Render});
+    return fail<Error>({.status = solar::Status::ProtocolError,
+                        .reason = Reason::InternalInvariant,
+                        .operation = Operation::Render});
 }
 
-template <typename Sink>
-[[nodiscard]] Result<void> initialize_sink() noexcept
+template <typename Sink> [[nodiscard]] Result<void> initialize_sink() noexcept
 {
     if constexpr (requires { Sink::init(); }) {
         auto result = Sink::init();
-        if constexpr (std::is_same_v<decltype(result), Status>) {
-            return ok(result) ? Result<void>{} : Result<void>{fail(result)};
-        } else {
-            return result;
-        }
+        static_assert(VoidResult<decltype(result)>,
+                      "SOLAR_DIAGNOSTIC_LOG_SINK_INIT: sink init must return "
+                      "Result<void, ErrorType>");
+        return result ? Result<void>{}
+                      : Result<void>{fail<solar::Error>({.status = status_of(result.error())})};
     }
     return {};
 }
@@ -550,32 +545,27 @@ template <typename Sink>
 {
     if constexpr (requires { Sink::consume(record, rendered); }) {
         auto result = Sink::consume(record, rendered);
-        if constexpr (std::is_same_v<decltype(result), Status>) {
-            return ok(result) ? Result<void>{} : Result<void>{fail(result)};
-        } else {
-            return result;
-        }
+        static_assert(VoidResult<decltype(result)>);
+        return result ? Result<void>{}
+                      : Result<void>{fail<solar::Error>({.status = status_of(result.error())})};
     } else if constexpr (requires { Sink::consume(record); }) {
         auto result = Sink::consume(record);
-        if constexpr (std::is_same_v<decltype(result), Status>) {
-            return ok(result) ? Result<void>{} : Result<void>{fail(result)};
-        } else {
-            return result;
-        }
+        static_assert(VoidResult<decltype(result)>);
+        return result ? Result<void>{}
+                      : Result<void>{fail<solar::Error>({.status = status_of(result.error())})};
     } else if constexpr (requires { Sink::write(rendered); }) {
         auto result = Sink::write(rendered);
-        if constexpr (std::is_same_v<decltype(result), Status>) {
-            return ok(result) ? Result<void>{} : Result<void>{fail(result)};
-        } else {
-            return result;
-        }
+        static_assert(VoidResult<decltype(result)>);
+        return result ? Result<void>{}
+                      : Result<void>{fail<solar::Error>({.status = status_of(result.error())})};
     } else {
         static_assert(solar::detail::dependent_false_v<Sink>,
                       "SOLAR_DIAGNOSTIC_LOG_SINK_CONCEPT: sink requires static consume or write");
     }
 }
 
-template <typename System> [[nodiscard]] Result<void> process_one(const StoredRecord& stored) noexcept
+template <typename System>
+[[nodiscard]] Result<void> process_one(const StoredRecord& stored) noexcept
 {
     using Facility = typename System::LogFacility;
     const auto record = stored.view();
@@ -584,8 +574,8 @@ template <typename System> [[nodiscard]] Result<void> process_one(const StoredRe
     std::optional<std::size_t> rendered_size{};
 
     for_each_route<typename Facility::Routes>([&]<typename Route> {
-        const auto route_minimum = static_cast<Level>(
-            RouteRuntime<Route>::minimum.load(std::memory_order_acquire));
+        const auto route_minimum =
+            static_cast<Level>(RouteRuntime<Route>::minimum.load(std::memory_order_acquire));
         if (!at_least(record.header.level, route_minimum)) {
             auto guard = Facility::lock.acquire();
             ++RouteRuntime<Route>::record.filtered;
@@ -608,24 +598,23 @@ template <typename System> [[nodiscard]] Result<void> process_one(const StoredRe
                 if (!rendered_size) {
                     auto rendering = render_message(record, rendered);
                     if (!rendering) {
-                        result = fail(rendering.error().status);
+                        result = fail<solar::Error>({.status = status_of(rendering.error())});
                         return;
                     }
                     rendered_size = *rendering;
                 }
             }
-            auto consumed = consume_sink<Sink>(record,
-                                               route_traits<Route>::encoded
-                                                   ? std::string_view{}
-                                                   : std::string_view{rendered.data(),
-                                                                      *rendered_size});
+            auto consumed =
+                consume_sink<Sink>(record, route_traits<Route>::encoded
+                                               ? std::string_view{}
+                                               : std::string_view{rendered.data(), *rendered_size});
             if (!consumed) {
                 result = consumed;
                 auto guard = Facility::lock.acquire();
                 ++Facility::record.sink_failures;
-                Facility::record.last_status = consumed.error();
+                Facility::record.last_status = status_of(consumed.error());
                 ++RouteRuntime<Route>::record.failed;
-                RouteRuntime<Route>::record.last_status = consumed.error();
+                RouteRuntime<Route>::record.last_status = status_of(consumed.error());
             } else {
                 auto guard = Facility::lock.acquire();
                 ++RouteRuntime<Route>::record.accepted;
@@ -656,13 +645,13 @@ template <typename Facility> [[nodiscard]] Result<void> drain() noexcept
             Facility::record.ingress_used = Facility::ingress.used();
         }
         if (size < sizeof(RecordHeader)) {
-            result = fail(Status::ProtocolError);
+            result = fail<solar::Error>({.status = solar::Status::ProtocolError});
             continue;
         }
         StoredRecord stored{};
         std::memcpy(&stored.header, encoded.data(), sizeof(stored.header));
         if (sizeof(stored.header) + stored.header.payload_size != size) {
-            result = fail(Status::ProtocolError);
+            result = fail<solar::Error>({.status = solar::Status::ProtocolError});
             continue;
         }
         std::memcpy(stored.payload.data(), encoded.data() + sizeof(stored.header),
@@ -715,31 +704,34 @@ void Facility<Architecture>::activate_runtime() noexcept
     schedule_processor = [](bool from_isr) noexcept -> Result<void> {
         auto submitted =
             execution::detail::submit_registration<System, ProcessorRegistration>(from_isr);
-        return submitted ? Result<void>{} : Result<void>{fail(submitted.error().status)};
+        return submitted ? Result<void>{}
+                         : Result<void>{fail<solar::Error>({.status = submitted.error().status})};
     };
     process_record = [](const detail::StoredRecord& stored) noexcept -> Result<void> {
         return detail::process_one<System>(stored);
     };
     platform::install({
-        .capture = [](const platform::Record& platform_record) noexcept {
-            auto request = platform_record.request;
-            request.platform_source = platform_record.source;
-            request.platform_domain = platform_record.domain;
-            const auto operation = request.context == ContextKind::Isr ? Operation::IsrCapture
-                                                                        : Operation::TryCapture;
-            auto captured = detail::capture_resolved<System>(
-                request, operation, SourceId{},
-                System::LogDomainCatalog::template Entry<domain::Unclassified>::local_id);
-            (void)captured;
-        },
-        .panic = []() noexcept {
-            panic_mode.store(true, std::memory_order_release);
-            {
-                auto guard = lock.acquire();
-                record.panic = true;
-            }
-            (void)flush();
-        },
+        .capture =
+            [](const platform::Record& platform_record) noexcept {
+                auto request = platform_record.request;
+                request.platform_source = platform_record.source;
+                request.platform_domain = platform_record.domain;
+                const auto operation = request.context == ContextKind::Isr ? Operation::IsrCapture
+                                                                           : Operation::TryCapture;
+                auto captured = detail::capture_resolved<System>(
+                    request, operation, SourceId{},
+                    System::LogDomainCatalog::template Entry<domain::Unclassified>::local_id);
+                (void)captured;
+            },
+        .panic =
+            []() noexcept {
+                panic_mode.store(true, std::memory_order_release);
+                {
+                    auto guard = lock.acquire();
+                    record.panic = true;
+                }
+                (void)flush();
+            },
     });
     (void)detail::request_processing<Facility>(false);
 }

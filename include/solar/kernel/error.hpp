@@ -8,27 +8,30 @@
 namespace solar::kernel::detail
 {
 
-[[nodiscard]] constexpr Status map_native(int result) noexcept
-{
-    return result == 0 ? Status::Ok : status_from_errno(result);
-}
-
-[[nodiscard]] constexpr Status map_wait(int result, Timeout timeout,
-                                        Status immediate_status) noexcept
+[[nodiscard]] constexpr Result<void> map_native(int result) noexcept
 {
     if (result == 0) {
-        return Status::Ok;
+        return {};
+    }
+    return fail<Error>(error_from_errno(result));
+}
+
+[[nodiscard]] constexpr Result<void> map_wait(int result, Timeout timeout,
+                                              Status immediate_status) noexcept
+{
+    if (result == 0) {
+        return {};
     }
     if (timeout.is_no_wait() && (result == -EAGAIN || result == -EBUSY || result == -ENOMSG)) {
-        return immediate_status;
+        return fail<Error>({.status = immediate_status, .native = result});
     }
     if (result == -EAGAIN) {
-        return Status::Timeout;
+        return fail<Error>({.status = Status::Timeout, .native = result});
     }
     if (result == -ENOMSG) {
-        return Status::Cancelled;
+        return fail<Error>({.status = Status::Cancelled, .native = result});
     }
-    return status_from_errno(result);
+    return fail<Error>(error_from_errno(result));
 }
 
 } // namespace solar::kernel::detail

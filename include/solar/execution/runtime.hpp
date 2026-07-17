@@ -159,14 +159,8 @@ concept BehaviorVoid = requires {
 };
 
 template <typename Behavior>
-concept BehaviorStatus = requires {
-    { Behavior::execute() } -> std::same_as<Status>;
-};
-
-template <typename Behavior>
-concept BehaviorResult = requires {
-    { Behavior::execute() } -> std::same_as<Result<void>>;
-};
+concept BehaviorResult =
+    requires { Behavior::execute(); } && VoidResult<decltype(Behavior::execute())>;
 
 template <typename Behavior>
 concept TokenBehaviorVoid = requires(StopToken token) {
@@ -174,43 +168,34 @@ concept TokenBehaviorVoid = requires(StopToken token) {
 };
 
 template <typename Behavior>
-concept TokenBehaviorStatus = requires(StopToken token) {
-    { Behavior::execute(token) } -> std::same_as<Status>;
-};
+concept TokenBehaviorResult = requires(StopToken token) { Behavior::execute(token); } &&
+                              VoidResult<decltype(Behavior::execute(std::declval<StopToken>()))>;
 
 template <typename Behavior>
-concept TokenBehaviorResult = requires(StopToken token) {
-    { Behavior::execute(token) } -> std::same_as<Result<void>>;
-};
-
-template <typename Behavior>
-concept ValidBehavior =
-    BehaviorVoid<Behavior> || BehaviorStatus<Behavior> || BehaviorResult<Behavior> ||
-    TokenBehaviorVoid<Behavior> || TokenBehaviorStatus<Behavior> || TokenBehaviorResult<Behavior>;
+concept ValidBehavior = BehaviorVoid<Behavior> || BehaviorResult<Behavior> ||
+                        TokenBehaviorVoid<Behavior> || TokenBehaviorResult<Behavior>;
 
 template <typename Behavior> [[nodiscard]] Result<void> invoke_behavior(StopToken token) noexcept
 {
     static_assert(ValidBehavior<Behavior>,
                   "SOLAR_DIAGNOSTIC_INVALID_EXECUTION_BEHAVIOR: behavior must implement static "
-                  "void, Status, or Result<void> execute(), optionally with StopToken");
+                  "void or Result<void, ErrorType> execute(), optionally with StopToken");
     if constexpr (TokenBehaviorVoid<Behavior>) {
         Behavior::execute(token);
         return {};
-    } else if constexpr (TokenBehaviorStatus<Behavior>) {
-        const auto status = Behavior::execute(token);
-        return status == Status::Ok ? Result<void>{} : Result<void>{fail(status)};
     } else if constexpr (TokenBehaviorResult<Behavior>) {
-        return Behavior::execute(token);
+        auto result = Behavior::execute(token);
+        return result ? Result<void>{}
+                      : Result<void>{fail<solar::Error>({.status = status_of(result.error())})};
     } else if constexpr (BehaviorVoid<Behavior>) {
         Behavior::execute();
         return {};
-    } else if constexpr (BehaviorStatus<Behavior>) {
-        const auto status = Behavior::execute();
-        return status == Status::Ok ? Result<void>{} : Result<void>{fail(status)};
     } else if constexpr (BehaviorResult<Behavior>) {
-        return Behavior::execute();
+        auto result = Behavior::execute();
+        return result ? Result<void>{}
+                      : Result<void>{fail<solar::Error>({.status = status_of(result.error())})};
     } else {
-        return fail(Status::Invalid);
+        return fail<solar::Error>({.status = solar::Status::Invalid});
     }
 }
 
@@ -285,9 +270,7 @@ template <typename Registration> struct RegistrationCapabilities
     using Traits = registration_traits<Registration>;
     using Behavior = typename Traits::BehaviorType;
 
-    static constexpr bool stop_token = TokenBehaviorVoid<Behavior> ||
-                                       TokenBehaviorStatus<Behavior> ||
-                                       TokenBehaviorResult<Behavior>;
+    static constexpr bool stop_token = TokenBehaviorVoid<Behavior> || TokenBehaviorResult<Behavior>;
     static constexpr bool counted = [] {
         if constexpr (Traits::kind == RegistrationKind::OnDemand) {
             return detail::IsCounted<typename Traits::Admission>::value;
@@ -463,12 +446,12 @@ template <typename System, typename Registration>
     using Traits = registration_traits<Registration>;
     static_assert(ValidBehavior<typename Traits::BehaviorType>,
                   "SOLAR_DIAGNOSTIC_INVALID_EXECUTION_BEHAVIOR: behavior must implement static "
-                  "void, Status, or Result<void> execute(), optionally with StopToken");
+                  "void or Result<void, ErrorType> execute(), optionally with StopToken");
     using Metadata = RegistrationMetadata<System, Registration>;
     using Target = typename Metadata::Target;
     if constexpr (!std::is_same_v<Target, SystemWorkQueue>) {
         if (!executor_state<System, Target>().queue.started()) {
-            return fail(Status::NotReady);
+            return fail<solar::Error>({.status = solar::Status::NotReady});
         }
     }
     if constexpr (Traits::kind == RegistrationKind::PollTriggered) {
@@ -480,7 +463,7 @@ template <typename System, typename Registration>
             requires { PollSet::events(); }, "SOLAR_DIAGNOSTIC_INVALID_POLL_SET: PollTriggered "
                                              "poll-set type must expose static events()");
         if (PollSet::events().size() == 0) {
-            return fail(Status::Invalid);
+            return fail<solar::Error>({.status = solar::Status::Invalid});
         }
     }
     return {};
@@ -521,7 +504,7 @@ template <typename System, typename Registration>
 [[nodiscard]] Result<void> initialize_registration()
 {
     if (auto validation = validate_registration<System, Registration>(); !validation) {
-        record_runtime_failure<System, Registration>(validation.error());
+        record_runtime_failure<System, Registration>(status_of(validation.error()));
         return validation;
     }
 
@@ -602,14 +585,14 @@ template <typename System, typename Registration>
         "SOLAR_DIAGNOSTIC_EXECUTION_SUBMIT_KIND: submit requires an OnDemand registration");
     auto& state = registration_state<System, Registration>();
     if (!from_isr && kernel::in_isr()) {
-        return fail(make_error<System, Registration>(Operation::Submit, Status::Invalid,
-                                                     ErrorReason::InvalidContext));
+        return fail<Error>(make_error<System, Registration>(Operation::Submit, Status::Invalid,
+                                                            ErrorReason::InvalidContext));
     }
     if (!state.accepting.load(std::memory_order_acquire)) {
         const auto reason = state.suspended.load(std::memory_order_acquire)
                                 ? ErrorReason::RegistrationSuspended
                                 : ErrorReason::RegistrationInactive;
-        return fail(make_error<System, Registration>(
+        return fail<Error>(make_error<System, Registration>(
             from_isr ? Operation::SubmitIsr : Operation::Submit, Status::NotReady, reason));
     }
 
@@ -621,7 +604,7 @@ template <typename System, typename Registration>
         while (true) {
             if (pending >= Traits::Admission::capacity) {
                 state.mutate([](RegistrationRecord& record) { ++record.admission_rejected; });
-                return fail(make_error<System, Registration>(
+                return fail<Error>(make_error<System, Registration>(
                     from_isr ? Operation::SubmitIsr : Operation::Submit, Status::Full,
                     ErrorReason::AdmissionFull));
             }
@@ -638,7 +621,7 @@ template <typename System, typename Registration>
         if constexpr (counted) {
             state.pending_counter().fetch_sub(1, std::memory_order_acq_rel);
         }
-        return fail(make_work_error<System, Registration>(
+        return fail<Error>(make_work_error<System, Registration>(
             from_isr ? Operation::SubmitIsr : Operation::Submit, submission.error()));
     }
     update_submission_record<System, Registration>(*submission, from_isr, counted);
@@ -683,19 +666,19 @@ template <typename System, typename Registration>
                   "Delayable registration");
     auto& state = registration_state<System, Registration>();
     if (kernel::in_isr()) {
-        return fail(
+        return fail<Error>(
             make_error<System, Registration>(replace ? Operation::Reschedule : Operation::Schedule,
                                              Status::Invalid, ErrorReason::InvalidContext));
     }
     if (!state.accepting.load(std::memory_order_acquire)) {
-        return fail(
+        return fail<Error>(
             make_error<System, Registration>(replace ? Operation::Reschedule : Operation::Schedule,
                                              Status::NotReady, ErrorReason::RegistrationInactive));
     }
     auto result = replace ? state.work.reschedule(target_handle<System, Registration>(), delay)
                           : state.work.schedule(target_handle<System, Registration>(), delay);
     if (!result) {
-        return fail(make_work_error<System, Registration>(
+        return fail<Error>(make_work_error<System, Registration>(
             replace ? Operation::Reschedule : Operation::Schedule, result.error()));
     }
     update_submission_record<System, Registration>(*result, false);
@@ -715,22 +698,23 @@ template <typename System, typename Registration>
 {
     auto& state = registration_state<System, Registration>();
     if (kernel::in_isr() && synchronous) {
-        return fail(make_error<System, Registration>(Operation::CancelSync, Status::Invalid,
-                                                     ErrorReason::InvalidContext));
+        return fail<Error>(make_error<System, Registration>(Operation::CancelSync, Status::Invalid,
+                                                            ErrorReason::InvalidContext));
     }
     const bool was_pending = state.work.pending();
     if (synchronous) {
         auto result = state.work.cancel_sync();
         if (!result) {
-            return fail(
+            return fail<Error>(
                 make_work_error<System, Registration>(Operation::CancelSync, result.error()));
         }
     } else {
         if constexpr (registration_traits<Registration>::kind == RegistrationKind::PollTriggered) {
-            const auto status = state.work.cancel_trigger();
-            if (status != Status::Ok && status != Status::Busy) {
-                return fail(make_error<System, Registration>(Operation::Cancel, status,
-                                                             ErrorReason::NativeFailure));
+            const auto result = state.work.cancel_trigger();
+            const auto status = result ? Status::Ok : status_of(result.error());
+            if (!result && status != Status::Busy) {
+                return fail<Error>(make_error<System, Registration>(Operation::Cancel, status,
+                                                                    ErrorReason::NativeFailure));
             }
         } else {
             (void)state.work.cancel();
@@ -760,13 +744,13 @@ template <typename System, typename Registration>
 [[nodiscard]] Result<Cancellation, Error> flush_registration() noexcept
 {
     if (kernel::in_isr()) {
-        return fail(make_error<System, Registration>(Operation::Flush, Status::Invalid,
-                                                     ErrorReason::InvalidContext));
+        return fail<Error>(make_error<System, Registration>(Operation::Flush, Status::Invalid,
+                                                            ErrorReason::InvalidContext));
     }
     auto& state = registration_state<System, Registration>();
     auto result = state.work.flush();
     if (!result) {
-        return fail(make_work_error<System, Registration>(Operation::Flush, result.error()));
+        return fail<Error>(make_work_error<System, Registration>(Operation::Flush, result.error()));
     }
     return Cancellation{.registration = RegistrationMetadata<System, Registration>::Entry::local_id,
                         .pending_cancelled = false,
@@ -786,7 +770,7 @@ void finish_invocation(Result<void> result, kernel::Tick started) noexcept
         if (!result) {
             ++record.failed;
         }
-        record.last_status = result ? Status::Ok : result.error();
+        record.last_status = result ? Status::Ok : status_of(result.error());
         record.last_completion = completed;
         record.last_duration = duration;
         if (duration > record.maximum_duration) {
@@ -942,7 +926,8 @@ template <typename System, typename Registration> [[nodiscard]] Result<void> act
                 record.last_status = result.error().status;
             });
             record_runtime_failure<System, Registration>(result.error().status);
-            return fail(result.error().status);
+            return fail<solar::Error>(
+                {.status = result.error().status, .native = result.error().native_error});
         }
         update_submission_record<System, Registration>(*result, false);
         state.mutate([](RegistrationRecord& record) { record.armed = true; });
@@ -956,7 +941,8 @@ template <typename System, typename Registration> [[nodiscard]] Result<void> act
                 record.last_status = result.error().status;
             });
             record_runtime_failure<System, Registration>(result.error().status);
-            return fail(result.error().status);
+            return fail<solar::Error>(
+                {.status = result.error().status, .native = result.error().native_error});
         }
         state.mutate([](RegistrationRecord& record) {
             record.armed = true;
@@ -1071,16 +1057,16 @@ template <typename System> void activate_registrations() noexcept
 {
     for_each_registration<System>([]<typename Registration> {
         if (auto result = activate_registration<System, Registration>(); !result) {
-            record_runtime_failure<System, Registration>(result.error());
+            record_runtime_failure<System, Registration>(status_of(result.error()));
         }
     });
 }
 
-template <typename System> [[nodiscard]] Status request_registrations_stop() noexcept
+template <typename System> [[nodiscard]] Result<void> request_registrations_stop() noexcept
 {
     for_each_registration<System>(
         []<typename Registration> { request_registration_stop<System, Registration>(); });
-    return Status::Ok;
+    return {};
 }
 
 template <typename System> [[nodiscard]] lifecycle::Containment contain_registrations() noexcept
@@ -1111,8 +1097,9 @@ template <typename System> [[nodiscard]] lifecycle::Containment contain_registra
     runtime_state<System>().uncontained_system_registrations.store(uncontained,
                                                                    std::memory_order_release);
     return uncontained == 0 ? lifecycle::Containment{}
-                            : lifecycle::Containment{
-                                  .status = Status::Timeout, .contained = false, .timed_out = true};
+                            : lifecycle::Containment{.status = solar::Status::Timeout,
+                                                     .contained = false,
+                                                     .timed_out = true};
 }
 
 template <typename System, typename Executor> [[nodiscard]] Result<void> prepare_executor() noexcept
@@ -1139,7 +1126,7 @@ template <typename System, typename Executor> [[nodiscard]] Result<void> prepare
         };
     });
     const auto priority = kernel::Priority::template preemptive<Policy::priority>();
-    const auto status = state.queue.start(kernel::WorkQueueConfiguration{
+    const auto started = state.queue.start(kernel::WorkQueueConfiguration{
         .priority = priority,
         .name = nullptr,
         .no_yield = !Policy::yields_between_items,
@@ -1147,14 +1134,14 @@ template <typename System, typename Executor> [[nodiscard]] Result<void> prepare
         .work_timeout = Policy::work_timeout,
     });
     state.mutate([&](ExecutorRecord& record) {
+        const auto status = started ? Status::Ok : status_of(started.error());
         record.last_status = status;
-        record.started = status == Status::Ok;
+        record.started = started.has_value();
         record.accepting = false;
         record.thread = state.queue.thread_id();
-        record.containment =
-            status == Status::Ok ? ContainmentState::Prepared : ContainmentState::NotPrepared;
+        record.containment = started ? ContainmentState::Prepared : ContainmentState::NotPrepared;
     });
-    return status == Status::Ok ? Result<void>{} : Result<void>{fail(status)};
+    return started;
 }
 
 template <typename System, typename Executor>
@@ -1162,7 +1149,7 @@ template <typename System, typename Executor>
 {
     return executor_state<System, Executor>().queue.started()
                ? Result<void>{}
-               : Result<void>{fail(Status::NotReady)};
+               : Result<void>{fail<solar::Error>({.status = solar::Status::NotReady})};
 }
 
 template <typename System, typename Executor> void activate_executor() noexcept
@@ -1173,13 +1160,14 @@ template <typename System, typename Executor> void activate_executor() noexcept
     });
 }
 
-template <typename System, typename Executor> [[nodiscard]] Status request_executor_stop() noexcept
+template <typename System, typename Executor>
+[[nodiscard]] Result<void> request_executor_stop() noexcept
 {
     executor_state<System, Executor>().mutate([](ExecutorRecord& record) {
         record.accepting = false;
         record.draining = true;
     });
-    return Status::Ok;
+    return {};
 }
 
 template <typename System, typename Executor>
@@ -1224,8 +1212,8 @@ template <typename System, typename Executor>
                 record.draining = false;
                 record.plugged = true;
             });
-            const auto stop_status = state.queue.stop(deadline);
-            if (stop_status == Status::Ok) {
+            const auto stopped = state.queue.stop(deadline);
+            if (stopped) {
                 state.mutate([](ExecutorRecord& record) {
                     record.stopped = true;
                     record.plugged = false;
@@ -1244,8 +1232,9 @@ template <typename System, typename Executor>
     state.mutate([](ExecutorRecord& record) { record.timed_out = true; });
     if constexpr (Policy::abort_on_timeout) {
         state.mutate([](ExecutorRecord& record) { record.abort_attempted = true; });
-        const auto abort_status = state.queue.abort();
-        const bool aborted = abort_status == Status::Ok || abort_status == Status::Already;
+        const auto abort_result = state.queue.abort();
+        const auto abort_status = abort_result ? Status::Ok : status_of(abort_result.error());
+        const bool aborted = abort_result || abort_status == Status::Already;
         state.mutate([&](ExecutorRecord& record) {
             record.abort_succeeded = aborted;
             record.abort_failed = !aborted;
@@ -1270,7 +1259,7 @@ template <typename System, typename Executor>
         record.last_status = Status::Timeout;
         record.containment = ContainmentState::Uncontained;
     });
-    return {.status = Status::Timeout, .contained = false, .timed_out = true};
+    return {.status = solar::Status::Timeout, .contained = false, .timed_out = true};
 }
 
 } // namespace solar::execution::detail

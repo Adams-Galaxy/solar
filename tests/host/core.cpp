@@ -54,7 +54,7 @@ struct MoveOnlyError
     constexpr MoveOnlyError& operator=(MoveOnlyError&&) = default;
 };
 
-constexpr solar::Status status_of(ParseError error)
+constexpr solar::Status status_of(ParseError error) noexcept
 {
     switch (error) {
     case ParseError::Empty:
@@ -65,10 +65,15 @@ constexpr solar::Status status_of(ParseError error)
     return solar::Status::Error;
 }
 
+constexpr solar::Status status_of(const MoveOnlyError&) noexcept
+{
+    return solar::Status::Error;
+}
+
 constexpr solar::Result<int, ParseError> parse(bool valid)
 {
     if (!valid) {
-        return solar::fail(ParseError::Invalid);
+        return solar::fail<ParseError>(ParseError::Invalid);
     }
     return 21;
 }
@@ -79,7 +84,7 @@ constexpr bool expected_is_constexpr()
                             .transform([](int value) { return value * 2; })
                             .and_then([](int value) -> solar::Result<int, ParseError> {
                                 return value == 42 ? solar::Result<int, ParseError>{value}
-                                                   : solar::fail(ParseError::Invalid);
+                                                   : solar::fail<ParseError>(ParseError::Invalid);
                             });
     return result && *result == 42;
 }
@@ -115,7 +120,10 @@ static_assert(status_of(ParseError::Invalid) == solar::Status::Invalid);
 static_assert(solar::status_from_errno(-EINVAL) == solar::Status::Invalid);
 static_assert(solar::status_from_errno(EIO) == solar::Status::Error);
 static_assert(solar::to_native_errno(solar::Status::Busy) == -EBUSY);
-static_assert(std::is_same_v<solar::Result<int>, std::expected<int, solar::Status>>);
+static_assert(solar::ErrorType<solar::Error>);
+static_assert(solar::ErrorType<ParseError>);
+static_assert(!solar::ErrorType<solar::Status>);
+static_assert(std::is_same_v<solar::Result<int>, std::expected<int, solar::Error>>);
 
 void test_expected_operations()
 {
@@ -130,13 +138,14 @@ void test_expected_operations()
         parse(false).or_else([](ParseError) -> solar::Result<int, ParseError> { return 7; });
     assert(recovered && *recovered == 7);
 
-    const auto mapped = parse(false).transform_error(status_of);
-    assert(!mapped && mapped.error() == solar::Status::Invalid);
+    const auto mapped = parse(false).transform_error(
+        [](ParseError error) { return solar::Error{.status = status_of(error)}; });
+    assert(!mapped && solar::status_of(mapped.error()) == solar::Status::Invalid);
 
     solar::Result<void> complete{};
-    solar::Result<void> incomplete = solar::fail(solar::Status::NotReady);
+    solar::Result<void> incomplete = solar::fail<solar::Error>({.status = solar::Status::NotReady});
     assert(complete);
-    assert(!incomplete && incomplete.error() == solar::Status::NotReady);
+    assert(!incomplete && solar::status_of(incomplete.error()) == solar::Status::NotReady);
 }
 
 void test_move_only_results()
@@ -145,7 +154,7 @@ void test_move_only_results()
     auto moved = std::move(value).transform([](std::unique_ptr<int> item) { return *item; });
     assert(moved && *moved == 42);
 
-    solar::Result<int, MoveOnlyError> failure = solar::fail(MoveOnlyError{17});
+    solar::Result<int, MoveOnlyError> failure = solar::fail<MoveOnlyError>(MoveOnlyError{17});
     auto mapped =
         std::move(failure).transform_error([](MoveOnlyError error) { return error.reason; });
     assert(!mapped && mapped.error() == 17);
@@ -167,7 +176,8 @@ void test_result_operations_do_not_allocate()
         parse(true)
             .transform([](int value) { return value * 2; })
             .and_then([](int value) -> solar::Result<int, ParseError> { return value; })
-            .transform_error(status_of);
+            .transform_error(
+                [](ParseError error) { return solar::Error{.status = status_of(error)}; });
 
     assert(result && *result == 42);
     assert(allocation_count == allocations_before);

@@ -76,10 +76,10 @@ class Context
         if (auto* value = rtio_sqe_acquire(native_); value != nullptr) {
             return value;
         }
-        return fail(Error{.status = Status::NoSpace,
-                          .reason = Reason::ResourceExhausted,
-                          .operation = Operation::Submit,
-                          .native = -ENOMEM});
+        return fail<Error>({.status = solar::Status::NoSpace,
+                            .reason = Reason::ResourceExhausted,
+                            .operation = Operation::Submit,
+                            .native = -ENOMEM});
     }
 
     [[nodiscard]] Result<void, Error> submit(std::uint32_t wait_count = 0) noexcept
@@ -91,18 +91,17 @@ class Context
     {
         auto* value = block ? rtio_cqe_consume_block(native_) : rtio_cqe_consume(native_);
         if (value == nullptr) {
-            return fail(Error{.status = Status::WouldBlock,
-                              .reason = Reason::Busy,
-                              .operation = Operation::Complete,
-                              .native = -EAGAIN});
+            return fail<Error>({.status = solar::Status::WouldBlock,
+                                .reason = Reason::Busy,
+                                .operation = Operation::Complete,
+                                .native = -EAGAIN});
         }
         return Completion{native_, value};
     }
 
     [[nodiscard]] Result<void, Error> cancel(::rtio_sqe& submission) noexcept
     {
-        return hardware::detail::native_result(rtio_sqe_cancel(&submission),
-                                               Operation::Cancel);
+        return hardware::detail::native_result(rtio_sqe_cancel(&submission), Operation::Cancel);
     }
 
     [[nodiscard]] constexpr ::rtio* native_handle() const noexcept

@@ -41,33 +41,36 @@ template <typename Message, std::size_t Capacity> class MessageQueue
     MessageQueue(MessageQueue&&) = delete;
     MessageQueue& operator=(MessageQueue&&) = delete;
 
-    [[nodiscard]] Status send(const Message& message, Timeout timeout = Timeout::forever()) noexcept
+    [[nodiscard]] Result<void> send(const Message& message,
+                                    Timeout timeout = Timeout::forever()) noexcept
     {
         return detail::map_wait(k_msgq_put(&queue_, &message, timeout.native_handle()), timeout,
                                 Status::Full);
     }
 
-    [[nodiscard]] Status send(const Message& message, const Deadline& deadline) noexcept
+    [[nodiscard]] Result<void> send(const Message& message, const Deadline& deadline) noexcept
     {
         return send(message, deadline.remaining());
     }
 
-    [[nodiscard]] Status try_send(const Message& message) noexcept
+    [[nodiscard]] Result<void> try_send(const Message& message) noexcept
     {
         return send(message, Timeout::no_wait());
     }
 
-    [[nodiscard]] Status try_send_isr(const Message& message) noexcept
+    [[nodiscard]] Result<void> try_send_isr(const Message& message) noexcept
     {
         return send(message, Timeout::no_wait());
     }
 
-    [[nodiscard]] Status try_send_front(const Message& message) noexcept
+    [[nodiscard]] Result<void> try_send_front(const Message& message) noexcept
     {
-        return k_msgq_put_front(&queue_, &message) == 0 ? Status::Ok : Status::Full;
+        return k_msgq_put_front(&queue_, &message) == 0
+                   ? Result<void>{}
+                   : Result<void>{fail<Error>({.status = Status::Full})};
     }
 
-    [[nodiscard]] Status try_send_front_isr(const Message& message) noexcept
+    [[nodiscard]] Result<void> try_send_front_isr(const Message& message) noexcept
     {
         return try_send_front(message);
     }
@@ -77,8 +80,8 @@ template <typename Message, std::size_t Capacity> class MessageQueue
         std::array<std::byte, sizeof(Message)> bytes{};
         const auto status = detail::map_wait(
             k_msgq_get(&queue_, bytes.data(), timeout.native_handle()), timeout, Status::Empty);
-        if (status != Status::Ok) {
-            return fail(status);
+        if (!status) {
+            return fail<Error>(status.error());
         }
         return std::bit_cast<Message>(bytes);
     }
@@ -102,7 +105,7 @@ template <typename Message, std::size_t Capacity> class MessageQueue
     {
         std::array<std::byte, sizeof(Message)> bytes{};
         if (k_msgq_peek(&queue_, bytes.data()) != 0) {
-            return fail(Status::Empty);
+            return fail<solar::Error>({.status = solar::Status::Empty});
         }
         return std::bit_cast<Message>(bytes);
     }
@@ -110,11 +113,11 @@ template <typename Message, std::size_t Capacity> class MessageQueue
     [[nodiscard]] Result<Message> peek_at(std::size_t index) noexcept
     {
         if (index > std::numeric_limits<std::uint32_t>::max()) {
-            return fail(Status::Invalid);
+            return fail<solar::Error>({.status = solar::Status::Invalid});
         }
         std::array<std::byte, sizeof(Message)> bytes{};
         if (k_msgq_peek_at(&queue_, bytes.data(), static_cast<std::uint32_t>(index)) != 0) {
-            return fail(Status::NotFound);
+            return fail<solar::Error>({.status = solar::Status::NotFound});
         }
         return std::bit_cast<Message>(bytes);
     }

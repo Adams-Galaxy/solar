@@ -52,16 +52,16 @@ template <typename Record>
         TextFormatter<Record>::format(record, writer);
         return writer.result();
     } else {
-        return fail(Error{.status = Status::NotSupported,
-                          .reason = Reason::Unsupported,
-                          .operation = Operation::FormatText});
+        return fail<Error>({.status = solar::Status::NotSupported,
+                            .reason = Reason::Unsupported,
+                            .operation = Operation::FormatText});
     }
 #else
     (void)record;
     (void)destination;
-    return fail(Error{.status = Status::NotSupported,
-                      .reason = Reason::Disabled,
-                      .operation = Operation::FormatText});
+    return fail<Error>({.status = solar::Status::NotSupported,
+                        .reason = Reason::Disabled,
+                        .operation = Operation::FormatText});
 #endif
 }
 

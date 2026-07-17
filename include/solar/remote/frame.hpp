@@ -38,7 +38,8 @@ namespace solar::remote::frame
 [[nodiscard]] inline std::uint32_t integrity_crc32c(std::span<const std::byte> input) noexcept
 {
 #if defined(__ZEPHYR__)
-    return crc32_c(0, reinterpret_cast<const std::uint8_t*>(input.data()), input.size(), true, true);
+    return crc32_c(0, reinterpret_cast<const std::uint8_t*>(input.data()), input.size(), true,
+                   true);
 #else
     return crc32c(input);
 #endif
@@ -69,12 +70,12 @@ namespace solar::remote::frame
         cobs_encoder_write(&encoder, reinterpret_cast<const std::uint8_t*>(input.data()),
                            input.size()) != static_cast<int>(input.size()) ||
         cobs_encoder_close(&encoder) != 0) {
-        return fail(Error{Status::NoSpace, Reason::NoSpace, Operation::FrameEncode});
+        return fail<Error>({Status::NoSpace, Reason::NoSpace, Operation::FrameEncode});
     }
     return context.size;
 #else
     if (output.size() < max_encoded_size(input.size())) {
-        return fail(Error{Status::NoSpace, Reason::NoSpace, Operation::FrameEncode});
+        return fail<Error>({Status::NoSpace, Reason::NoSpace, Operation::FrameEncode});
     }
     std::size_t read{};
     std::size_t write{1};
@@ -128,7 +129,7 @@ namespace solar::remote::frame
         cobs_decoder_write(&decoder, reinterpret_cast<const std::uint8_t*>(input.data()),
                            input.size()) != static_cast<int>(input.size()) ||
         cobs_decoder_close(&decoder) != 0) {
-        return fail(Error{Status::ProtocolError, Reason::Malformed, Operation::FrameDecode});
+        return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::FrameDecode});
     }
     return context.size;
 #else
@@ -140,17 +141,17 @@ namespace solar::remote::frame
     while (read < input.size()) {
         const auto code = std::to_integer<std::uint8_t>(input[read++]);
         if (code == 0 || read + static_cast<std::size_t>(code - 1U) > input.size()) {
-            return fail(Error{Status::ProtocolError, Reason::Malformed, Operation::FrameDecode});
+            return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::FrameDecode});
         }
         if (write + code - 1U > output.size()) {
-            return fail(Error{Status::NoSpace, Reason::NoSpace, Operation::FrameDecode});
+            return fail<Error>({Status::NoSpace, Reason::NoSpace, Operation::FrameDecode});
         }
         for (std::uint8_t index{1}; index < code; ++index) {
             output[write++] = input[read++];
         }
         if (code != 0xFFU && read < input.size()) {
             if (write == output.size()) {
-                return fail(Error{Status::NoSpace, Reason::NoSpace, Operation::FrameDecode});
+                return fail<Error>({Status::NoSpace, Reason::NoSpace, Operation::FrameDecode});
             }
             output[write++] = std::byte{};
         }
@@ -159,25 +160,26 @@ namespace solar::remote::frame
 #endif
 }
 
-[[nodiscard]] inline Result<std::size_t, Error>
-encode(const protocol::Envelope& authored, std::span<const std::byte> payload,
-       std::span<std::byte> scratch, std::span<std::byte> output) noexcept
+[[nodiscard]] inline Result<std::size_t, Error> encode(const protocol::Envelope& authored,
+                                                       std::span<const std::byte> payload,
+                                                       std::span<std::byte> scratch,
+                                                       std::span<std::byte> output) noexcept
 {
-    if (payload.size() > UINT16_MAX || scratch.size() < protocol::envelope_size + payload.size() +
-                                                         protocol::crc_size) {
-        return fail(Error{Status::MessageTooLarge, Reason::Oversized, Operation::FrameEncode});
+    if (payload.size() > UINT16_MAX ||
+        scratch.size() < protocol::envelope_size + payload.size() + protocol::crc_size) {
+        return fail<Error>({Status::MessageTooLarge, Reason::Oversized, Operation::FrameEncode});
     }
 #if defined(CONFIG_SOLAR_REMOTE_MAX_FRAME_BYTES)
     if (protocol::envelope_size + payload.size() + protocol::crc_size >
         CONFIG_SOLAR_REMOTE_MAX_FRAME_BYTES) {
-        return fail(Error{Status::MessageTooLarge, Reason::Oversized, Operation::FrameEncode});
+        return fail<Error>({Status::MessageTooLarge, Reason::Oversized, Operation::FrameEncode});
     }
 #endif
     auto envelope = authored;
     envelope.payload_size = static_cast<std::uint16_t>(payload.size());
     auto encoded_envelope = protocol::encode(envelope);
     if (!encoded_envelope) {
-        return fail(encoded_envelope.error());
+        return fail<Error>(encoded_envelope.error());
     }
     std::memcpy(scratch.data(), encoded_envelope->data(), encoded_envelope->size());
     std::memcpy(scratch.data() + protocol::envelope_size, payload.data(), payload.size());
@@ -198,31 +200,30 @@ struct Decoded
 {
     auto decoded_size = cobs_decode(encoded, scratch);
     if (!decoded_size) {
-        return fail(decoded_size.error());
+        return fail<Error>(decoded_size.error());
     }
     if (*decoded_size < protocol::envelope_size + protocol::crc_size) {
-        return fail(Error{Status::ProtocolError, Reason::Malformed, Operation::FrameDecode});
+        return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::FrameDecode});
     }
 #if defined(CONFIG_SOLAR_REMOTE_MAX_FRAME_BYTES)
     if (*decoded_size > CONFIG_SOLAR_REMOTE_MAX_FRAME_BYTES) {
-        return fail(Error{Status::MessageTooLarge, Reason::Oversized, Operation::FrameDecode});
+        return fail<Error>({Status::MessageTooLarge, Reason::Oversized, Operation::FrameDecode});
     }
 #endif
     const auto content_size = *decoded_size - protocol::crc_size;
     const auto expected = protocol::detail::get_u32(scratch.first(*decoded_size), content_size);
     if (integrity_crc32c(scratch.first(content_size)) != expected) {
-        return fail(
+        return fail<Error>(
             Error{Status::ProtocolError, Reason::IntegrityFailure, Operation::FrameDecode});
     }
     auto envelope = protocol::decode(scratch.first(protocol::envelope_size));
     if (!envelope) {
-        return fail(envelope.error());
+        return fail<Error>(envelope.error());
     }
     if (envelope->payload_size != content_size - protocol::envelope_size) {
-        return fail(Error{Status::ProtocolError, Reason::Malformed, Operation::FrameDecode});
+        return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::FrameDecode});
     }
-    return Decoded{*envelope,
-                   scratch.subspan(protocol::envelope_size, envelope->payload_size)};
+    return Decoded{*envelope, scratch.subspan(protocol::envelope_size, envelope->payload_size)};
 }
 
 struct FeedRecord
@@ -234,8 +235,8 @@ struct FeedRecord
 
 template <std::size_t MaxEncodedBytes, std::size_t MaxDecodedBytes> class StreamDecoder
 {
-    static_assert(MaxEncodedBytes > 0 && MaxDecodedBytes >= protocol::envelope_size +
-                                                              protocol::crc_size);
+    static_assert(MaxEncodedBytes > 0 &&
+                  MaxDecodedBytes >= protocol::envelope_size + protocol::crc_size);
 #if defined(CONFIG_SOLAR_REMOTE_MAX_FRAME_BYTES)
     static_assert(MaxDecodedBytes <= CONFIG_SOLAR_REMOTE_MAX_FRAME_BYTES,
                   "SOLAR_DIAGNOSTIC_REMOTE_FRAME_CEILING: decoder exceeds configured frame "
@@ -253,7 +254,8 @@ template <std::size_t MaxEncodedBytes, std::size_t MaxDecodedBytes> class Stream
                     encoded_size_ = 0;
                     ++record.overflowed;
                 } else if (encoded_size_ != 0) {
-                    auto decoded = frame::decode(std::span{encoded_}.first(encoded_size_), scratch_);
+                    auto decoded =
+                        frame::decode(std::span{encoded_}.first(encoded_size_), scratch_);
                     encoded_size_ = 0;
                     if (decoded) {
                         ++record.accepted;
@@ -280,8 +282,14 @@ template <std::size_t MaxEncodedBytes, std::size_t MaxDecodedBytes> class Stream
         return record;
     }
 
-    [[nodiscard]] constexpr FeedRecord record() const noexcept { return totals_; }
-    [[nodiscard]] constexpr std::size_t pending_bytes() const noexcept { return encoded_size_; }
+    [[nodiscard]] constexpr FeedRecord record() const noexcept
+    {
+        return totals_;
+    }
+    [[nodiscard]] constexpr std::size_t pending_bytes() const noexcept
+    {
+        return encoded_size_;
+    }
 
     constexpr void reset() noexcept
     {

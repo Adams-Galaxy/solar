@@ -105,8 +105,8 @@ template <typename EndpointT> struct RtioEndpoint
         const auto count =
             spi_rtio_copy(context.native_handle(), &native_iodev, transmit, receive, &last);
         if (count < 0) {
-            return fail(hardware::detail::native_error(count, hardware::Operation::Submit,
-                                                       EndpointT::path()));
+            return fail<Error>(hardware::detail::native_error(count, hardware::Operation::Submit,
+                                                              EndpointT::path()));
         }
         return static_cast<std::uint32_t>(count);
     }
@@ -129,15 +129,15 @@ template <typename EndpointT> class AsyncTransfer
                                                      Completion completion) noexcept
     {
         if (completion == nullptr) {
-            return fail(Error{.status = Status::Invalid,
-                              .reason = Reason::InvalidConfiguration,
-                              .operation = hardware::Operation::Submit,
-                              .native = -EINVAL,
-                              .endpoint = EndpointT::path()});
+            return fail<Error>({.status = solar::Status::Invalid,
+                                .reason = Reason::InvalidConfiguration,
+                                .operation = hardware::Operation::Submit,
+                                .native = -EINVAL,
+                                .endpoint = EndpointT::path()});
         }
         auto admitted = gate_.begin();
         if (!admitted) {
-            return fail(admitted.error());
+            return fail<Error>(admitted.error());
         }
         token_ = *admitted;
         completion_ = completion;
@@ -152,8 +152,8 @@ template <typename EndpointT> class AsyncTransfer
         if (result < 0) {
             (void)gate_.complete(token_);
             completion_ = nullptr;
-            return fail(hardware::detail::native_error(result, hardware::Operation::Submit,
-                                                       EndpointT::path()));
+            return fail<Error>(hardware::detail::native_error(result, hardware::Operation::Submit,
+                                                              EndpointT::path()));
         }
         return token_;
     }
@@ -165,11 +165,11 @@ template <typename EndpointT> class AsyncTransfer
 
     [[nodiscard]] Result<void, Error> cancel() noexcept
     {
-        return fail(Error{.status = Status::NotSupported,
-                          .reason = Reason::Unsupported,
-                          .operation = hardware::Operation::Cancel,
-                          .native = -ENOTSUP,
-                          .endpoint = EndpointT::path()});
+        return fail<Error>({.status = solar::Status::NotSupported,
+                            .reason = Reason::Unsupported,
+                            .operation = hardware::Operation::Cancel,
+                            .native = -ENOTSUP,
+                            .endpoint = EndpointT::path()});
     }
 
   private:
@@ -187,7 +187,7 @@ template <typename EndpointT> class AsyncTransfer
         completion_ = nullptr;
         if (completion != nullptr) {
             if (result < 0) {
-                completion(fail(hardware::detail::native_error(
+                completion(fail<Error>(hardware::detail::native_error(
                     result, hardware::Operation::Complete, EndpointT::path())));
             } else {
                 completion({});
@@ -241,11 +241,11 @@ template <typename EndpointT> class Session
     [[nodiscard]] static Result<Session, Error> begin() noexcept
     {
         if ((EndpointT::descriptor().native.config.operation & SPI_LOCK_ON) == 0U) {
-            return fail(Error{.status = Status::Invalid,
-                              .reason = Reason::InvalidConfiguration,
-                              .operation = hardware::Operation::Start,
-                              .native = -EINVAL,
-                              .endpoint = EndpointT::path()});
+            return fail<Error>({.status = solar::Status::Invalid,
+                                .reason = Reason::InvalidConfiguration,
+                                .operation = hardware::Operation::Start,
+                                .native = -EINVAL,
+                                .endpoint = EndpointT::path()});
         }
         return Session{};
     }

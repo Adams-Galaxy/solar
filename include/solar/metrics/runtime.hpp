@@ -23,13 +23,15 @@ template <typename System, typename MetricT>
 {
     using Facility = typename System::MetricFacility;
     if (!Facility::ready.load(std::memory_order_acquire)) {
-        return fail(make_error<System, MetricT>(operation, Status::NotReady, Reason::NotReady));
+        return fail<Error>(
+            make_error<System, MetricT>(operation, Status::NotReady, Reason::NotReady));
     }
     if (mutation && !Facility::accepting.load(std::memory_order_acquire)) {
-        return fail(make_error<System, MetricT>(operation, Status::NotReady, Reason::Closed));
+        return fail<Error>(
+            make_error<System, MetricT>(operation, Status::NotReady, Reason::Closed));
     }
     if (isr != kernel::in_isr()) {
-        return fail(
+        return fail<Error>(
             make_error<System, MetricT>(operation, Status::Invalid, Reason::InvalidContext));
     }
     return {};
@@ -43,7 +45,7 @@ template <typename System, typename MetricT, typename Function>
     auto prepared = prepare<System, MetricT>(operation, true, isr);
     if (!prepared) {
         Facility::account_failure(prepared.error());
-        return fail(prepared.error());
+        return fail<Error>(prepared.error());
     }
     auto result = function(Facility::template slot<MetricT>, no_wait, isr, operation);
     if (result) {
@@ -95,7 +97,7 @@ template <typename System, typename MetricT>
     auto prepared = prepare<System, MetricT>(operation, false, false);
     if (!prepared) {
         Facility::account_failure(prepared.error());
-        return fail(prepared.error());
+        return fail<Error>(prepared.error());
     }
     auto result = Facility::template slot<MetricT>.get(no_wait);
     if (!result) {
@@ -133,7 +135,7 @@ template <typename System, typename MetricT>
     using Facility = typename System::MetricFacility;
     auto prepared = prepare<System, MetricT>(Operation::Query, false, false);
     if (!prepared) {
-        return fail(prepared.error());
+        return fail<Error>(prepared.error());
     }
     return Facility::template slot<MetricT>.record();
 }

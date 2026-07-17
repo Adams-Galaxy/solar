@@ -45,11 +45,11 @@ struct SystemBehavior
 
 struct OwnedBehavior
 {
-    static solar::Status execute()
+    static solar::Result<void> execute()
     {
         owned_thread.store(k_current_get(), std::memory_order_release);
         ++owned_runs;
-        return solar::Status::Ok;
+        return {};
     }
 };
 
@@ -93,9 +93,9 @@ struct TokenBehavior
 
 struct FailingBehavior
 {
-    static solar::Status execute()
+    static solar::Result<void> execute()
     {
-        return solar::Status::Error;
+        return solar::fail<solar::Error>({.status = solar::Status::Error});
     }
 };
 
@@ -123,7 +123,7 @@ struct PollInput
 
     static void configure()
     {
-        zassert_equal(events().add(signal()), solar::Status::Ok);
+        zassert_true(events().add(signal()).has_value());
     }
 };
 
@@ -176,7 +176,7 @@ struct CooperativeService
         solar::execution::Service<solar::execution::StackSize<2048>, solar::execution::Priority<2>,
                                   solar::execution::StopTimeout<200_ms>>;
 
-    static solar::Status run(solar::StopToken stop);
+    static solar::Result<void> run(solar::StopToken stop);
 };
 
 using Blueprint = solar::Blueprint<
@@ -190,9 +190,9 @@ struct UnexpectedService
     static constexpr solar::component::Descriptor descriptor{.name = "unexpected-service"};
     using Execution = solar::execution::Service<solar::execution::StackSize<1024>>;
 
-    static solar::Status run(solar::StopToken)
+    static solar::Result<void> run(solar::StopToken)
     {
-        return solar::Status::Ok;
+        return {};
     }
 };
 
@@ -205,7 +205,7 @@ struct StuckService
                                                 solar::execution::StopTimeout<5_ms>,
                                                 solar::execution::AbortOnTimeout<true>>;
 
-    static solar::Status run(solar::StopToken)
+    static solar::Result<void> run(solar::StopToken)
     {
         while (true) {
             k_sleep(K_MSEC(20));
@@ -219,7 +219,7 @@ using StuckSystem = solar::System<solar::Blueprint<solar::Services<StuckService>
 
 SOLAR_BIND_SYSTEM(fixture::System);
 
-solar::Status fixture::CooperativeService::run(solar::StopToken stop)
+solar::Result<void> fixture::CooperativeService::run(solar::StopToken stop)
 {
     service_saw_running.store(solar::lifecycle::state() == solar::lifecycle::SystemState::Running,
                               std::memory_order_release);
@@ -337,7 +337,7 @@ ZTEST(solar_execution, test_delayable_periodic_and_poll_triggered_work)
 
     wait_for(fixture::periodic_runs, 2);
     const auto poll_before = fixture::poll_runs.load(std::memory_order_acquire);
-    zassert_equal(fixture::PollInput::signal().raise(), solar::Status::Ok);
+    zassert_true(fixture::PollInput::signal().raise().has_value());
     wait_for(fixture::poll_runs, poll_before + 1);
 }
 

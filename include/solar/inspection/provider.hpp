@@ -70,7 +70,7 @@ template <typename System> struct InspectionProvider<System, Components>
         constexpr auto records = System::catalog::components();
         const auto offset = static_cast<std::size_t>(query.page.cursor.offset);
         if (offset > records.size()) {
-            return fail(source_error(Status::Invalid, Operation::Query, collection));
+            return fail<Error>(source_error(Status::Invalid, Operation::Query, collection));
         }
         const auto count = (std::min)(output.size(), records.size() - offset);
         if (count != 0) {
@@ -90,7 +90,7 @@ template <typename System> struct InspectionProvider<System, LifecycleComponents
         const auto offset = static_cast<std::size_t>(query.page.cursor.offset);
         auto page = lifecycle::Engine<System>::component_page(output, offset);
         if (!page) {
-            return fail(source_error(page.error(), Operation::Query, collection));
+            return fail<Error>(source_error(status_of(page.error()), Operation::Query, collection));
         }
         return page_result<LifecycleComponents>(page->offset, page->count, page->total, collection,
                                                 PageConsistency::StablePage);
@@ -108,7 +108,7 @@ template <typename System> struct InspectionProvider<System, ExecutionRegistrati
         const auto all = execution::detail::registration_records<System>(
             typename System::EffectiveExecutionRegistrations{});
         if (offset > all.size()) {
-            return fail(source_error(Status::Invalid, Operation::Query, collection));
+            return fail<Error>(source_error(Status::Invalid, Operation::Query, collection));
         }
         const auto count = (std::min)(output.size(), all.size() - offset);
         if constexpr (std::tuple_size_v<decltype(all)> != 0) {
@@ -151,10 +151,10 @@ template <typename System> struct InspectionProvider<System, MetricValues>
                 });
         });
         if (failure) {
-            return fail(source_error(failure->status, Operation::Query, collection));
+            return fail<Error>(source_error(failure->status, Operation::Query, collection));
         }
         if (requested_offset > total) {
-            return fail(source_error(Status::Invalid, Operation::Query, collection));
+            return fail<Error>(source_error(Status::Invalid, Operation::Query, collection));
         }
         return page_result<MetricValues>(requested_offset, written, total, collection,
                                          PageConsistency::PerRecord, Freshness::Unknown);
@@ -177,7 +177,7 @@ template <typename System> struct InspectionProvider<System, RemoteLinks>
         }(typename System::RemoteArchitecture::Links{});
         const auto offset = static_cast<std::size_t>(query.page.cursor.offset);
         if (offset > records.size()) {
-            return fail(source_error(Status::Invalid, Operation::Query, collection));
+            return fail<Error>(source_error(Status::Invalid, Operation::Query, collection));
         }
         const auto count = (std::min)(output.size(), records.size() - offset);
         if constexpr (std::tuple_size_v<decltype(records)> != 0) {

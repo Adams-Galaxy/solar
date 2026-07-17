@@ -73,8 +73,7 @@ struct UnbootedNavigation
 struct UnbootedApplication
 {};
 
-using UnbootedSystem =
-    solar::System<solar::Blueprint<solar::Facilities<UnbootedNavigation>>>;
+using UnbootedSystem = solar::System<solar::Blueprint<solar::Facilities<UnbootedNavigation>>>;
 
 } // namespace fixture
 
@@ -88,7 +87,7 @@ template <> struct solar::inspection::Provider<fixture::CustomCollection>
                                      fixture::CustomRecord{33}};
         const auto offset = static_cast<std::size_t>(query.page.cursor.offset);
         if (offset > records.size()) {
-            return solar::fail(solar::inspection::Error{
+            return solar::fail<solar::inspection::Error>({
                 .status = solar::Status::Invalid,
                 .reason = solar::inspection::Reason::InvalidRequest,
                 .operation = solar::inspection::Operation::Query,
@@ -128,9 +127,8 @@ ZTEST(inspection, test_catalog_lookup_and_visit)
     const auto found = solar::inspection::find(custom);
     zassert_true(found.has_value());
     zassert_equal(found->get().descriptor.stable_id.value, 0xF1700001U);
-    constexpr auto navigation =
-        fixture::RobotSystem::Catalogs::Of<solar::component::Tag>::Entry<
-            fixture::Navigation>::local_id;
+    constexpr auto navigation = fixture::RobotSystem::Catalogs::Of<solar::component::Tag>::Entry<
+        fixture::Navigation>::local_id;
     zassert_equal(found->get().owner.kind, solar::OwnerKind::Component);
     zassert_equal(found->get().owner.component.value, navigation.value);
     zassert_equal(found->get().origin, solar::OriginKind::Contribution);

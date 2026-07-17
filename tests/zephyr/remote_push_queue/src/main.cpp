@@ -71,18 +71,16 @@ namespace
 std::array<std::byte, 256> host_bytes{};
 std::array<std::byte, 160> decoded_bytes{};
 
-solar::Result<solar::remote::frame::Decoded, solar::remote::Error>
-receive_frame(int attempts = 300)
+solar::Result<solar::remote::frame::Decoded, solar::remote::Error> receive_frame(int attempts = 300)
 {
     for (int attempt = 0; attempt < attempts; ++attempt) {
         auto bytes = fixture::TestLink::take_transmitted(host_bytes);
         if (bytes) {
-            return solar::remote::frame::decode(std::span{host_bytes}.first(*bytes),
-                                                decoded_bytes);
+            return solar::remote::frame::decode(std::span{host_bytes}.first(*bytes), decoded_bytes);
         }
         k_sleep(K_MSEC(1));
     }
-    return solar::fail(solar::remote::Error{.status = solar::Status::Timeout});
+    return solar::fail<solar::remote::Error>({.status = solar::Status::Timeout});
 }
 
 void inject(const solar::remote::protocol::Envelope& envelope,
@@ -120,7 +118,7 @@ ZTEST(remote_push_queue, test_rejecting_queue_drains_as_one_batch)
     zassert_false(full.has_value());
     zassert_equal(full.error().status, solar::Status::NoSpace);
 
-    zassert_equal(fixture::TestLink::connect(), solar::Status::Ok);
+    zassert_true(fixture::TestLink::connect().has_value());
     zassert_true(receive_frame().has_value());
 
     solar::remote::protocol::Envelope hello{
@@ -156,7 +154,7 @@ ZTEST(remote_push_queue, test_rejecting_queue_drains_as_one_batch)
     inject(ack);
     constexpr auto endpoint =
         fixture::System::RemoteDataCatalog::Entry<fixture::Queued>::local_id.value;
-    zassert_equal(fixture::Service::notify_publication(endpoint), solar::Status::Ok);
+    zassert_true(fixture::Service::notify_publication(endpoint).has_value());
 
     auto data = receive_frame();
     zassert_true(data.has_value());
@@ -169,8 +167,8 @@ ZTEST(remote_push_queue, test_rejecting_queue_drains_as_one_batch)
     for (std::uint32_t expected = 1; expected <= 3; ++expected) {
         const auto size = solar::remote::protocol::detail::get_u16(data->payload, offset);
         offset += sizeof(std::uint16_t);
-        auto value = solar::remote::cbor::decode<fixture::Sample>(
-            data->payload.subspan(offset, size));
+        auto value =
+            solar::remote::cbor::decode<fixture::Sample>(data->payload.subspan(offset, size));
         zassert_true(value.has_value());
         zassert_equal(value->sequence, expected);
         offset += size;

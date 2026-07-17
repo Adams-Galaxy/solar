@@ -52,7 +52,8 @@ template <auto Spec> struct Counter : hardware::Endpoint<Spec>
         std::uint32_t ticks{};
         const auto result = counter_get_value(Base::native_device(), &ticks);
         if (result != 0) {
-            return fail(hardware::detail::native_error(result, Operation::Read, Base::path()));
+            return fail<Error>(
+                hardware::detail::native_error(result, Operation::Read, Base::path()));
         }
         return ticks;
     }
@@ -62,7 +63,8 @@ template <auto Spec> struct Counter : hardware::Endpoint<Spec>
         std::uint64_t ticks{};
         const auto result = counter_get_value_64(Base::native_device(), &ticks);
         if (result != 0) {
-            return fail(hardware::detail::native_error(result, Operation::Read, Base::path()));
+            return fail<Error>(
+                hardware::detail::native_error(result, Operation::Read, Base::path()));
         }
         return ticks;
     }
@@ -144,11 +146,11 @@ template <typename CounterT, std::uint8_t Channel> struct Alarm
                                                  AlarmHandler callback = nullptr) noexcept
     {
         if (Channel >= counter_get_num_of_channels(CounterT::native_device())) {
-            return fail(Error{.status = Status::Invalid,
-                              .reason = Reason::InvalidConfiguration,
-                              .operation = Operation::Configure,
-                              .native = -EINVAL,
-                              .endpoint = CounterT::path()});
+            return fail<Error>({.status = solar::Status::Invalid,
+                                .reason = Reason::InvalidConfiguration,
+                                .operation = Operation::Configure,
+                                .native = -EINVAL,
+                                .endpoint = CounterT::path()});
         }
         handler.store(callback, std::memory_order_release);
         counter_alarm_cfg configuration{

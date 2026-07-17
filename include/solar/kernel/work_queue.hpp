@@ -66,24 +66,24 @@ template <std::size_t StackBytes> class WorkQueue
     WorkQueue(WorkQueue&&) = delete;
     WorkQueue& operator=(WorkQueue&&) = delete;
 
-    [[nodiscard]] Status start(WorkQueueConfiguration configuration = {}) noexcept
+    [[nodiscard]] Result<void> start(WorkQueueConfiguration configuration = {}) noexcept
     {
         if (in_isr()) {
-            return Status::Invalid;
+            return fail<Error>({.status = Status::Invalid});
         }
         if (started()) {
-            return Status::Already;
+            return fail<Error>({.status = Status::Already});
         }
         if (configuration.name != nullptr && !IS_ENABLED(CONFIG_THREAD_NAME)) {
-            return Status::NotSupported;
+            return fail<Error>({.status = Status::NotSupported});
         }
         if (configuration.work_timeout.count() < 0 ||
             static_cast<std::uint64_t>(configuration.work_timeout.count()) >
                 std::numeric_limits<std::uint32_t>::max()) {
-            return Status::Invalid;
+            return fail<Error>({.status = Status::Invalid});
         }
         if (configuration.work_timeout.count() != 0 && !IS_ENABLED(CONFIG_WORKQUEUE_WORK_TIMEOUT)) {
-            return Status::NotSupported;
+            return fail<Error>({.status = Status::NotSupported});
         }
 
         const k_work_queue_config native{
@@ -95,77 +95,77 @@ template <std::size_t StackBytes> class WorkQueue
         k_work_queue_start(&queue_, stack_, K_KERNEL_STACK_SIZEOF(stack_),
                            configuration.priority.native_handle(), &native);
         started_.store(true, std::memory_order_release);
-        return Status::Ok;
+        return {};
     }
 
     [[nodiscard]] Result<bool> drain(bool plug = false) noexcept
     {
         if (in_isr()) {
-            return fail(Status::Invalid);
+            return fail<solar::Error>({.status = solar::Status::Invalid});
         }
         if (!started()) {
-            return fail(Status::NotReady);
+            return fail<solar::Error>({.status = solar::Status::NotReady});
         }
         if (thread_id() == k_current_get()) {
-            return fail(Status::Deadlock);
+            return fail<solar::Error>({.status = solar::Status::Deadlock});
         }
         const int result = k_work_queue_drain(&queue_, plug);
         if (result < 0) {
-            return fail(status_from_errno(result));
+            return fail<Error>(error_from_errno(result));
         }
         return result != 0;
     }
 
-    [[nodiscard]] Status unplug() noexcept
+    [[nodiscard]] Result<void> unplug() noexcept
     {
         if (!started()) {
-            return Status::NotReady;
+            return fail<Error>({.status = Status::NotReady});
         }
         return detail::map_native(k_work_queue_unplug(&queue_));
     }
 
-    [[nodiscard]] Status stop(Timeout timeout = Timeout::forever()) noexcept
+    [[nodiscard]] Result<void> stop(Timeout timeout = Timeout::forever()) noexcept
     {
         if (in_isr()) {
-            return Status::Invalid;
+            return fail<Error>({.status = Status::Invalid});
         }
         if (!started()) {
-            return Status::Already;
+            return fail<Error>({.status = Status::Already});
         }
         if (thread_id() == k_current_get()) {
-            return Status::Deadlock;
+            return fail<Error>({.status = Status::Deadlock});
         }
         const int result = k_work_queue_stop(&queue_, timeout.native_handle());
         if (result == 0) {
             started_.store(false, std::memory_order_release);
-            return Status::Ok;
+            return {};
         }
         if (result == -ETIMEDOUT) {
-            return Status::Timeout;
+            return fail<Error>({.status = Status::Timeout});
         }
-        return status_from_errno(result);
+        return result == 0 ? Result<void>{} : Result<void>{fail<Error>(error_from_errno(result))};
     }
 
-    [[nodiscard]] Status stop(const Deadline& deadline) noexcept
+    [[nodiscard]] Result<void> stop(const Deadline& deadline) noexcept
     {
         return stop(deadline.remaining());
     }
 
-    [[nodiscard]] Status abort() noexcept
+    [[nodiscard]] Result<void> abort() noexcept
     {
         if (in_isr()) {
-            return Status::Invalid;
+            return fail<Error>({.status = Status::Invalid});
         }
         if (!started()) {
-            return Status::Already;
+            return fail<Error>({.status = Status::Already});
         }
         const auto id = thread_id();
         if (id == nullptr || id == k_current_get()) {
-            return Status::Invalid;
+            return fail<Error>({.status = Status::Invalid});
         }
         k_thread_abort(id);
         started_.store(false, std::memory_order_release);
-        return Status::Ok;
+        return {};
     }
 
     [[nodiscard]] bool started() const noexcept

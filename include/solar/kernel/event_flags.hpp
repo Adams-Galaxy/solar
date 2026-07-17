@@ -119,7 +119,7 @@ class EventFlags
                                          bool all, bool consume) noexcept
     {
         if (mask == 0) {
-            return fail(Status::Invalid);
+            return fail<solar::Error>({.status = solar::Status::Invalid});
         }
 
         const bool reset_before = reset == ResetBeforeWait::Yes;
@@ -134,7 +134,8 @@ class EventFlags
         }
 
         if (received == 0) {
-            return fail(timeout.is_no_wait() ? Status::WouldBlock : Status::Timeout);
+            return fail<Error>(
+                {.status = timeout.is_no_wait() ? Status::WouldBlock : Status::Timeout});
         }
         return received;
     }

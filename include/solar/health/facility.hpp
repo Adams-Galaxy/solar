@@ -467,7 +467,7 @@ template <typename System, typename Function>
     auto& state = storage<System>();
     auto lock = kernel::LockGuard<kernel::Mutex>::acquire(state.mutex);
     if (!lock) {
-        return fail(make_error(lock.error(), Reason::Busy, operation));
+        return fail<Error>(make_error(status_of(lock.error()), Reason::Busy, operation));
     }
     std::forward<Function>(function)(state);
     return {};
@@ -507,7 +507,7 @@ template <typename System, typename Component>
         },
         Operation::Report);
     if (!result) {
-        return fail(result.error());
+        return fail<Error>(result.error());
     }
     wake_supervisor<System>();
     return receipt;
@@ -579,9 +579,9 @@ template <typename System, typename Component>
     auto& state = storage<System>();
     IsrReport report{
         .subject = subject, .observation = observation, .observed_at = kernel::now_ticks()};
-    if (state.ingress.try_send_isr(report) != Status::Ok) {
+    if (!state.ingress.try_send_isr(report)) {
         state.isr_dropped.fetch_add(1, std::memory_order_relaxed);
-        return fail(
+        return fail<Error>(
             make_error(Status::NoSpace, Reason::IngressFull, Operation::ReportIsr, subject));
     }
     state.isr_admitted.fetch_add(1, std::memory_order_relaxed);
@@ -663,7 +663,7 @@ template <typename System, typename Component>
     auto result = with_storage<System>(
         [&](const auto& state) { copy = state.subjects[subject_index<System, Component>()]; });
     if (!result) {
-        return fail(result.error());
+        return fail<Error>(result.error());
     }
     return copy;
 }
@@ -705,7 +705,7 @@ template <typename System> [[nodiscard]] Result<SystemRecord, Error> system_reco
     SystemRecord copy{};
     auto result = with_storage<System>([&](const auto& state) { copy = state.system; });
     if (!result) {
-        return fail(result.error());
+        return fail<Error>(result.error());
     }
     return copy;
 }
@@ -736,7 +736,7 @@ read_history(HistoryCursor cursor, std::span<TransitionRecord> destination) noex
         },
         Operation::HistoryRead);
     if (!result) {
-        return fail(result.error());
+        return fail<Error>(result.error());
     }
     return page;
 }
@@ -767,37 +767,37 @@ template <typename ErrorT>
 template <typename System, typename Component>
 [[nodiscard]] Result<Receipt, Error> report(Assessment, EvidenceQuality) noexcept
 {
-    return fail(make_error(Status::NotSupported, Reason::Disabled, Operation::Report));
+    return fail<Error>(make_error(Status::NotSupported, Reason::Disabled, Operation::Report));
 }
 
 template <typename System, typename Component>
 [[nodiscard]] Result<ProgressReceipt, Error> progress() noexcept
 {
-    return fail(make_error(Status::NotSupported, Reason::Disabled, Operation::Progress));
+    return fail<Error>(make_error(Status::NotSupported, Reason::Disabled, Operation::Progress));
 }
 
 template <typename System, typename Component>
 [[nodiscard]] Result<void, Error> report_isr(CompactObservation) noexcept
 {
-    return fail(make_error(Status::NotSupported, Reason::Disabled, Operation::ReportIsr));
+    return fail<Error>(make_error(Status::NotSupported, Reason::Disabled, Operation::ReportIsr));
 }
 
 template <typename System, typename Component>
 [[nodiscard]] Result<void, Error> commit_adapter(Assessment, SourceKind, std::uint32_t = 0) noexcept
 {
-    return fail(make_error(Status::NotSupported, Reason::Disabled, Operation::Report));
+    return fail<Error>(make_error(Status::NotSupported, Reason::Disabled, Operation::Report));
 }
 
 template <typename System, typename Monitor>
 [[nodiscard]] Result<void, Error> commit_monitor(Observation) noexcept
 {
-    return fail(make_error(Status::NotSupported, Reason::Disabled, Operation::Check));
+    return fail<Error>(make_error(Status::NotSupported, Reason::Disabled, Operation::Check));
 }
 
 template <typename System, typename Component>
 [[nodiscard]] Result<SubjectRecord, Error> subject_record() noexcept
 {
-    return fail(make_error(Status::NotSupported, Reason::Disabled, Operation::Query));
+    return fail<Error>(make_error(Status::NotSupported, Reason::Disabled, Operation::Query));
 }
 
 template <typename System> [[nodiscard]] auto subject_records() noexcept
@@ -812,14 +812,14 @@ template <typename System, typename Component> [[nodiscard]] auto monitor_record
 
 template <typename System> [[nodiscard]] Result<SystemRecord, Error> system_record() noexcept
 {
-    return fail(make_error(Status::NotSupported, Reason::Disabled, Operation::Query));
+    return fail<Error>(make_error(Status::NotSupported, Reason::Disabled, Operation::Query));
 }
 
 template <typename System>
 [[nodiscard]] Result<HistoryPage, Error> read_history(HistoryCursor,
                                                       std::span<TransitionRecord>) noexcept
 {
-    return fail(make_error(Status::NotSupported, Reason::Disabled, Operation::HistoryRead));
+    return fail<Error>(make_error(Status::NotSupported, Reason::Disabled, Operation::HistoryRead));
 }
 
 #endif

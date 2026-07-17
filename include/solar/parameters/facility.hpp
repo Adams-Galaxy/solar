@@ -559,19 +559,19 @@ template <typename Value> class ValueCell<Value, storage::Mutex>
         auto guard = kernel::lock_guard(mutex_, no_wait ? kernel::Timeout::no_wait()
                                                         : kernel::Timeout::forever());
         if (!guard) {
-            return fail(guard.error());
+            return fail<solar::Error>(guard.error());
         }
         return *value_;
     }
 
-    [[nodiscard]] Status write(const Value& value) noexcept
+    [[nodiscard]] Result<void> write(const Value& value) noexcept
     {
         auto guard = kernel::lock_guard(mutex_);
         if (!guard) {
-            return guard.error();
+            return fail<solar::Error>(guard.error());
         }
         value_ = value;
-        return Status::Ok;
+        return {};
     }
 
   private:
@@ -591,10 +591,10 @@ template <typename Value> class ValueCell<Value, storage::Atomic>
         return value_.load(std::memory_order_acquire);
     }
 
-    [[nodiscard]] Status write(const Value& value) noexcept
+    [[nodiscard]] Result<void> write(const Value& value) noexcept
     {
         value_.store(value, std::memory_order_release);
-        return Status::Ok;
+        return {};
     }
 
     [[nodiscard]] Value read_isr() noexcept
@@ -618,7 +618,7 @@ template <typename ParameterT, typename Policies> class ParameterSlot
         record_ = {
             .parameter = id,
             .value = Value{ParameterT::default_value},
-            .last_error = {.status = Status::Ok, .parameter = id},
+            .last_error = {.status = solar::Status::Ok, .parameter = id},
             .current_version = descriptor_traits<Tag, ParameterT>::descriptor.version,
             .persistence = PersistenceTraits<typename Policies::Persistence>::persistent
                                ? PersistenceState::Clean
@@ -653,7 +653,7 @@ template <typename ParameterT, typename Policies> class ParameterSlot
         return value_.read_isr();
     }
 
-    [[nodiscard]] Status write(const Value& value) noexcept
+    [[nodiscard]] Result<void> write(const Value& value) noexcept
     {
         return value_.write(value);
     }

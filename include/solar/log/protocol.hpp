@@ -24,21 +24,21 @@ template <Operation CaptureOperation> struct CaptureFrontend
     {
         switch (error) {
         case frontend::Error::NotReady:
-            return fail(Error{.status = Status::NotReady,
-                              .reason = Reason::NotReady,
-                              .operation = CaptureOperation});
+            return fail<Error>({.status = solar::Status::NotReady,
+                                .reason = Reason::NotReady,
+                                .operation = CaptureOperation});
         case frontend::Error::Disabled:
-            return fail(Error{.status = Status::NotSupported,
-                              .reason = Reason::Disabled,
-                              .operation = CaptureOperation});
+            return fail<Error>({.status = solar::Status::NotSupported,
+                                .reason = Reason::Disabled,
+                                .operation = CaptureOperation});
         case frontend::Error::NotRegistered:
-            return fail(Error{.status = Status::NotFound,
-                              .reason = Reason::NotRegistered,
-                              .operation = CaptureOperation});
+            return fail<Error>({.status = solar::Status::NotFound,
+                                .reason = Reason::NotRegistered,
+                                .operation = CaptureOperation});
         }
-        return fail(Error{.status = Status::Error,
-                          .reason = Reason::InternalInvariant,
-                          .operation = CaptureOperation});
+        return fail<Error>({.status = solar::Status::Error,
+                            .reason = Reason::InternalInvariant,
+                            .operation = CaptureOperation});
     }
 };
 

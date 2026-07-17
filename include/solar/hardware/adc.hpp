@@ -56,14 +56,15 @@ template <auto Spec> struct Channel : hardware::Endpoint<Spec>
         adc_sequence sequence{};
         const auto initialized = adc_sequence_init_dt(&Base::descriptor_value.native, &sequence);
         if (initialized != 0) {
-            return fail(
+            return fail<Error>(
                 hardware::detail::native_error(initialized, Operation::Configure, Base::path()));
         }
         sequence.buffer = &value;
         sequence.buffer_size = sizeof(value);
         const auto result = adc_read_dt(&Base::descriptor_value.native, &sequence);
         if (result != 0) {
-            return fail(hardware::detail::native_error(result, Operation::Read, Base::path()));
+            return fail<Error>(
+                hardware::detail::native_error(result, Operation::Read, Base::path()));
         }
         return value;
     }
@@ -72,7 +73,8 @@ template <auto Spec> struct Channel : hardware::Endpoint<Spec>
     {
         const auto result = adc_raw_to_millivolts_dt(&Base::descriptor_value.native, &raw);
         if (result != 0) {
-            return fail(hardware::detail::native_error(result, Operation::Convert, Base::path()));
+            return fail<Error>(
+                hardware::detail::native_error(result, Operation::Convert, Base::path()));
         }
         return raw;
     }
@@ -150,11 +152,11 @@ template <ChannelType First, ChannelType... Rest> struct Sequence
         const auto one_sampling = channel_count * sample_bytes;
         if (samplings > std::numeric_limits<std::size_t>::max() / one_sampling ||
             buffer.size() < one_sampling * samplings) {
-            return fail(Error{.status = Status::NoBuffer,
-                              .reason = Reason::ResourceExhausted,
-                              .operation = hardware::Operation::Configure,
-                              .native = -ENOMEM,
-                              .endpoint = First::path()});
+            return fail<Error>({.status = solar::Status::NoBuffer,
+                                .reason = Reason::ResourceExhausted,
+                                .operation = hardware::Operation::Configure,
+                                .native = -ENOMEM,
+                                .endpoint = First::path()});
         }
         return adc_sequence{
             .options = options,
@@ -175,7 +177,7 @@ template <ChannelType First, ChannelType... Rest> struct Sequence
     {
         auto sequence = native(buffer, options);
         if (!sequence) {
-            return fail(sequence.error());
+            return fail<Error>(sequence.error());
         }
         return hardware::detail::native_result(adc_read(First::native_device(), &*sequence),
                                                hardware::Operation::Read, First::path());
@@ -251,7 +253,7 @@ template <StreamConfiguration Configuration> struct Stream
         ::rtio_sqe* handle{};
         const auto result = adc_stream(&native_iodev, context.native_handle(), user_data, &handle);
         if (result != 0) {
-            return fail(hardware::detail::native_error(result, Operation::Submit));
+            return fail<Error>(hardware::detail::native_error(result, Operation::Submit));
         }
         return handle;
     }
@@ -261,7 +263,7 @@ template <StreamConfiguration Configuration> struct Stream
         const adc_decoder_api* value{};
         const auto result = adc_get_decoder(native_configuration.adc, &value);
         if (result != 0 || value == nullptr) {
-            return fail(
+            return fail<Error>(
                 hardware::detail::native_error(result == 0 ? -ENOTSUP : result, Operation::Read));
         }
         return value;
@@ -294,15 +296,15 @@ template <typename ChannelT> class Operation
     {
         auto admitted = gate_.begin();
         if (!admitted) {
-            return fail(admitted.error());
+            return fail<Error>(admitted.error());
         }
         token_ = *admitted;
         k_poll_signal_reset(&signal_);
         const auto result = adc_read_async_dt(&ChannelT::descriptor().native, &sequence, &signal_);
         if (result != 0) {
             (void)gate_.complete(token_);
-            return fail(hardware::detail::native_error(result, hardware::Operation::Submit,
-                                                       ChannelT::path()));
+            return fail<Error>(hardware::detail::native_error(result, hardware::Operation::Submit,
+                                                              ChannelT::path()));
         }
         return token_;
     }
@@ -313,23 +315,23 @@ template <typename ChannelT> class Operation
         k_poll_event_init(&event, K_POLL_TYPE_SIGNAL, K_POLL_MODE_NOTIFY_ONLY, &signal_);
         const auto waited = k_poll(&event, 1, timeout);
         if (waited != 0) {
-            return fail(hardware::detail::native_error(waited, hardware::Operation::Complete,
-                                                       ChannelT::path()));
+            return fail<Error>(hardware::detail::native_error(waited, hardware::Operation::Complete,
+                                                              ChannelT::path()));
         }
         unsigned signaled{};
         int result{};
         k_poll_signal_check(&signal_, &signaled, &result);
         if (signaled == 0U) {
-            return fail(Error{.status = Status::WouldBlock,
-                              .reason = Reason::Busy,
-                              .operation = hardware::Operation::Complete,
-                              .native = -EAGAIN,
-                              .endpoint = ChannelT::path()});
+            return fail<Error>({.status = solar::Status::WouldBlock,
+                                .reason = Reason::Busy,
+                                .operation = hardware::Operation::Complete,
+                                .native = -EAGAIN,
+                                .endpoint = ChannelT::path()});
         }
         (void)gate_.complete(token_);
         if (result != 0) {
-            return fail(hardware::detail::native_error(result, hardware::Operation::Complete,
-                                                       ChannelT::path()));
+            return fail<Error>(hardware::detail::native_error(result, hardware::Operation::Complete,
+                                                              ChannelT::path()));
         }
         return {};
     }

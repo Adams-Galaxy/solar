@@ -364,7 +364,7 @@ template <typename Application>
         ++metric_index;
     });
     if (failure) {
-        return fail(*failure);
+        return fail<Error>(*failure);
     }
     if (page.written == page.available) {
         page.next = Cursor{.metric = static_cast<std::uint16_t>(System::MetricCatalog::size)};
@@ -437,7 +437,7 @@ template <typename Application> struct DescriptorAccess
             static_assert(!frontend::strict,
                           "SOLAR_DIAGNOSTIC_STRICT_UNREGISTERED_METRIC_QUERY: queried metric is "
                           "absent from the bound catalog");
-            return fail(catalog::LookupError::Unavailable);
+            return fail<catalog::LookupError>(catalog::LookupError::Unavailable);
         }
     }
 #else
@@ -450,7 +450,7 @@ template <typename Application> struct DescriptorAccess
     [[nodiscard]] static Result<std::reference_wrapper<const DescriptorView>, catalog::LookupError>
     one() noexcept
     {
-        return fail(catalog::LookupError::Unavailable);
+        return fail<catalog::LookupError>(catalog::LookupError::Unavailable);
     }
 #endif
 };
@@ -601,7 +601,7 @@ template <Metric MetricT, typename View, typename Application = DefaultApplicati
     using System = bound_system_t<Application>;
     auto reading = frontend::Operation<detail::GetFrontend<false>, MetricT, Application>::call();
     if (!reading) {
-        return fail(reading.error());
+        return fail<Error>(reading.error());
     }
     constexpr auto kind = detail::ViewTraits<MetricT, View>::kind;
     constexpr auto index = [] {
@@ -617,7 +617,7 @@ template <Metric MetricT, typename View, typename Application = DefaultApplicati
         *reading, kind, index, count_unit ? units::Count::descriptor : MetricT::Unit::descriptor,
         detail::extract_view<MetricT, View>(*reading));
 #else
-    return fail(detail::frontend_error(frontend::Error::Disabled, Operation::GetView));
+    return fail<Error>(detail::frontend_error(frontend::Error::Disabled, Operation::GetView));
 #endif
 }
 
@@ -628,7 +628,7 @@ template <typename Application = DefaultApplication>
 #if defined(CONFIG_SOLAR_METRICS)
     return detail::read_records<Application>(cursor, output);
 #else
-    return fail(detail::frontend_error(frontend::Error::Disabled, Operation::Query));
+    return fail<Error>(detail::frontend_error(frontend::Error::Disabled, Operation::Query));
 #endif
 }
 
@@ -639,7 +639,7 @@ template <typename Application = DefaultApplication>
     using System = bound_system_t<Application>;
     return System::MetricFacility::record();
 #else
-    return fail(detail::frontend_error(frontend::Error::Disabled, Operation::Query));
+    return fail<Error>(detail::frontend_error(frontend::Error::Disabled, Operation::Query));
 #endif
 }
 } // namespace records
@@ -686,9 +686,9 @@ class ScopedTimer
     [[nodiscard]] Result<Update, Error> finish() noexcept
     {
         if (!active_) {
-            return fail(Error{.status = Status::Already,
-                              .reason = Reason::InternalInvariant,
-                              .operation = Operation::RecordDuration});
+            return fail<Error>({.status = solar::Status::Already,
+                                .reason = Reason::InternalInvariant,
+                                .operation = Operation::RecordDuration});
         }
         active_ = false;
         return detail::record_duration_for<Application, detail::AccessMode::Normal, MetricT>(

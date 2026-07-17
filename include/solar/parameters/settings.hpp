@@ -28,7 +28,8 @@ template <FixedString Namespace> struct Store
     {
 #if defined(CONFIG_SOLAR_PARAMETERS_SETTINGS_INITIALIZE)
         const auto result = settings_subsys_init();
-        return result == 0 ? Result<void>{} : Result<void>{fail(status_from_errno(result))};
+        return result == 0 ? Result<void>{}
+                           : Result<void>{fail<solar::Error>(error_from_errno(result))};
 #else
         return {};
 #endif
@@ -40,10 +41,10 @@ template <FixedString Namespace> struct Store
         const auto name = key_name(key);
         const auto result = settings_load_one(name.data(), output.data(), output.size());
         if (result < 0) {
-            return fail(status_from_errno(static_cast<int>(result)));
+            return fail<solar::Error>(error_from_errno(static_cast<int>(result)));
         }
         if (result == 0) {
-            return fail(Status::NotFound);
+            return fail<solar::Error>({.status = solar::Status::NotFound});
         }
         return static_cast<std::size_t>(result);
     }
@@ -53,15 +54,17 @@ template <FixedString Namespace> struct Store
     {
         const auto name = key_name(key);
         const auto result = settings_save_one(name.data(), input.data(), input.size());
-        return result == 0 ? Result<void>{} : Result<void>{fail(status_from_errno(result))};
+        return result == 0 ? Result<void>{}
+                           : Result<void>{fail<solar::Error>(error_from_errno(result))};
     }
 
     [[nodiscard]] static Result<void> erase(persistence::Key key) noexcept
     {
         const auto name = key_name(key);
         const auto result = settings_delete(name.data());
-        return result == 0 || result == -ENOENT ? Result<void>{}
-                                                : Result<void>{fail(status_from_errno(result))};
+        return result == 0 || result == -ENOENT
+                   ? Result<void>{}
+                   : Result<void>{fail<solar::Error>(error_from_errno(result))};
     }
 
   private:

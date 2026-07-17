@@ -174,15 +174,10 @@ template <typename ServiceT> [[nodiscard]] auto& storage() noexcept
 template <typename ResultT> [[nodiscard]] Result<void> normalize_result(ResultT&& result) noexcept
 {
     using R = std::remove_cvref_t<ResultT>;
-    if constexpr (std::is_same_v<R, Status>) {
-        return result == Status::Ok ? Result<void>{} : Result<void>{fail(result)};
-    } else {
-        static_assert(requires(R value) {
-            { value.has_value() } -> std::convertible_to<bool>;
-            value.error();
-        });
-        return result ? Result<void>{} : Result<void>{fail(error_status(result.error()))};
-    }
+    static_assert(VoidResult<R>, "SOLAR_DIAGNOSTIC_SUPERVISOR_RESULT: operation must return "
+                                 "Result<void, ErrorType>");
+    return result ? Result<void>{}
+                  : Result<void>{fail<solar::Error>({.status = status_of(result.error())})};
 }
 
 template <typename Provider> [[nodiscard]] Result<void> start_provider() noexcept
@@ -206,7 +201,7 @@ template <typename Provider> [[nodiscard]] Result<void> feed_provider() noexcept
     static_assert(
         requires { Provider::feed(); },
         "SOLAR_DIAGNOSTIC_SUPERVISOR_WATCHDOG_PROVIDER: watchdog provider must expose "
-        "static Status or Result<void> feed()");
+        "static Result<void, ErrorType> feed()");
     return normalize_result(Provider::feed());
 }
 
@@ -270,7 +265,7 @@ template <typename ServiceT, typename System, typename Subject, typename ActionT
         auto result = normalize_result(Target::Health::recover());
         return result ? ActionResult{}
                       : ActionResult{.outcome = Outcome::Failed,
-                                     .status = result.error(),
+                                     .status = status_of(result.error()),
                                      .recovery_failed = true};
     } else if constexpr (requires { typename ActionT::Target; } &&
                          ActionTraits<ActionT>::kind == Action::EnterSafeState) {
@@ -280,17 +275,19 @@ template <typename ServiceT, typename System, typename Subject, typename ActionT
             "SOLAR_DIAGNOSTIC_SUPERVISOR_SAFE_STATE_HOOK: safe-state action must expose "
             "static Result<void> enter()");
         auto result = normalize_result(Target::enter());
-        return result ? ActionResult{}
-                      : ActionResult{.outcome = Outcome::Failed, .status = result.error()};
+        return result
+                   ? ActionResult{}
+                   : ActionResult{.outcome = Outcome::Failed, .status = status_of(result.error())};
     } else if constexpr (requires { typename ActionT::Target; } &&
                          ActionTraits<ActionT>::kind == Action::RequestStop) {
         using Target = typename ActionT::Target;
         static_assert(System::Catalogs::template Of<component::Tag>::template contains<Target>,
                       "SOLAR_DIAGNOSTIC_SUPERVISOR_STOP_TARGET: RequestStop target is absent from "
                       "the effective component graph");
-        const auto status = lifecycle::ExecutionProtocol<System, Target>::request_stop();
-        return {.outcome = status == Status::Ok || status == Status::Already ? Outcome::Requested
-                                                                             : Outcome::Failed,
+        const auto stopped = lifecycle::ExecutionProtocol<System, Target>::request_stop();
+        const auto status = stopped ? Status::Ok : status_of(stopped.error());
+        return {.outcome =
+                    stopped || status == Status::Already ? Outcome::Requested : Outcome::Failed,
                 .status = status};
     } else if constexpr (std::is_same_v<ActionT, RequestSystemStop>) {
         auto guard = kernel::LockGuard<kernel::Mutex>::acquire(state.mutex);
@@ -395,9 +392,9 @@ template <typename ServiceT, typename System>
     auto& storage = detail::storage<ServiceT>();
     auto cycle_guard = kernel::LockGuard<kernel::Mutex>::acquire(storage.cycle_mutex);
     if (!cycle_guard) {
-        return fail(Error{.status = cycle_guard.error(),
-                          .reason = Reason::NotReady,
-                          .operation = Operation::Cycle});
+        return fail<Error>({.status = status_of(cycle_guard.error()),
+                            .reason = Reason::NotReady,
+                            .operation = Operation::Cycle});
     }
     const auto started = now;
     {
@@ -414,9 +411,9 @@ template <typename ServiceT, typename System>
         auto guard = kernel::LockGuard<kernel::Mutex>::acquire(storage.mutex);
         ++storage.state.refresh_failures;
         storage.state.state = ServiceState::Faulted;
-        return fail(Error{.status = refreshed.error().status,
-                          .reason = Reason::HealthRefreshFailed,
-                          .operation = Operation::Cycle});
+        return fail<Error>({.status = refreshed.error().status,
+                            .reason = Reason::HealthRefreshFailed,
+                            .operation = Operation::Cycle});
     }
     auto health_state = health::detail::system_record<System>();
     const auto generation = health_state ? health_state->assessment_generation : 0;
@@ -468,7 +465,7 @@ template <typename ServiceT, typename System>
         if (feed) {
             auto result = feed_provider<Provider>();
             auto guard = kernel::LockGuard<kernel::Mutex>::acquire(storage.mutex);
-            storage.watchdog.last_status = result ? Status::Ok : result.error();
+            storage.watchdog.last_status = result ? Status::Ok : status_of(result.error());
             if (result) {
                 ++storage.watchdog.feeds;
                 storage.watchdog.last_feed_at = now;
@@ -616,15 +613,16 @@ template <typename ArchitectureT> struct Service
             kernel::to_ticks_ceil(std::chrono::milliseconds{CONFIG_SOLAR_SUPERVISOR_PERIOD_MS});
         while (!stop_token.stop_requested()) {
             if (cycle_callback == nullptr) {
-                return fail(Status::NotReady);
+                return fail<solar::Error>({.status = solar::Status::NotReady});
             }
             auto result = cycle_callback(kernel::now_ticks());
             if (!result) {
-                return fail(result.error().status);
+                return fail<solar::Error>({.status = result.error().status});
             }
-            const auto status = state_storage.wake.take(kernel::Timeout::after_ticks(period));
-            if (status != Status::Ok && status != Status::Timeout) {
-                return fail(status);
+            const auto wake = state_storage.wake.take(kernel::Timeout::after_ticks(period));
+            const auto status = wake ? Status::Ok : status_of(wake.error());
+            if (!wake && status != Status::Timeout) {
+                return fail<solar::Error>(wake.error());
             }
         }
         return {};

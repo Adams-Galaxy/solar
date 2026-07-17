@@ -32,7 +32,7 @@ ZTEST(remote_link, test_short_dma_tx_and_rx_leases)
 {
     fixture::event_count = 0;
     zassert_true(fixture::Link::open({.notify_function = &fixture::notify}).has_value());
-    zassert_equal(fixture::Link::connect(), solar::Status::Ok);
+    zassert_true(fixture::Link::connect().has_value());
     zassert_equal(fixture::events[0].kind, solar::remote::LinkEventKind::Connected);
 
     std::array<std::byte, 8> source{};

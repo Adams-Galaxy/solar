@@ -48,7 +48,7 @@ struct Imu
         static solar::Result<solar::health::Assessment> assess()
         {
             if (!assessment_available.load()) {
-                return solar::fail(solar::Status::Busy);
+                return solar::fail<solar::Error>({.status = solar::Status::Busy});
             }
             return connected.load() ? solar::health::nominal() : solar::health::degraded();
         }
@@ -67,12 +67,12 @@ struct ControlService
             solar::health::Checks<solar::health::Progress<20_ms>, solar::health::StackMargin<2048>>;
     };
 
-    static solar::Status run(solar::StopToken stop)
+    static solar::Result<void> run(solar::StopToken stop)
     {
         while (!stop.stop_requested()) {
             k_sleep(K_MSEC(1));
         }
-        return solar::Status::Ok;
+        return {};
     }
 };
 
@@ -192,16 +192,18 @@ ZTEST(solar_health, test_concurrent_reports_and_bounded_history)
 {
     solar::kernel::Thread<2048> nominal_thread;
     solar::kernel::Thread<2048> degraded_thread;
-    zassert_equal(nominal_thread.launch(&fixture::concurrent_reporter, &fixture::connected,
-                                        {.priority = solar::kernel::Priority::preemptive<2>(),
-                                         .name = "health-nominal"}),
-                  solar::Status::Ok);
-    zassert_equal(degraded_thread.launch(&fixture::concurrent_reporter, nullptr,
-                                         {.priority = solar::kernel::Priority::preemptive<2>(),
-                                          .name = "health-degraded"}),
-                  solar::Status::Ok);
-    zassert_equal(nominal_thread.join(solar::kernel::Timeout::after(500ms)), solar::Status::Ok);
-    zassert_equal(degraded_thread.join(solar::kernel::Timeout::after(500ms)), solar::Status::Ok);
+    zassert_true(nominal_thread
+                     .launch(&fixture::concurrent_reporter, &fixture::connected,
+                             {.priority = solar::kernel::Priority::preemptive<2>(),
+                              .name = "health-nominal"})
+                     .has_value());
+    zassert_true(degraded_thread
+                     .launch(&fixture::concurrent_reporter, nullptr,
+                             {.priority = solar::kernel::Priority::preemptive<2>(),
+                              .name = "health-degraded"})
+                     .has_value());
+    zassert_true(nominal_thread.join(solar::kernel::Timeout::after(500ms)).has_value());
+    zassert_true(degraded_thread.join(solar::kernel::Timeout::after(500ms)).has_value());
 
     zassert_true(solar::health::report<fixture::Imu>(solar::health::nominal()).has_value());
     auto coherent = solar::health::record<fixture::Imu>();

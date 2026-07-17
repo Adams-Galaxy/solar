@@ -227,9 +227,9 @@ struct FailingProcessor
     using EventRole = solar::events::InfrastructureObserver;
     using EventProcessors =
         solar::events::Processors<solar::events::Process<ProcessorProbe, FailingProcessor>>;
-    static solar::Status process(solar::events::RecordView)
+    static solar::Result<void> process(solar::events::RecordView)
     {
-        return solar::Status::Error;
+        return solar::fail<solar::Error>({.status = solar::Status::Error});
     }
 };
 
@@ -257,15 +257,15 @@ struct Diagnostics
     using EventProcessors =
         solar::events::Processors<solar::events::Process<FrameDropped, Diagnostics>>;
 
-    static solar::Status process(solar::events::RecordView record)
+    static solar::Result<void> process(solar::events::RecordView record)
     {
         auto payload = solar::events::decode<FrameDropped>(record);
         if (!payload) {
-            return payload.error().status;
+            return solar::fail<solar::Error>({.status = payload.error().status});
         }
         last_bytes.store(payload->bytes, std::memory_order_release);
         processed.fetch_add(1, std::memory_order_release);
-        return solar::Status::Ok;
+        return {};
     }
 };
 

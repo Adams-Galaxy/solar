@@ -211,7 +211,7 @@ template <typename System, typename Component>
     constexpr auto subject =
         System::Catalogs::template Of<component::Tag>::template Entry<Component>::local_id;
     if constexpr (!HasAssess<Component>) {
-        return fail(
+        return fail<Error>(
             make_error(Status::NotSupported, Reason::Unsupported, Operation::Assess, subject));
     } else {
         static_assert(ValidAssess<Component>,
@@ -225,7 +225,7 @@ template <typename System, typename Component>
                                              EvidenceQuality::Reported,
                                              SourceAvailability::Unavailable, true,
                                              Operation::Assess, SourceKind::ComponentAssessment);
-            return fail(*unavailable.last_error);
+            return fail<Error>(*unavailable.last_error);
         }
         const auto before = subject_record<System, Component>();
         commit_source<System, Component>(&SubjectState::assessment, *assessed,
@@ -233,7 +233,7 @@ template <typename System, typename Component>
                                          true, Operation::Assess, SourceKind::ComponentAssessment);
         const auto after = subject_record<System, Component>();
         if (!after) {
-            return fail(after.error());
+            return fail<Error>(after.error());
         }
         return Receipt{.subject = subject,
                        .generation = after->assessment_generation,
@@ -270,7 +270,7 @@ template <typename System, typename Monitor> [[nodiscard]] Result<void, Error> r
         static_assert(ValidChecker<Checker>,
                       "SOLAR_DIAGNOSTIC_HEALTH_CHECK_RETURN: named Health checks must implement "
                       "static solar::Result<solar::health::Observation> check()");
-        return fail(
+        return fail<Error>(
             make_error(Status::Invalid, Reason::SourceFailed, Operation::Check, subject, monitor));
     } else {
         auto observation = Checker::check();
@@ -284,7 +284,7 @@ template <typename System, typename Monitor> [[nodiscard]] Result<void, Error> r
                 .required = System::HealthMonitorCatalog::template Entry<Monitor>::local_id.valid(),
             };
             (void)commit_monitor<System, Monitor>(unavailable);
-            return fail(*unavailable.assessment.last_error);
+            return fail<Error>(*unavailable.assessment.last_error);
         }
         return commit_monitor<System, Monitor>(*observation);
     }
@@ -371,7 +371,7 @@ template <typename System, typename Monitor> void refresh_stack(Tick now) noexce
             observation.assessment.safety = Safety::Acceptable;
         }
     } else {
-        observation.availability = usage.error() == Status::NotSupported
+        observation.availability = status_of(usage.error()) == Status::NotSupported
                                        ? SourceAvailability::Unsupported
                                        : SourceAvailability::Unavailable;
         observation.assessment.last_error = normalize_error(usage.error(), Operation::Check);
@@ -448,17 +448,17 @@ template <typename System> [[nodiscard]] Result<void, Error> refresh() noexcept
 template <typename System, typename Component>
 [[nodiscard]] Result<Receipt, Error> assess_component() noexcept
 {
-    return fail(make_error(Status::NotSupported, Reason::Disabled, Operation::Assess));
+    return fail<Error>(make_error(Status::NotSupported, Reason::Disabled, Operation::Assess));
 }
 
 template <typename System, typename Monitor> [[nodiscard]] Result<void, Error> run_check() noexcept
 {
-    return fail(make_error(Status::NotSupported, Reason::Disabled, Operation::Check));
+    return fail<Error>(make_error(Status::NotSupported, Reason::Disabled, Operation::Check));
 }
 
 template <typename System> [[nodiscard]] Result<void, Error> refresh() noexcept
 {
-    return fail(make_error(Status::NotSupported, Reason::Disabled, Operation::Refresh));
+    return fail<Error>(make_error(Status::NotSupported, Reason::Disabled, Operation::Refresh));
 }
 
 #endif

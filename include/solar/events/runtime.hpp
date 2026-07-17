@@ -161,9 +161,9 @@ inline Result<Record, Error> CompactHistory::latest(std::optional<LocalId> filte
         offset += total_size;
     }
     if (!latest_record) {
-        return fail(Error{.status = Status::NotFound,
-                          .reason = Reason::HistoryEmpty,
-                          .operation = Operation::Query});
+        return fail<Error>({.status = solar::Status::NotFound,
+                            .reason = Reason::HistoryEmpty,
+                            .operation = Operation::Query});
     }
     return *latest_record;
 }
@@ -267,15 +267,15 @@ template <typename Facility> [[nodiscard]] Result<void> request_processing(bool 
     }
     if (Facility::schedule_processor == nullptr) {
         Facility::processor_pending.store(false, std::memory_order_release);
-        return fail(Status::NotReady);
+        return fail<solar::Error>({.status = solar::Status::NotReady});
     }
     auto submitted = Facility::schedule_processor(from_isr);
     if (!submitted) {
         Facility::processor_pending.store(false, std::memory_order_release);
         auto guard = Facility::lock.acquire();
-        Facility::facility_record.last_status = submitted.error();
+        Facility::facility_record.last_status = status_of(submitted.error());
         Facility::facility_record.processor_pending = false;
-        return fail(submitted.error());
+        return fail<solar::Error>(submitted.error());
     }
     return {};
 }
@@ -315,20 +315,20 @@ template <typename System, typename EventT, bool Isr, Operation CaptureOperation
         static_assert(CONFIG_SOLAR_EVENTS_ISR_INGRESS_DEPTH > 0 || Retention::critical,
                       "SOLAR_DIAGNOSTIC_EVENT_ISR_DISABLED: ISR event ingress is disabled");
         if (!kernel::in_isr()) {
-            return fail(make_error<System, EventT>(operation, Status::Invalid,
-                                                   Reason::InvalidContext, source));
+            return fail<Error>(make_error<System, EventT>(operation, Status::Invalid,
+                                                          Reason::InvalidContext, source));
         }
     } else if (kernel::in_isr()) {
-        return fail(
+        return fail<Error>(
             make_error<System, EventT>(operation, Status::Invalid, Reason::InvalidContext, source));
     }
 
     if (!Facility::ready.load(std::memory_order_acquire)) {
-        return fail(
+        return fail<Error>(
             make_error<System, EventT>(operation, Status::NotReady, Reason::NotReady, source));
     }
     if (!Facility::accepting.load(std::memory_order_acquire)) {
-        return fail(
+        return fail<Error>(
             make_error<System, EventT>(operation, Status::NotReady, Reason::CaptureClosed, source));
     }
 
@@ -343,8 +343,8 @@ template <typename System, typename EventT, bool Isr, Operation CaptureOperation
             }
         }();
         if (!guard) {
-            return fail(make_error<System, EventT>(operation, Status::WouldBlock,
-                                                   Reason::WouldBlock, source));
+            return fail<Error>(make_error<System, EventT>(operation, Status::WouldBlock,
+                                                          Reason::WouldBlock, source));
         }
         auto& state = Facility::template event_state<EventT>;
         auto& event_record = state.record;
@@ -445,8 +445,8 @@ template <typename System, typename EventT, bool Isr, Operation CaptureOperation
                     ++state.policy_counter;
                     event_record.last_status = Status::NoSpace;
                     event_record.last_failure = Reason::AggregationKeysFull;
-                    return fail(make_error<System, EventT>(operation, Status::NoSpace,
-                                                           Reason::AggregationKeysFull, source));
+                    return fail<Error>(make_error<System, EventT>(
+                        operation, Status::NoSpace, Reason::AggregationKeysFull, source));
                 }
                 if (!selected->occupied) {
                     selected->key = key;
@@ -490,7 +490,7 @@ template <typename System, typename EventT, bool Isr, Operation CaptureOperation
             if constexpr (Retention::panic_on_exhaustion) {
                 kernel::panic(Status::NoBuffer);
             }
-            return fail(make_error<System, EventT>(
+            return fail<Error>(make_error<System, EventT>(
                 operation, Status::NoBuffer,
                 Retention::critical ? Reason::RequiredCaptureExhausted : Reason::CaptureFull,
                 source));
@@ -583,7 +583,7 @@ template <typename Facility, typename EventT>
         if (!appended.stored) {
             ++state.record.known_lost;
             state.record.overflow_latched = true;
-            return fail(Status::NoBuffer);
+            return fail<solar::Error>({.status = solar::Status::NoBuffer});
         }
         ++state.record.retained;
         state.record.history_evicted += appended.evicted;
@@ -599,14 +599,14 @@ template <typename Facility, typename EventT>
         if (!retained) {
             ++state.record.known_lost;
             state.record.overflow_latched = true;
-            return fail(Status::NoBuffer);
+            return fail<solar::Error>({.status = solar::Status::NoBuffer});
         }
         ++state.record.retained;
         return {};
     } else {
         auto persisted = Retention::StoreType::write(stored.view());
         if (!persisted) {
-            return fail(persisted.error());
+            return fail<solar::Error>({.status = status_of(persisted.error())});
         }
         auto guard = Facility::lock.acquire();
         ++state.record.retained;
@@ -619,7 +619,7 @@ template <typename System, typename EventT>
 {
     using Facility = typename System::EventFacility;
     auto retained = retain_record<Facility, EventT>(stored);
-    Status first_error = retained ? Status::Ok : retained.error();
+    Status first_error = retained ? Status::Ok : status_of(retained.error());
 
     for_each_type<typename Facility::ProcessorTypes>([&]<typename Processor> {
         using Traits = processor_traits<Processor>;
@@ -636,11 +636,11 @@ template <typename System, typename EventT>
                 record.last_status = Status::Ok;
             } else {
                 ++record.failed;
-                record.last_status = processed.error();
+                record.last_status = status_of(processed.error());
                 ++Facility::facility_record.processor_failures;
                 ++Facility::template event_state<EventT>.record.processor_failures;
                 if (first_error == Status::Ok) {
-                    first_error = processed.error();
+                    first_error = status_of(processed.error());
                 }
             }
         }
@@ -697,14 +697,15 @@ template <typename System, typename EventT>
         Facility::facility_record.last_status =
             first_error == Status::Ok ? Status::Ok : first_error;
     }
-    return first_error == Status::Ok ? Result<void>{} : Result<void>{fail(first_error)};
+    return first_error == Status::Ok ? Result<void>{}
+                                     : Result<void>{fail<solar::Error>({.status = first_error})};
 }
 
 template <typename System>
 [[nodiscard]] Result<void> process_one(const StoredRecord& stored) noexcept
 {
     using Facility = typename System::EventFacility;
-    Result<void> result = fail(Status::NotFound);
+    Result<void> result = fail<solar::Error>({.status = solar::Status::NotFound});
     for_each_type<typename Facility::EventTypes>([&]<typename EventT> {
         if (stored.header.event == System::EventCatalog::template Entry<EventT>::local_id) {
             result = process_record_for<System, EventT>(stored);
@@ -761,7 +762,7 @@ template <typename Facility>
         while (true) {
             if (deadline != nullptr && deadline->expired()) {
                 if (first_error) {
-                    first_error = fail(Status::Timeout);
+                    first_error = fail<solar::Error>({.status = solar::Status::Timeout});
                 }
                 break;
             }
@@ -772,11 +773,12 @@ template <typename Facility>
                     break;
                 }
             }
-            auto processed = Facility::process_record == nullptr
-                                 ? Result<void>{fail(Status::NotReady)}
-                                 : Facility::process_record(stored);
+            auto processed =
+                Facility::process_record == nullptr
+                    ? Result<void>{fail<solar::Error>({.status = solar::Status::NotReady})}
+                    : Facility::process_record(stored);
             if (!processed && first_error) {
-                first_error = fail(processed.error());
+                first_error = fail<solar::Error>(processed.error());
             }
         }
     });
@@ -817,16 +819,17 @@ template <typename Facility>
                 break;
             }
             if (deadline != nullptr && deadline->expired()) {
-                return fail(Status::Timeout);
+                return fail<solar::Error>({.status = solar::Status::Timeout});
             }
             if (!detail::pop_next<Facility>(record)) {
                 break;
             }
         }
-        auto processed = Facility::process_record == nullptr ? Result<void>{fail(Status::NotReady)}
-                                                             : Facility::process_record(record);
+        auto processed = Facility::process_record == nullptr
+                             ? Result<void>{fail<solar::Error>({.status = solar::Status::NotReady})}
+                             : Facility::process_record(record);
         if (!processed && first_error) {
-            first_error = fail(processed.error());
+            first_error = fail<solar::Error>(processed.error());
         }
     }
     return first_error;
@@ -849,8 +852,8 @@ template <typename System, typename EventT>
             return candidate.record;
         }
     }
-    return fail(make_error<System, EventT>(Operation::Query, Status::NotFound,
-                                           Reason::NotRegistered, source));
+    return fail<Error>(make_error<System, EventT>(Operation::Query, Status::NotFound,
+                                                  Reason::NotRegistered, source));
 }
 
 template <typename System, typename Processor>
@@ -955,9 +958,9 @@ template <typename System>
             });
     });
     if (!selected) {
-        return fail(Error{.status = Status::NotFound,
-                          .reason = Reason::HistoryEmpty,
-                          .operation = Operation::Query});
+        return fail<Error>({.status = solar::Status::NotFound,
+                            .reason = Reason::HistoryEmpty,
+                            .operation = Operation::Query});
     }
     return *selected;
 }
@@ -974,7 +977,8 @@ void Facility<Architecture>::activate_runtime() noexcept
     schedule_processor = [](bool from_isr) noexcept -> Result<void> {
         auto submitted =
             execution::detail::submit_registration<System, ProcessorRegistration>(from_isr);
-        return submitted ? Result<void>{} : Result<void>{fail(submitted.error().status)};
+        return submitted ? Result<void>{}
+                         : Result<void>{fail<solar::Error>({.status = submitted.error().status})};
     };
     process_record = [](const detail::StoredRecord& record) noexcept -> Result<void> {
         return detail::process_one<System>(record);

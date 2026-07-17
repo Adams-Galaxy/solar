@@ -20,8 +20,8 @@ struct Sample
     constexpr bool operator==(const Sample&) const = default;
 };
 
-using PollQueue = solar::execution::WorkQueue<
-    "remote-poll", solar::execution::StackSize<2048>, solar::execution::Priority<2>>;
+using PollQueue = solar::execution::WorkQueue<"remote-poll", solar::execution::StackSize<2048>,
+                                              solar::execution::Priority<2>>;
 
 struct Polled
 {
@@ -43,10 +43,9 @@ struct Polled
         return {.sequence = call};
     }
 
-    using Capabilities = solar::remote::Capabilities<solar::remote::OutStream<
-        solar::remote::Poll<&Polled::read,
-                            solar::remote::On<PollQueue>>,
-        solar::remote::MaxRate<100>>>;
+    using Capabilities = solar::remote::Capabilities<
+        solar::remote::OutStream<solar::remote::Poll<&Polled::read, solar::remote::On<PollQueue>>,
+                                 solar::remote::MaxRate<100>>>;
 };
 
 struct TestLink : solar::remote::testing::InMemoryLink<TestLink, 256, 256>
@@ -65,8 +64,8 @@ struct Root
     using RemoteLinks = solar::remote::ContributeLinks<TestLink>;
 };
 
-using System = solar::System<
-    solar::Blueprint<solar::Facilities<Root>, solar::Executors<PollQueue>>>;
+using System =
+    solar::System<solar::Blueprint<solar::Facilities<Root>, solar::Executors<PollQueue>>>;
 using Service = typename System::RemoteService;
 using LinkState = solar::remote::detail::LinkState<Service, TestLink, 0>;
 using PollState = decltype(solar::remote::detail::poll_state<System, Polled>());
@@ -100,12 +99,11 @@ receive_frame(std::array<std::byte, 160>& decoded_storage, int attempts = 200)
     for (int attempt = 0; attempt < attempts; ++attempt) {
         auto bytes = fixture::TestLink::take_transmitted(host_rx);
         if (bytes) {
-            return solar::remote::frame::decode(std::span{host_rx}.first(*bytes),
-                                                decoded_storage);
+            return solar::remote::frame::decode(std::span{host_rx}.first(*bytes), decoded_storage);
         }
         k_sleep(K_MSEC(1));
     }
-    return solar::fail(solar::remote::Error{
+    return solar::fail<solar::remote::Error>({
         .status = solar::Status::Timeout,
         .reason = solar::remote::Reason::Busy,
         .operation = solar::remote::Operation::Receive,
@@ -137,13 +135,12 @@ ZTEST(remote_poll, test_subscription_activated_poll_and_overlap_skip)
     auto registration = solar::execution::registration<fixture::PollRegistration>();
     zassert_true(registration.has_value());
     zassert_equal(registration->target_kind, solar::execution::TargetKind::OwnedWorkQueue);
-    zassert_true(fixture::TestLink::connect() == solar::Status::Ok);
+    zassert_true(fixture::TestLink::connect().has_value());
 
     std::array<std::byte, 160> decoded_storage{};
     auto server_hello = receive_frame(decoded_storage);
     zassert_true(server_hello.has_value());
-    zassert_equal(server_hello->envelope.kind,
-                  solar::remote::protocol::Kind::ServerHello);
+    zassert_equal(server_hello->envelope.kind, solar::remote::protocol::Kind::ServerHello);
 
     solar::remote::protocol::Envelope client_hello{
         .kind = solar::remote::protocol::Kind::ClientHello,
@@ -201,10 +198,9 @@ ZTEST(remote_poll, test_subscription_activated_poll_and_overlap_skip)
     }
 
     fixture::Polled::delay_ms.store(80);
-    for (int attempt = 0; attempt < 300 &&
-                          solar::remote::detail::poll_state<fixture::System,
-                                                           fixture::Polled>()
-                                  .skipped.load() == 0;
+    for (int attempt = 0;
+         attempt < 300 &&
+         solar::remote::detail::poll_state<fixture::System, fixture::Polled>().skipped.load() == 0;
          ++attempt) {
         k_sleep(K_MSEC(1));
     }

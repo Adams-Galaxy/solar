@@ -65,7 +65,7 @@ emit_route(const typename subscription_traits<Subscription>::MessageType& messag
                 mode == EmitMode::Isr   ? Operation::TryEmitIsr
                 : mode == EmitMode::Try ? Operation::TryEmit
                                         : Operation::Emit,
-                handled.error(), Reason::InlineHandlerFailed);
+                status_of(handled.error()), Reason::InlineHandlerFailed);
             error.subscription = subscription_id;
             return {.failed = true, .accepted = true, .error = error};
         }
@@ -126,17 +126,17 @@ template <typename System, typename Message, EmitMode Mode>
 
     if constexpr (Mode != EmitMode::Isr) {
         if (kernel::in_isr()) {
-            return fail(make_error<System, Message>(Mode == EmitMode::Try ? Operation::TryEmit
-                                                                          : Operation::Emit,
-                                                    Status::Invalid, Reason::InvalidContext));
+            return fail<Error>(make_error<System, Message>(
+                Mode == EmitMode::Try ? Operation::TryEmit : Operation::Emit, Status::Invalid,
+                Reason::InvalidContext));
         }
     }
 
     if (lifecycle::Engine<System>::state() != lifecycle::SystemState::Running) {
-        return fail(make_error<System, Message>(Mode == EmitMode::Isr   ? Operation::TryEmitIsr
-                                                : Mode == EmitMode::Try ? Operation::TryEmit
-                                                                        : Operation::Emit,
-                                                Status::NotReady, Reason::NotReady));
+        return fail<Error>(make_error<System, Message>(Mode == EmitMode::Isr ? Operation::TryEmitIsr
+                                                       : Mode == EmitMode::Try ? Operation::TryEmit
+                                                                               : Operation::Emit,
+                                                       Status::NotReady, Reason::NotReady));
     }
 
     Error aggregate = make_error<System, Message>(Mode == EmitMode::Isr   ? Operation::TryEmitIsr
@@ -174,7 +174,7 @@ template <typename System, typename Message, EmitMode Mode>
     });
 
     if (failed) {
-        return fail(aggregate);
+        return fail<Error>(aggregate);
     }
     return {};
 }

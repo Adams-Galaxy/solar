@@ -11,6 +11,11 @@ enum class SensorError
     Offline,
 };
 
+constexpr solar::Status status_of(SensorError) noexcept
+{
+    return solar::Status::NotReady;
+}
+
 struct MoveOnlyValue
 {
     int value;
@@ -24,7 +29,8 @@ struct MoveOnlyValue
 
 constexpr solar::Result<int, SensorError> reading(bool ready)
 {
-    return ready ? solar::Result<int, SensorError>{21} : solar::fail(SensorError::Offline);
+    return ready ? solar::Result<int, SensorError>{21}
+                 : solar::fail<SensorError>(SensorError::Offline);
 }
 
 static_assert(reading(true).transform([](int value) { return value * 2; }).value() == 42);

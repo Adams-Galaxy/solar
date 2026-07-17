@@ -1,9 +1,9 @@
 #pragma once
 
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <bit>
 #include <limits>
 #include <optional>
 #include <span>
@@ -36,8 +36,8 @@ namespace detail
         }
         mantissa |= 0x800000U;
         const auto shift = static_cast<unsigned>(14 - exponent);
-        const auto rounded = (mantissa + ((UINT32_C(1) << (shift - 1U)) - 1U) +
-                              ((mantissa >> shift) & 1U)) >> shift;
+        const auto rounded =
+            (mantissa + ((UINT32_C(1) << (shift - 1U)) - 1U) + ((mantissa >> shift) & 1U)) >> shift;
         return static_cast<std::uint16_t>(sign | rounded);
     }
     if (exponent >= 31) {
@@ -70,8 +70,8 @@ namespace detail
                 mantissa <<= 1U;
             } while ((mantissa & 0x0400U) == 0);
             mantissa &= 0x03FFU;
-            bits = sign | static_cast<std::uint32_t>(127 - 15 - adjustment) << 23U |
-                   mantissa << 13U;
+            bits =
+                sign | static_cast<std::uint32_t>(127 - 15 - adjustment) << 23U | mantissa << 13U;
         }
     } else if (exponent == 31) {
         bits = sign | 0x7F800000U | mantissa << 13U;
@@ -167,13 +167,11 @@ template <typename Value, typename... FieldTypes> struct Codec<Value, Fields<Fie
         return 1U;
     }
 
-    template <typename FieldT>
-    static bool encode_field(zcbor_state_t* state, const Value& value)
+    template <typename FieldT> static bool encode_field(zcbor_state_t* state, const Value& value)
     {
         const auto& member = value.*FieldT::member;
         if constexpr (remote::detail::is_optional_v<std::remove_cvref_t<decltype(member)>>) {
-            return !member || (zcbor_uint32_put(state, FieldT::id) &&
-                               encode_value(state, *member));
+            return !member || (zcbor_uint32_put(state, FieldT::id) && encode_value(state, *member));
         } else {
             return zcbor_uint32_put(state, FieldT::id) && encode_value(state, member);
         }
@@ -188,8 +186,8 @@ template <typename Value, typename... FieldTypes> struct Codec<Value, Fields<Fie
         if (!zcbor_map_start_encode(state, count) ||
             !(encode_field<FieldTypes>(state, value) && ...) ||
             !zcbor_map_end_encode(state, count)) {
-            return fail(Error{Status::NoSpace, Reason::NoSpace, Operation::Encode,
-                              static_cast<std::uint32_t>(zcbor_peek_error(state))});
+            return fail<Error>({Status::NoSpace, Reason::NoSpace, Operation::Encode,
+                                static_cast<std::uint32_t>(zcbor_peek_error(state))});
         }
         return static_cast<std::size_t>(state[0].payload - begin);
     }
@@ -238,7 +236,7 @@ template <typename Value, typename... FieldTypes> struct Codec<Value, Fields<Fie
         std::uint64_t seen{};
         Reason reason{Reason::None};
         if (!zcbor_map_start_decode(state)) {
-            return fail(Error{Status::ProtocolError, Reason::Malformed, Operation::Decode});
+            return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::Decode});
         }
         while (state[0].elem_count > 0) {
             std::uint32_t key{};
@@ -271,8 +269,8 @@ template <typename Value, typename... FieldTypes> struct Codec<Value, Fields<Fie
             reason = Reason::TrailingData;
         }
         if (reason != Reason::None) {
-            return fail(Error{Status::ProtocolError, reason, Operation::Decode,
-                              static_cast<std::uint32_t>(zcbor_peek_error(state))});
+            return fail<Error>({Status::ProtocolError, reason, Operation::Decode,
+                                static_cast<std::uint32_t>(zcbor_peek_error(state))});
         }
         return value;
     }
@@ -290,7 +288,7 @@ template <typename Value>
         auto* begin = reinterpret_cast<std::uint8_t*>(output.data());
         ZCBOR_STATE_E(state, 1, begin, output.size(), 1);
         if (!zcbor_uint32_put(state, static_cast<std::uint8_t>(encode_status(value)))) {
-            return fail(Error{Status::NoSpace, Reason::NoSpace, Operation::Encode});
+            return fail<Error>({Status::NoSpace, Reason::NoSpace, Operation::Encode});
         }
         return static_cast<std::size_t>(state[0].payload - begin);
     } else {
@@ -309,11 +307,11 @@ template <typename Value>
         ZCBOR_STATE_D(state, 1, begin, input.size(), 1, 0);
         std::uint32_t encoded{};
         if (!zcbor_uint32_decode(state, &encoded) || !zcbor_payload_at_end(state)) {
-            return fail(Error{Status::ProtocolError, Reason::Malformed, Operation::Decode});
+            return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::Decode});
         }
         const auto status = decode_status(static_cast<StatusCode>(encoded));
         if (!status) {
-            return fail(Error{Status::ProtocolError, Reason::InvalidValue, Operation::Decode});
+            return fail<Error>({Status::ProtocolError, Reason::InvalidValue, Operation::Decode});
         }
         return *status;
     } else {
@@ -322,16 +320,15 @@ template <typename Value>
 }
 #else
 template <typename Value>
-[[nodiscard]] Result<std::size_t, Error> encode(const Value&,
-                                                std::span<std::byte>) noexcept
+[[nodiscard]] Result<std::size_t, Error> encode(const Value&, std::span<std::byte>) noexcept
 {
-    return fail(Error{Status::NotSupported, Reason::Disabled, Operation::Encode});
+    return fail<Error>({Status::NotSupported, Reason::Disabled, Operation::Encode});
 }
 
 template <typename Value>
 [[nodiscard]] Result<Value, Error> decode(std::span<const std::byte>) noexcept
 {
-    return fail(Error{Status::NotSupported, Reason::Disabled, Operation::Decode});
+    return fail<Error>({Status::NotSupported, Reason::Disabled, Operation::Decode});
 }
 #endif
 

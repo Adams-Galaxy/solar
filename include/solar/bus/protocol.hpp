@@ -15,14 +15,20 @@ namespace solar::bus::detail
 {
     switch (error) {
     case frontend::Error::NotReady:
-        return {.status = Status::NotReady, .reason = Reason::NotReady, .operation = operation};
-    case frontend::Error::Disabled:
-        return {.status = Status::NotSupported, .reason = Reason::Disabled, .operation = operation};
-    case frontend::Error::NotRegistered:
         return {
-            .status = Status::NotFound, .reason = Reason::NotRegistered, .operation = operation};
+            .status = solar::Status::NotReady, .reason = Reason::NotReady, .operation = operation};
+    case frontend::Error::Disabled:
+        return {.status = solar::Status::NotSupported,
+                .reason = Reason::Disabled,
+                .operation = operation};
+    case frontend::Error::NotRegistered:
+        return {.status = solar::Status::NotFound,
+                .reason = Reason::NotRegistered,
+                .operation = operation};
     }
-    return {.status = Status::Error, .reason = Reason::InternalInvariant, .operation = operation};
+    return {.status = solar::Status::Error,
+            .reason = Reason::InternalInvariant,
+            .operation = operation};
 }
 
 template <EmitMode Mode> struct EmitFrontend
@@ -41,7 +47,7 @@ template <EmitMode Mode> struct EmitFrontend
         constexpr Operation operation = Mode == EmitMode::Isr   ? Operation::TryEmitIsr
                                         : Mode == EmitMode::Try ? Operation::TryEmit
                                                                 : Operation::Emit;
-        return fail(frontend_error(error, operation));
+        return fail<Error>(frontend_error(error, operation));
     }
 };
 

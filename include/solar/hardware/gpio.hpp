@@ -110,9 +110,8 @@ template <Key EndpointKey> struct CallbackState
 
 template <auto Spec> struct Pin : Endpoint<Spec>
 {
-    static_assert(available,
-                  "SOLAR_DIAGNOSTIC_HARDWARE_GPIO_DISABLED: GPIO wrappers require "
-                  "CONFIG_SOLAR_HARDWARE_GPIO");
+    static_assert(available, "SOLAR_DIAGNOSTIC_HARDWARE_GPIO_DISABLED: GPIO wrappers require "
+                             "CONFIG_SOLAR_HARDWARE_GPIO");
     static_assert(dt::GpioDescriptorType<decltype(Spec)>,
                   "SOLAR_DIAGNOSTIC_HARDWARE_GPIO_DESCRIPTOR_REQUIRED: GPIO wrapper requires a "
                   "GPIO devicetree descriptor");
@@ -135,17 +134,19 @@ template <auto Spec> struct Pin : Endpoint<Spec>
     {
         const auto value = gpio_pin_get_dt(&Base::descriptor_value.native);
         if (value < 0) {
-            return fail(hardware::detail::native_error(value, Operation::Read, Base::path()));
+            return fail<Error>(
+                hardware::detail::native_error(value, Operation::Read, Base::path()));
         }
         return value != 0;
     }
 
     [[nodiscard]] static Result<bool, Error> read_raw() noexcept
     {
-        const auto value = gpio_pin_get_raw(Base::descriptor_value.native.port,
-                                            Base::descriptor_value.native.pin);
+        const auto value =
+            gpio_pin_get_raw(Base::descriptor_value.native.port, Base::descriptor_value.native.pin);
         if (value < 0) {
-            return fail(hardware::detail::native_error(value, Operation::Read, Base::path()));
+            return fail<Error>(
+                hardware::detail::native_error(value, Operation::Read, Base::path()));
         }
         return value != 0;
     }
@@ -159,16 +160,16 @@ template <auto Spec> struct Pin : Endpoint<Spec>
 
     [[nodiscard]] static Result<void, Error> write_raw(bool high) noexcept
     {
-        return hardware::detail::native_result(
-            gpio_pin_set_raw(Base::descriptor_value.native.port, Base::descriptor_value.native.pin,
-                             high),
-            Operation::Write, Base::path());
+        return hardware::detail::native_result(gpio_pin_set_raw(Base::descriptor_value.native.port,
+                                                                Base::descriptor_value.native.pin,
+                                                                high),
+                                               Operation::Write, Base::path());
     }
 
     [[nodiscard]] static Result<void, Error> toggle() noexcept
     {
-        return hardware::detail::native_result(
-            gpio_pin_toggle_dt(&Base::descriptor_value.native), Operation::Toggle, Base::path());
+        return hardware::detail::native_result(gpio_pin_toggle_dt(&Base::descriptor_value.native),
+                                               Operation::Toggle, Base::path());
     }
 
     [[nodiscard]] static constexpr gpio_pin_t pin() noexcept
@@ -227,20 +228,19 @@ struct Interrupt : Input<Spec, Options>
     [[nodiscard]] static Result<void, Error> install(Handler handler) noexcept
     {
         if (handler == nullptr) {
-            return fail(Error{.status = Status::Invalid,
-                              .reason = Reason::InvalidConfiguration,
-                              .operation = Operation::CallbackInstall,
-                              .native = -EINVAL,
-                              .endpoint = Base::path()});
+            return fail<Error>({.status = solar::Status::Invalid,
+                                .reason = Reason::InvalidConfiguration,
+                                .operation = Operation::CallbackInstall,
+                                .native = -EINVAL,
+                                .endpoint = Base::path()});
         }
         bool expected{};
-        if (!State::registered.compare_exchange_strong(expected, true,
-                                                       std::memory_order_acq_rel)) {
-            return fail(Error{.status = Status::Already,
-                              .reason = Reason::AlreadyOwned,
-                              .operation = Operation::CallbackInstall,
-                              .native = -EALREADY,
-                              .endpoint = Base::path()});
+        if (!State::registered.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+            return fail<Error>({.status = solar::Status::Already,
+                                .reason = Reason::AlreadyOwned,
+                                .operation = Operation::CallbackInstall,
+                                .native = -EALREADY,
+                                .endpoint = Base::path()});
         }
         State::handler.store(handler, std::memory_order_release);
         gpio_init_callback(&State::callback, &trampoline,
@@ -249,8 +249,8 @@ struct Interrupt : Input<Spec, Options>
         if (result != 0) {
             State::handler.store(nullptr, std::memory_order_release);
             State::registered.store(false, std::memory_order_release);
-            return fail(hardware::detail::native_error(result, Operation::CallbackInstall,
-                                                       Base::path()));
+            return fail<Error>(
+                hardware::detail::native_error(result, Operation::CallbackInstall, Base::path()));
         }
         return {};
     }
@@ -258,17 +258,17 @@ struct Interrupt : Input<Spec, Options>
     [[nodiscard]] static Result<void, Error> uninstall() noexcept
     {
         if (!State::registered.load(std::memory_order_acquire)) {
-            return fail(Error{.status = Status::NotReady,
-                              .reason = Reason::NotReady,
-                              .operation = Operation::CallbackRemove,
-                              .native = -ENOENT,
-                              .endpoint = Base::path()});
+            return fail<Error>({.status = solar::Status::NotReady,
+                                .reason = Reason::NotReady,
+                                .operation = Operation::CallbackRemove,
+                                .native = -ENOENT,
+                                .endpoint = Base::path()});
         }
-        const auto result = gpio_remove_callback_dt(&Base::descriptor_value.native,
-                                                    &State::callback);
+        const auto result =
+            gpio_remove_callback_dt(&Base::descriptor_value.native, &State::callback);
         if (result != 0) {
-            return fail(hardware::detail::native_error(result, Operation::CallbackRemove,
-                                                       Base::path()));
+            return fail<Error>(
+                hardware::detail::native_error(result, Operation::CallbackRemove, Base::path()));
         }
         State::handler.store(nullptr, std::memory_order_release);
         State::registered.store(false, std::memory_order_release);
@@ -329,8 +329,8 @@ struct Interrupt : Input<Spec, Options>
     {
         const auto result = gpio_get_pending_int(Base::descriptor_value.native.port);
         if (result < 0) {
-            return fail(hardware::detail::native_error(result, Operation::Pending,
-                                                       Base::path()));
+            return fail<Error>(
+                hardware::detail::native_error(result, Operation::Pending, Base::path()));
         }
         return result != 0;
     }
@@ -366,13 +366,13 @@ template <const device* Device> struct Port
         gpio_port_value_t value{};
         const auto result = gpio_port_get_raw(Device, &value);
         if (result != 0) {
-            return fail(hardware::detail::native_error(result, Operation::Read));
+            return fail<Error>(hardware::detail::native_error(result, Operation::Read));
         }
         return value;
     }
 
-    [[nodiscard]] static Result<void, Error>
-    write_masked_raw(gpio_port_pins_t mask, gpio_port_value_t value) noexcept
+    [[nodiscard]] static Result<void, Error> write_masked_raw(gpio_port_pins_t mask,
+                                                              gpio_port_value_t value) noexcept
     {
         return hardware::detail::native_result(gpio_port_set_masked_raw(Device, mask, value),
                                                Operation::Write);

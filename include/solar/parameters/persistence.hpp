@@ -81,7 +81,7 @@ struct DecodedRecord
 {
     const auto total = envelope_size + payload.size();
     if (output.size() < total) {
-        return fail(Status::NoBuffer);
+        return fail<solar::Error>({.status = solar::Status::NoBuffer});
     }
     write_little<std::uint32_t>(output, 0, record_magic);
     output[4] = static_cast<std::byte>(key.kind);
@@ -100,16 +100,16 @@ struct DecodedRecord
 decode_record(std::span<const std::byte> input) noexcept
 {
     if (input.size() < envelope_size || read_little<std::uint32_t>(input, 0) != record_magic) {
-        return fail(Status::ProtocolError);
+        return fail<solar::Error>({.status = solar::Status::ProtocolError});
     }
     const auto payload_size = read_little<std::uint32_t>(input, 16);
     if (payload_size > input.size() - envelope_size ||
         envelope_size + payload_size != input.size()) {
-        return fail(Status::MessageTooLarge);
+        return fail<solar::Error>({.status = solar::Status::MessageTooLarge});
     }
     const auto payload = input.subspan(envelope_size, payload_size);
     if (checksum(payload) != read_little<std::uint32_t>(input, 20)) {
-        return fail(Status::ProtocolError);
+        return fail<solar::Error>({.status = solar::Status::ProtocolError});
     }
     return DecodedRecord{
         .key = {.kind = static_cast<RecordKind>(std::to_integer<std::uint8_t>(input[4])),

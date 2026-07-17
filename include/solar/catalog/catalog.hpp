@@ -36,6 +36,20 @@ enum class LookupError
     MalformedIdentifier,
 };
 
+[[nodiscard]] constexpr Status status_of(LookupError error) noexcept
+{
+    switch (error) {
+    case LookupError::UnknownLocalId:
+    case LookupError::UnknownStableId:
+        return Status::NotFound;
+    case LookupError::Unavailable:
+        return Status::NotReady;
+    case LookupError::MalformedIdentifier:
+        return Status::Invalid;
+    }
+    return Status::Error;
+}
+
 template <typename Tag, typename DescriptorT> struct BasicDescriptorView
 {
     LocalId<Tag> local_id{};
@@ -164,7 +178,8 @@ template <typename Tag, typename Declaration> [[nodiscard]] consteval bool custo
     return true;
 }
 
-template <typename Tag, typename Declaration> [[nodiscard]] consteval bool custom_declaration_valid()
+template <typename Tag, typename Declaration>
+[[nodiscard]] consteval bool custom_declaration_valid()
 {
     if constexpr (requires { catalog_traits<Tag>::template validate_declaration<Declaration>(); }) {
         return catalog_traits<Tag>::template validate_declaration<Declaration>();
@@ -412,7 +427,7 @@ template <typename CatalogTag, typename... Entries> class Catalog
     find(LocalId<CatalogTag> id) noexcept
     {
         if (!id.valid() || id.index() >= size) {
-            return fail(catalog::LookupError::UnknownLocalId);
+            return fail<catalog::LookupError>(catalog::LookupError::UnknownLocalId);
         }
         return std::cref(descriptor_views_[id.index()]);
     }
@@ -426,7 +441,7 @@ template <typename CatalogTag, typename... Entries> class Catalog
                 return std::cref(descriptor_views_[index]);
             }
         }
-        return fail(catalog::LookupError::UnknownStableId);
+        return fail<catalog::LookupError>(catalog::LookupError::UnknownStableId);
     }
 };
 

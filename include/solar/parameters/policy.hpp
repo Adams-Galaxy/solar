@@ -322,20 +322,20 @@ struct ValidationTraits<Range<Minimum, Maximum, Behavior>>
                       "SOLAR_DIAGNOSTIC_PARAMETER_RANGE_ORDER: range minimum exceeds maximum");
         if constexpr (std::floating_point<Value>) {
             if (!std::isfinite(candidate)) {
-                return fail(ValidationError{});
+                return fail<ValidationError>({});
             }
         }
         if (candidate < minimum) {
             if constexpr (std::is_same_v<Behavior, Clamp>) {
                 return Normalized<Value>{.value = minimum, .adjusted = true};
             }
-            return fail(ValidationError{});
+            return fail<ValidationError>({});
         }
         if (candidate > maximum) {
             if constexpr (std::is_same_v<Behavior, Clamp>) {
                 return Normalized<Value>{.value = maximum, .adjusted = true};
             }
-            return fail(ValidationError{});
+            return fail<ValidationError>({});
         }
         return Normalized<Value>{.value = candidate};
     }
@@ -353,7 +353,7 @@ template <auto... Values> struct ValidationTraits<OneOf<Values...>>
         if (((candidate == static_cast<Value>(Values)) || ...)) {
             return Normalized<Value>{.value = candidate};
         }
-        return fail(ValidationError{});
+        return fail<ValidationError>({});
     }
 };
 
@@ -373,7 +373,7 @@ template <typename Validator> struct ValidationTraits<Custom<Validator>>
                "Result<Value, ValidationError>");
         auto result = Validator::normalize(candidate);
         if (!result) {
-            return fail(result.error());
+            return fail<ValidationError>(result.error());
         }
         return Normalized<Value>{.value = *result, .adjusted = !(*result == candidate)};
     }

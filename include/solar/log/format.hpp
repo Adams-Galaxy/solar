@@ -73,8 +73,7 @@ inline constexpr bool supported_argument_v =
     std::is_enum_v<std::remove_cvref_t<T>> || is_character_array_v<T> ||
     std::is_same_v<std::remove_cvref_t<T>, std::string_view>;
 
-template <typename... Arguments>
-[[nodiscard]] consteval bool valid_format(std::string_view format)
+template <typename... Arguments> [[nodiscard]] consteval bool valid_format(std::string_view format)
 {
     std::size_t fields{};
     for (std::size_t index{}; index < format.size(); ++index) {
@@ -145,8 +144,8 @@ template <typename T> [[nodiscard]] bool encode_argument(PayloadWriter& writer, 
         constexpr auto extent = std::extent_v<std::remove_reference_t<T>>;
         const auto size = static_cast<std::uint16_t>(extent == 0 ? 0 : extent - 1);
         return writer.append(ArgumentHeader{.kind = ArgumentKind::String, .size = size}) &&
-               writer.append_bytes(std::as_bytes(
-                   std::span<const char>{argument, static_cast<std::size_t>(size)}));
+               writer.append_bytes(
+                   std::as_bytes(std::span<const char>{argument, static_cast<std::size_t>(size)}));
     } else if constexpr (std::is_same_v<Value, std::string_view>) {
         const auto copied = std::min<std::size_t>(argument.size(), max_copied_string_bytes);
         const auto size = static_cast<std::uint16_t>(copied);
@@ -154,25 +153,30 @@ template <typename T> [[nodiscard]] bool encode_argument(PayloadWriter& writer, 
                writer.append_bytes(std::as_bytes(std::span{argument.data(), copied}));
     } else if constexpr (std::is_same_v<Value, bool>) {
         const std::uint8_t encoded = argument ? 1U : 0U;
-        return writer.append(ArgumentHeader{.kind = ArgumentKind::Boolean, .size = sizeof(encoded)}) &&
+        return writer.append(
+                   ArgumentHeader{.kind = ArgumentKind::Boolean, .size = sizeof(encoded)}) &&
                writer.append(encoded);
     } else if constexpr (std::is_same_v<Value, char>) {
-        return writer.append(ArgumentHeader{.kind = ArgumentKind::Character, .size = sizeof(char)}) &&
+        return writer.append(
+                   ArgumentHeader{.kind = ArgumentKind::Character, .size = sizeof(char)}) &&
                writer.append(argument);
     } else if constexpr (std::is_enum_v<Value>) {
         using Underlying = std::underlying_type_t<Value>;
         return encode_argument(writer, static_cast<Underlying>(argument));
     } else if constexpr (std::signed_integral<Value>) {
         const auto encoded = static_cast<std::int64_t>(argument);
-        return writer.append(ArgumentHeader{.kind = ArgumentKind::Signed, .size = sizeof(encoded)}) &&
+        return writer.append(
+                   ArgumentHeader{.kind = ArgumentKind::Signed, .size = sizeof(encoded)}) &&
                writer.append(encoded);
     } else if constexpr (std::unsigned_integral<Value>) {
         const auto encoded = static_cast<std::uint64_t>(argument);
-        return writer.append(ArgumentHeader{.kind = ArgumentKind::Unsigned, .size = sizeof(encoded)}) &&
+        return writer.append(
+                   ArgumentHeader{.kind = ArgumentKind::Unsigned, .size = sizeof(encoded)}) &&
                writer.append(encoded);
     } else if constexpr (std::floating_point<Value>) {
         const auto encoded = static_cast<double>(argument);
-        return writer.append(ArgumentHeader{.kind = ArgumentKind::Floating, .size = sizeof(encoded)}) &&
+        return writer.append(
+                   ArgumentHeader{.kind = ArgumentKind::Floating, .size = sizeof(encoded)}) &&
                writer.append(encoded);
     } else {
         return false;
@@ -192,10 +196,10 @@ template <typename... Arguments>
     };
     if (!writer.append(header) ||
         !(encode_argument(writer, std::forward<Arguments>(arguments)) && ...)) {
-        return fail(Error{.status = Status::MessageTooLarge,
-                          .reason = Reason::ArgumentEncoding,
-                          .operation = Operation::Capture,
-                          .level = request.level});
+        return fail<Error>({.status = solar::Status::MessageTooLarge,
+                            .reason = Reason::ArgumentEncoding,
+                            .operation = Operation::Capture,
+                            .level = request.level});
     }
     request.payload_size = static_cast<std::uint16_t>(writer.size());
     return {};
@@ -217,7 +221,8 @@ class TextWriter
 
     void append(std::string_view value) noexcept
     {
-        const auto copied = std::min(value.size(), output_.size() - std::min(size_, output_.size()));
+        const auto copied =
+            std::min(value.size(), output_.size() - std::min(size_, output_.size()));
         if (copied != 0) {
             std::memcpy(output_.data() + size_, value.data(), copied);
             size_ += copied;
@@ -309,8 +314,8 @@ inline void render_argument(TextWriter& output, const ArgumentView& argument,
     case ArgumentKind::Floating: {
         const auto value = read_scalar<double>(argument.bytes);
         int precision = 6;
-        if (const auto dot = specification.find('.'); dot != std::string_view::npos &&
-            dot + 1 < specification.size()) {
+        if (const auto dot = specification.find('.');
+            dot != std::string_view::npos && dot + 1 < specification.size()) {
             precision = std::clamp<int>(specification[dot + 1] - '0', 0, 9);
         }
         const auto length = std::snprintf(buffer.data(), buffer.size(), "%.*f", precision, value);
@@ -326,7 +331,8 @@ inline void render_argument(TextWriter& output, const ArgumentView& argument,
         output.append(read_scalar<char>(argument.bytes));
         break;
     case ArgumentKind::String:
-        output.append({reinterpret_cast<const char*>(argument.bytes.data()), argument.bytes.size()});
+        output.append(
+            {reinterpret_cast<const char*>(argument.bytes.data()), argument.bytes.size()});
         break;
     }
 }
@@ -335,18 +341,18 @@ inline void render_argument(TextWriter& output, const ArgumentView& argument,
                                                               std::span<char> output) noexcept
 {
     if (record.payload.size() < sizeof(NativePayloadHeader)) {
-        return fail(Error{.status = Status::ProtocolError,
-                          .reason = Reason::InternalInvariant,
-                          .operation = Operation::Render,
-                          .source = record.header.source,
-                          .level = record.header.level});
+        return fail<Error>({.status = solar::Status::ProtocolError,
+                            .reason = Reason::InternalInvariant,
+                            .operation = Operation::Render,
+                            .source = record.header.source,
+                            .level = record.header.level});
     }
     NativePayloadHeader header{};
     std::memcpy(&header, record.payload.data(), sizeof(header));
     if (header.format == nullptr) {
-        return fail(Error{.status = Status::ProtocolError,
-                          .reason = Reason::InternalInvariant,
-                          .operation = Operation::Render});
+        return fail<Error>({.status = solar::Status::ProtocolError,
+                            .reason = Reason::InternalInvariant,
+                            .operation = Operation::Render});
     }
     auto arguments = record.payload.subspan(sizeof(header));
     TextWriter writer{output};
@@ -363,9 +369,9 @@ inline void render_argument(TextWriter& output, const ArgumentView& argument,
             const auto close = format.find('}', index + 1);
             auto argument = next_argument(arguments);
             if (close == std::string_view::npos || !argument) {
-                return fail(Error{.status = Status::ProtocolError,
-                                  .reason = Reason::InternalInvariant,
-                                  .operation = Operation::Render});
+                return fail<Error>({.status = solar::Status::ProtocolError,
+                                    .reason = Reason::InternalInvariant,
+                                    .operation = Operation::Render});
             }
             auto specification = format.substr(index + 1, close - index - 1);
             if (!specification.empty() && specification.front() == ':') {
@@ -379,11 +385,10 @@ inline void render_argument(TextWriter& output, const ArgumentView& argument,
         }
     }
     if (rendered != header.argument_count || writer.truncated()) {
-        return fail(Error{.status = writer.truncated() ? Status::MessageTooLarge
-                                                       : Status::ProtocolError,
-                          .reason = writer.truncated() ? Reason::RecordTooLarge
-                                                       : Reason::InternalInvariant,
-                          .operation = Operation::Render});
+        return fail<Error>(
+            {.status = writer.truncated() ? Status::MessageTooLarge : Status::ProtocolError,
+             .reason = writer.truncated() ? Reason::RecordTooLarge : Reason::InternalInvariant,
+             .operation = Operation::Render});
     }
     return writer.size();
 }
@@ -393,8 +398,8 @@ inline void render_argument(TextWriter& output, const ArgumentView& argument,
 template <typename... Arguments> class FormatString
 {
   public:
-    template <std::size_t Size> consteval FormatString(const char (&format)[Size])
-        : format_(format), size_(Size - 1)
+    template <std::size_t Size>
+    consteval FormatString(const char (&format)[Size]) : format_(format), size_(Size - 1)
     {
         if (!detail::valid_format<Arguments...>(std::string_view{format, Size - 1})) {
             detail::SOLAR_DIAGNOSTIC_LOG_FORMAT();

@@ -45,28 +45,29 @@ template <typename Rep, typename Period>
     return sleep_for(deadline.remaining());
 }
 
-[[nodiscard]] inline Status yield() noexcept
+[[nodiscard]] inline Result<void> yield() noexcept
 {
     if (!k_can_yield()) {
-        return Status::NotReady;
+        return fail<Error>({.status = Status::NotReady});
     }
     k_yield();
-    return Status::Ok;
+    return {};
 }
 
 template <typename Rep, typename Period>
-[[nodiscard]] inline Status busy_wait_for(std::chrono::duration<Rep, Period> duration) noexcept
+[[nodiscard]] inline Result<void>
+busy_wait_for(std::chrono::duration<Rep, Period> duration) noexcept
 {
     if (duration <= std::chrono::duration<Rep, Period>::zero()) {
-        return Status::Ok;
+        return {};
     }
 
     const auto microseconds = std::chrono::ceil<Microseconds>(duration).count();
     if (microseconds > std::numeric_limits<std::uint32_t>::max()) {
-        return Status::Invalid;
+        return fail<Error>({.status = Status::Invalid});
     }
     k_busy_wait(static_cast<std::uint32_t>(microseconds));
-    return Status::Ok;
+    return {};
 }
 
 } // namespace solar::kernel::this_thread

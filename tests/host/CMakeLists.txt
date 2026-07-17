@@ -156,6 +156,21 @@ add_test(
         -o
         ${CMAKE_CURRENT_BINARY_DIR}/result_rejects_implicit_status.o)
 
+add_test(
+    NAME solar.compile_fail.result_requires_error_projection
+    COMMAND
+        ${Python3_EXECUTABLE}
+        ${compile_fail_harness}
+        --token SOLAR_DIAGNOSTIC_RESULT_REQUIRES_ERROR_PROJECTION
+        --
+        ${CMAKE_CXX_COMPILER}
+        -std=c++23
+        -I${PROJECT_SOURCE_DIR}/include
+        -c
+        ${CMAKE_CURRENT_SOURCE_DIR}/../compile_fail/fixtures/result_requires_error_projection.cpp
+        -o
+        ${CMAKE_CURRENT_BINARY_DIR}/result_requires_error_projection.o)
+
 solar_add_compile_failure(
     solar.compile_fail.catalog_missing_descriptor
     SOLAR_DIAGNOSTIC_MISSING_DESCRIPTOR

@@ -21,9 +21,9 @@ struct Setpoint
     std::uint32_t sequence{};
 };
 
-using InboundQueue = solar::execution::WorkQueue<
-    "remote-inbound", solar::execution::StackSize<2048>,
-    solar::execution::Priority<2>>;
+using InboundQueue =
+    solar::execution::WorkQueue<"remote-inbound", solar::execution::StackSize<2048>,
+                                solar::execution::Priority<2>>;
 
 struct Commands
 {
@@ -36,20 +36,19 @@ struct Commands
     inline static std::atomic_uint32_t completed{};
     inline static std::array<std::uint32_t, 3> order{};
 
-    static solar::Status consume(const Value& value)
+    static solar::Result<void> consume(const Value& value)
     {
         started.fetch_add(1, std::memory_order_relaxed);
         if (k_sem_take(&consumer_gate, K_SECONDS(2)) != 0) {
-            return solar::Status::Timeout;
+            return solar::fail<solar::Error>({.status = solar::Status::Timeout});
         }
         const auto index = completed.fetch_add(1, std::memory_order_relaxed);
         order[index] = value.sequence;
-        return solar::Status::Ok;
+        return {};
     }
 
     using Capabilities = solar::remote::Capabilities<solar::remote::InStream<
-        &Commands::consume, solar::remote::ReliableWindow<2>,
-        solar::remote::On<InboundQueue>>>;
+        &Commands::consume, solar::remote::ReliableWindow<2>, solar::remote::On<InboundQueue>>>;
 };
 
 struct TestLink : solar::remote::testing::InMemoryLink<TestLink, 256, 256>
@@ -68,8 +67,8 @@ struct Root
     using RemoteLinks = solar::remote::ContributeLinks<TestLink>;
 };
 
-using System = solar::System<solar::Blueprint<solar::Facilities<Root>,
-                                            solar::Executors<InboundQueue>>>;
+using System =
+    solar::System<solar::Blueprint<solar::Facilities<Root>, solar::Executors<InboundQueue>>>;
 using Service = typename System::RemoteService;
 using LinkState = solar::remote::detail::LinkState<Service, TestLink, 0>;
 using InStreamRegistration = Service::InStreamRegistration<Commands>;
@@ -95,18 +94,16 @@ namespace
 std::array<std::byte, 256> host_bytes{};
 std::array<std::byte, 160> decoded_bytes{};
 
-solar::Result<solar::remote::frame::Decoded, solar::remote::Error>
-receive_frame(int attempts = 300)
+solar::Result<solar::remote::frame::Decoded, solar::remote::Error> receive_frame(int attempts = 300)
 {
     for (int attempt = 0; attempt < attempts; ++attempt) {
         auto bytes = fixture::TestLink::take_transmitted(host_bytes);
         if (bytes) {
-            return solar::remote::frame::decode(std::span{host_bytes}.first(*bytes),
-                                                decoded_bytes);
+            return solar::remote::frame::decode(std::span{host_bytes}.first(*bytes), decoded_bytes);
         }
         k_sleep(K_MSEC(1));
     }
-    return solar::fail(solar::remote::Error{.status = solar::Status::Timeout});
+    return solar::fail<solar::remote::Error>({.status = solar::Status::Timeout});
 }
 
 void inject(const solar::remote::protocol::Envelope& envelope,
@@ -160,8 +157,8 @@ void inject_fragmented_setpoint(std::uint32_t frame_sequence, std::uint32_t valu
     };
     envelope.set_operation(solar::remote::protocol::OperationKind::InStream);
     inject(envelope, std::span{payload}.first(split));
-    envelope.flags = solar::remote::protocol::Flags::Fragmented |
-                     solar::remote::protocol::Flags::Final;
+    envelope.flags =
+        solar::remote::protocol::Flags::Fragmented | solar::remote::protocol::Flags::Final;
     envelope.frame_sequence = frame_sequence + 1;
     envelope.fragment_index = 1;
     inject(envelope, std::span{payload}.subspan(split, *encoded - split));
@@ -192,12 +189,10 @@ void inject_incomplete_setpoint(std::uint32_t frame_sequence, std::uint32_t valu
 ZTEST(remote_in_stream, test_credit_window_owns_orders_and_releases_values)
 {
     zassert_true(fixture::System::boot().has_value());
-    auto registration =
-        solar::execution::registration<fixture::InStreamRegistration>();
+    auto registration = solar::execution::registration<fixture::InStreamRegistration>();
     zassert_true(registration.has_value());
-    zassert_equal(registration->target_kind,
-                  solar::execution::TargetKind::OwnedWorkQueue);
-    zassert_equal(fixture::TestLink::connect(), solar::Status::Ok);
+    zassert_equal(registration->target_kind, solar::execution::TargetKind::OwnedWorkQueue);
+    zassert_true(fixture::TestLink::connect().has_value());
     zassert_true(receive_frame().has_value());
 
     solar::remote::protocol::Envelope hello{
@@ -209,8 +204,7 @@ ZTEST(remote_in_stream, test_credit_window_owns_orders_and_releases_values)
     inject(hello, hello_payload);
     auto hello_response = receive_frame();
     zassert_true(hello_response.has_value());
-    zassert_equal(hello_response->envelope.kind,
-                  solar::remote::protocol::Kind::ServerHello);
+    zassert_equal(hello_response->envelope.kind, solar::remote::protocol::Kind::ServerHello);
 
     auto initial_credit = receive_frame();
     zassert_true(initial_credit.has_value());
@@ -234,8 +228,7 @@ ZTEST(remote_in_stream, test_credit_window_owns_orders_and_releases_values)
     zassert_true(violation.has_value());
     zassert_equal(violation->envelope.kind, solar::remote::protocol::Kind::Error);
     zassert_equal(solar::remote::protocol::detail::get_u16(violation->payload, 0),
-                  static_cast<std::uint16_t>(
-                      solar::remote::protocol::ErrorCode::CreditViolation));
+                  static_cast<std::uint16_t>(solar::remote::protocol::ErrorCode::CreditViolation));
 
     k_sem_give(&consumer_gate);
     k_sem_give(&consumer_gate);
@@ -266,8 +259,7 @@ ZTEST(remote_in_stream, test_credit_window_owns_orders_and_releases_values)
     zassert_equal(fixture::Commands::order[2], 30);
     zassert_true(receive_frame().has_value());
 
-    auto& state = solar::remote::detail::in_stream_state<fixture::System,
-                                                         fixture::Commands>();
+    auto& state = solar::remote::detail::in_stream_state<fixture::System, fixture::Commands>();
     {
         auto guard = state.lock.acquire();
         zassert_equal(state.admitted, 3);
@@ -277,11 +269,10 @@ ZTEST(remote_in_stream, test_credit_window_owns_orders_and_releases_values)
         zassert_equal(state.credits[0], 2);
     }
 
-
     const auto rejected_before = fixture::LinkState::rejected_frames.load();
     inject_incomplete_setpoint(7, 40, 9);
-    for (int attempt = 0; attempt < 400 &&
-                          fixture::LinkState::rejected_frames.load() == rejected_before;
+    for (int attempt = 0;
+         attempt < 400 && fixture::LinkState::rejected_frames.load() == rejected_before;
          ++attempt) {
         k_sleep(K_MSEC(1));
     }

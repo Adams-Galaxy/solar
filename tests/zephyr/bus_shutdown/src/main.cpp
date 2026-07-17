@@ -113,11 +113,11 @@ ZTEST(solar_bus_shutdown, test_drain_and_cancel_pending_share_execution_containm
     const solar::kernel::ThreadConfiguration configuration{
         .priority = solar::kernel::Priority::preemptive<3>(),
     };
-    zassert_equal(releaser.launch(&release_blocker, nullptr, configuration), solar::Status::Ok);
+    zassert_true(releaser.launch(&release_blocker, nullptr, configuration).has_value());
 
     auto stopped = fixture::System::stop();
     zassert_true(stopped.has_value());
-    zassert_equal(releaser.join(solar::kernel::Timeout::after(100ms)), solar::Status::Ok);
+    zassert_true(releaser.join(solar::kernel::Timeout::after(100ms)).has_value());
     zassert_equal(fixture::drain_runs.load(std::memory_order_acquire), 1);
     zassert_equal(fixture::cancel_runs.load(std::memory_order_acquire), 0);
 

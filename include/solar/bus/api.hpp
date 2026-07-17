@@ -42,14 +42,15 @@ template <typename Application, typename Message, EmitMode Mode>
         using System = bound_system_t<Application>;
         using Catalog = typename System::BusMessageCatalog;
         if constexpr (!enabled) {
-            return fail(frontend_error(frontend::Error::Disabled, Operation::TryEmitIsr));
+            return fail<Error>(frontend_error(frontend::Error::Disabled, Operation::TryEmitIsr));
         } else if constexpr (Catalog::template contains<Message>) {
             return System::BusFacility::template emit<System, Message, EmitMode::Isr>(message);
         } else {
             static_assert(!frontend::strict,
                           "SOLAR_DIAGNOSTIC_STRICT_UNREGISTERED_BUS_MESSAGE: ISR-emitted message "
                           "is absent from the bound Bus catalog");
-            return fail(frontend_error(frontend::Error::NotRegistered, Operation::TryEmitIsr));
+            return fail<Error>(
+                frontend_error(frontend::Error::NotRegistered, Operation::TryEmitIsr));
         }
     }
 }
@@ -114,7 +115,7 @@ template <Message MessageT, typename Application = DefaultApplication>
                       "absent from the bound Bus catalog");
         using Return =
             Result<std::reference_wrapper<const MessageDescriptorView>, catalog::LookupError>;
-        return Return{fail(catalog::LookupError::Unavailable)};
+        return Return{fail<catalog::LookupError>(catalog::LookupError::Unavailable)};
     }
 }
 
@@ -135,7 +136,7 @@ template <typename Subscriber, Message MessageT, typename RouteTag = DefaultRout
 [[nodiscard]] Result<RouteRecord, Error> record() noexcept
 {
     if constexpr (!enabled) {
-        return fail(detail::frontend_error(frontend::Error::Disabled, Operation::Query));
+        return fail<Error>(detail::frontend_error(frontend::Error::Disabled, Operation::Query));
     } else {
         using System = bound_system_t<Application>;
         using Lookup = detail::FindRoute<Subscriber, MessageT, RouteTag,
@@ -147,13 +148,13 @@ template <typename Subscriber, Message MessageT, typename RouteTag = DefaultRout
                           "SOLAR_DIAGNOSTIC_STRICT_UNREGISTERED_BUS_ROUTE_QUERY: queried "
                           "subscriber, message, and route tag are absent from the bound Bus "
                           "topology");
-            Error error{.status = Status::NotFound,
+            Error error{.status = solar::Status::NotFound,
                         .reason = Reason::NotRegistered,
                         .operation = Operation::Query};
             if constexpr (System::BusMessageCatalog::template contains<MessageT>) {
                 error.message = System::BusMessageCatalog::template Entry<MessageT>::local_id;
             }
-            return fail(error);
+            return fail<Error>(error);
         }
     }
 }

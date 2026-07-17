@@ -45,10 +45,10 @@ struct Telemetry
         return {.sequence = 99, .value = 2.5F};
     }
 
-    static solar::Status update(const Value& value)
+    static solar::Result<void> update(const Value& value)
     {
         updated = value;
-        return solar::Status::Ok;
+        return {};
     }
 
     using Capabilities = solar::remote::Capabilities<
@@ -215,11 +215,11 @@ ZTEST(remote_runtime, test_generated_service_and_fragmented_rx)
     zassert_equal(unwatched->disposition, solar::remote::WriteDisposition::NoSubscribers);
     zassert_false(unwatched->wake_queued);
 
-    zassert_equal(fixture::TestLink::connect(), solar::Status::Ok);
+    zassert_true(fixture::TestLink::connect().has_value());
 
     std::array<std::byte, 256> host_rx{};
     solar::Result<std::size_t, solar::remote::LinkError> server_hello =
-        solar::fail(solar::remote::LinkError{.status = solar::Status::Empty});
+        solar::fail<solar::remote::LinkError>({.status = solar::Status::Empty});
     for (int attempt = 0; attempt < 100 && !server_hello; ++attempt) {
         server_hello = fixture::TestLink::take_transmitted(host_rx);
         if (!server_hello) {
@@ -274,7 +274,7 @@ ZTEST(remote_runtime, test_generated_service_and_fragmented_rx)
     zassert_equal(fixture::LinkState::session.load(), solar::remote::SessionState::Active);
 
     solar::Result<std::size_t, solar::remote::LinkError> hello_response =
-        solar::fail(solar::remote::LinkError{.status = solar::Status::Empty});
+        solar::fail<solar::remote::LinkError>({.status = solar::Status::Empty});
     for (int attempt = 0; attempt < 100 && !hello_response; ++attempt) {
         hello_response = fixture::TestLink::take_transmitted(host_rx);
         if (!hello_response) {
@@ -311,7 +311,7 @@ ZTEST(remote_runtime, test_generated_service_and_fragmented_rx)
     zassert_true(
         fixture::TestLink::inject(std::span{subscribe_encoded}.first(*subscribe_size)).has_value());
     solar::Result<std::size_t, solar::remote::LinkError> subscribe_response =
-        solar::fail(solar::remote::LinkError{.status = solar::Status::Empty});
+        solar::fail<solar::remote::LinkError>({.status = solar::Status::Empty});
     for (int attempt = 0; attempt < 100 && !subscribe_response; ++attempt) {
         subscribe_response = fixture::TestLink::take_transmitted(host_rx);
         if (!subscribe_response) {
@@ -379,7 +379,7 @@ ZTEST(remote_runtime, test_generated_service_and_fragmented_rx)
     zassert_true(
         fixture::TestLink::inject(std::span{update_encoded}.first(*update_size)).has_value());
     solar::Result<std::size_t, solar::remote::LinkError> update_response =
-        solar::fail(solar::remote::LinkError{.status = solar::Status::Empty});
+        solar::fail<solar::remote::LinkError>({.status = solar::Status::Empty});
     for (int attempt = 0; attempt < 100 && !update_response; ++attempt) {
         update_response = fixture::TestLink::take_transmitted(host_rx);
         if (!update_response) {
@@ -436,7 +436,7 @@ ZTEST(remote_runtime, test_generated_service_and_fragmented_rx)
         nullptr);
     zassert_equal(isr_write_status.load(std::memory_order_acquire), solar::Status::Ok);
     solar::Result<std::size_t, solar::remote::LinkError> isr_frame =
-        solar::fail(solar::remote::LinkError{.status = solar::Status::Empty});
+        solar::fail<solar::remote::LinkError>({.status = solar::Status::Empty});
     for (int attempt = 0; attempt < 100 && !isr_frame; ++attempt) {
         isr_frame = fixture::TestLink::take_transmitted(host_rx);
         if (!isr_frame) {
@@ -477,7 +477,7 @@ ZTEST(remote_runtime, test_generated_service_and_fragmented_rx)
     zassert_true(write->wake_queued);
 
     solar::Result<std::size_t, solar::remote::LinkError> data_frame =
-        solar::fail(solar::remote::LinkError{.status = solar::Status::Empty});
+        solar::fail<solar::remote::LinkError>({.status = solar::Status::Empty});
     for (int attempt = 0; attempt < 100 && !data_frame; ++attempt) {
         data_frame = fixture::TestLink::take_transmitted(host_rx);
         if (!data_frame) {
@@ -522,7 +522,7 @@ ZTEST(remote_runtime, test_generated_service_and_fragmented_rx)
     zassert_true(
         fixture::TestLink::inject(std::span{query_encoded}.first(*query_size)).has_value());
     solar::Result<std::size_t, solar::remote::LinkError> query_response =
-        solar::fail(solar::remote::LinkError{.status = solar::Status::Empty});
+        solar::fail<solar::remote::LinkError>({.status = solar::Status::Empty});
     for (int attempt = 0; attempt < 100 && !query_response; ++attempt) {
         query_response = fixture::TestLink::take_transmitted(host_rx);
         if (!query_response) {
@@ -624,7 +624,7 @@ ZTEST(remote_runtime, test_generated_service_and_fragmented_rx)
     }
     zassert_true(cancel_injected);
     solar::Result<std::size_t, solar::remote::LinkError> cancel_response =
-        solar::fail(solar::remote::LinkError{.status = solar::Status::Empty});
+        solar::fail<solar::remote::LinkError>({.status = solar::Status::Empty});
     for (int attempt = 0; attempt < 100 && !cancel_response; ++attempt) {
         cancel_response = fixture::TestLink::take_transmitted(host_rx);
         if (!cancel_response) {
@@ -666,7 +666,7 @@ ZTEST(remote_runtime, test_generated_service_and_fragmented_rx)
         fixture::TestLink::inject(std::span{action_encoded}.first(*action_frame_size)).has_value());
 
     solar::Result<std::size_t, solar::remote::LinkError> action_frame =
-        solar::fail(solar::remote::LinkError{.status = solar::Status::Empty});
+        solar::fail<solar::remote::LinkError>({.status = solar::Status::Empty});
     for (int attempt = 0; attempt < 100 && !action_frame; ++attempt) {
         action_frame = fixture::TestLink::take_transmitted(host_rx);
         if (!action_frame) {
@@ -691,7 +691,7 @@ ZTEST(remote_runtime, test_generated_service_and_fragmented_rx)
     zassert_true(
         fixture::TestLink::inject(std::span{action_encoded}.first(*action_frame_size)).has_value());
     solar::Result<std::size_t, solar::remote::LinkError> replay =
-        solar::fail(solar::remote::LinkError{.status = solar::Status::Empty});
+        solar::fail<solar::remote::LinkError>({.status = solar::Status::Empty});
     for (int attempt = 0; attempt < 100 && !replay; ++attempt) {
         replay = fixture::TestLink::take_transmitted(host_rx);
         if (!replay) {
@@ -728,7 +728,7 @@ ZTEST(remote_runtime, test_generated_service_and_fragmented_rx)
     zassert_true(
         fixture::TestLink::inject(std::span{action_encoded}.first(*action_frame_size)).has_value());
     solar::Result<std::size_t, solar::remote::LinkError> expired =
-        solar::fail(solar::remote::LinkError{.status = solar::Status::Empty});
+        solar::fail<solar::remote::LinkError>({.status = solar::Status::Empty});
     for (int attempt = 0; attempt < 100 && !expired; ++attempt) {
         expired = fixture::TestLink::take_transmitted(host_rx);
         if (!expired) {
@@ -765,7 +765,7 @@ ZTEST(remote_runtime, test_generated_service_and_fragmented_rx)
     zassert_true(ping_size.has_value());
     zassert_true(fixture::TestLink::inject(std::span{ping_encoded}.first(*ping_size)).has_value());
     solar::Result<std::size_t, solar::remote::LinkError> ping_response =
-        solar::fail(solar::remote::LinkError{.status = solar::Status::Empty});
+        solar::fail<solar::remote::LinkError>({.status = solar::Status::Empty});
     for (int attempt = 0; attempt < 100 && !ping_response; ++attempt) {
         ping_response = fixture::TestLink::take_transmitted(host_rx);
         if (!ping_response) {
@@ -811,11 +811,11 @@ ZTEST(remote_runtime, test_generated_service_and_fragmented_rx)
     zassert_true(fixture::AsyncScale::pending->complete({.value = 42}).has_value());
     auto duplicate_completion = fixture::AsyncScale::pending->complete({.value = 84});
     zassert_false(duplicate_completion.has_value());
-    zassert_equal(duplicate_completion.error(), solar::Status::NotReady);
+    zassert_equal(solar::status_of(duplicate_completion.error()), solar::Status::NotReady);
     fixture::AsyncScale::pending.reset();
 
     solar::Result<std::size_t, solar::remote::LinkError> async_response =
-        solar::fail(solar::remote::LinkError{.status = solar::Status::Empty});
+        solar::fail<solar::remote::LinkError>({.status = solar::Status::Empty});
     for (int attempt = 0; attempt < 100 && !async_response; ++attempt) {
         async_response = fixture::TestLink::take_transmitted(host_rx);
         if (!async_response) {
@@ -868,11 +868,11 @@ ZTEST(remote_runtime, test_generated_service_and_fragmented_rx)
     zassert_true(fixture::AsyncScale::pending->cancelled());
     auto late_completion = fixture::AsyncScale::pending->complete({.value = 99});
     zassert_false(late_completion.has_value());
-    zassert_equal(late_completion.error(), solar::Status::NotReady);
+    zassert_equal(solar::status_of(late_completion.error()), solar::Status::NotReady);
     fixture::AsyncScale::pending.reset();
 
     solar::Result<std::size_t, solar::remote::LinkError> async_cancel_response =
-        solar::fail(solar::remote::LinkError{.status = solar::Status::Empty});
+        solar::fail<solar::remote::LinkError>({.status = solar::Status::Empty});
     for (int attempt = 0; attempt < 100 && !async_cancel_response; ++attempt) {
         async_cancel_response = fixture::TestLink::take_transmitted(host_rx);
         if (!async_cancel_response) {
@@ -904,7 +904,7 @@ ZTEST(remote_runtime, test_generated_service_and_fragmented_rx)
         fixture::TestLink::inject(std::span{introspection_encoded}.first(*introspection_size))
             .has_value());
     solar::Result<std::size_t, solar::remote::LinkError> introspection_response =
-        solar::fail(solar::remote::LinkError{.status = solar::Status::Empty});
+        solar::fail<solar::remote::LinkError>({.status = solar::Status::Empty});
     for (int attempt = 0; attempt < 100 && !introspection_response; ++attempt) {
         introspection_response = fixture::TestLink::take_transmitted(host_rx);
         if (!introspection_response) {
@@ -941,7 +941,8 @@ ZTEST(remote_runtime, test_generated_service_and_fragmented_rx)
     zassert_true(
         fixture::TestLink::inject(std::span{introspection_encoded}.first(*introspection_size))
             .has_value());
-    introspection_response = solar::fail(solar::remote::LinkError{.status = solar::Status::Empty});
+    introspection_response =
+        solar::fail<solar::remote::LinkError>({.status = solar::Status::Empty});
     for (int attempt = 0; attempt < 100 && !introspection_response; ++attempt) {
         introspection_response = fixture::TestLink::take_transmitted(host_rx);
         if (!introspection_response) {
@@ -983,7 +984,8 @@ ZTEST(remote_runtime, test_generated_service_and_fragmented_rx)
     zassert_true(
         fixture::TestLink::inject(std::span{introspection_encoded}.first(*introspection_size))
             .has_value());
-    introspection_response = solar::fail(solar::remote::LinkError{.status = solar::Status::Empty});
+    introspection_response =
+        solar::fail<solar::remote::LinkError>({.status = solar::Status::Empty});
     for (int attempt = 0; attempt < 100 && !introspection_response; ++attempt) {
         introspection_response = fixture::TestLink::take_transmitted(host_rx);
         if (!introspection_response) {

@@ -82,7 +82,7 @@ template <auto Spec> struct Endpoint : hardware::Endpoint<Spec>
         std::uint8_t value{};
         const auto result = i2c_reg_read_byte_dt(&Base::descriptor_value.native, address, &value);
         if (result != 0) {
-            return fail(
+            return fail<Error>(
                 hardware::detail::native_error(result, hardware::Operation::Read, Base::path()));
         }
         return value;
@@ -138,20 +138,20 @@ template <typename EndpointT> struct RtioEndpoint
                                                          std::span<const i2c_msg> messages) noexcept
     {
         if (messages.empty() || messages.size() > UINT8_MAX) {
-            return fail(Error{.status = Status::Invalid,
-                              .reason = Reason::InvalidConfiguration,
-                              .operation = hardware::Operation::Submit,
-                              .native = -EINVAL,
-                              .endpoint = EndpointT::path()});
+            return fail<Error>({.status = solar::Status::Invalid,
+                                .reason = Reason::InvalidConfiguration,
+                                .operation = hardware::Operation::Submit,
+                                .native = -EINVAL,
+                                .endpoint = EndpointT::path()});
         }
         auto* last = i2c_rtio_copy(context.native_handle(), &native_iodev, messages.data(),
                                    static_cast<std::uint8_t>(messages.size()));
         if (last == nullptr) {
-            return fail(Error{.status = Status::NoMemory,
-                              .reason = Reason::ResourceExhausted,
-                              .operation = hardware::Operation::Submit,
-                              .native = -ENOMEM,
-                              .endpoint = EndpointT::path()});
+            return fail<Error>({.status = solar::Status::NoMemory,
+                                .reason = Reason::ResourceExhausted,
+                                .operation = hardware::Operation::Submit,
+                                .native = -ENOMEM,
+                                .endpoint = EndpointT::path()});
         }
         return last;
     }
@@ -173,15 +173,15 @@ template <typename EndpointT> class AsyncTransfer
                                                      Completion completion) noexcept
     {
         if (completion == nullptr || messages.size() > UINT8_MAX) {
-            return fail(Error{.status = Status::Invalid,
-                              .reason = Reason::InvalidConfiguration,
-                              .operation = hardware::Operation::Submit,
-                              .native = -EINVAL,
-                              .endpoint = EndpointT::path()});
+            return fail<Error>({.status = solar::Status::Invalid,
+                                .reason = Reason::InvalidConfiguration,
+                                .operation = hardware::Operation::Submit,
+                                .native = -EINVAL,
+                                .endpoint = EndpointT::path()});
         }
         auto admitted = gate_.begin();
         if (!admitted) {
-            return fail(admitted.error());
+            return fail<Error>(admitted.error());
         }
         token_ = *admitted;
         completion_ = completion;
@@ -191,8 +191,8 @@ template <typename EndpointT> class AsyncTransfer
         if (result < 0) {
             (void)gate_.complete(token_);
             completion_ = nullptr;
-            return fail(hardware::detail::native_error(result, hardware::Operation::Submit,
-                                                       EndpointT::path()));
+            return fail<Error>(hardware::detail::native_error(result, hardware::Operation::Submit,
+                                                              EndpointT::path()));
         }
         return token_;
     }
@@ -204,11 +204,11 @@ template <typename EndpointT> class AsyncTransfer
 
     [[nodiscard]] Result<void, Error> cancel() noexcept
     {
-        return fail(Error{.status = Status::NotSupported,
-                          .reason = Reason::Unsupported,
-                          .operation = hardware::Operation::Cancel,
-                          .native = -ENOTSUP,
-                          .endpoint = EndpointT::path()});
+        return fail<Error>({.status = solar::Status::NotSupported,
+                            .reason = Reason::Unsupported,
+                            .operation = hardware::Operation::Cancel,
+                            .native = -ENOTSUP,
+                            .endpoint = EndpointT::path()});
     }
 
   private:
@@ -226,7 +226,7 @@ template <typename EndpointT> class AsyncTransfer
         completion_ = nullptr;
         if (completion != nullptr) {
             if (result < 0) {
-                completion(fail(hardware::detail::native_error(
+                completion(fail<Error>(hardware::detail::native_error(
                     result, hardware::Operation::Complete, EndpointT::path())));
             } else {
                 completion({});
@@ -267,7 +267,7 @@ template <auto Spec> struct Controller : hardware::Endpoint<Spec>
         std::uint32_t value{};
         const auto result = i2c_get_config(Base::native_device(), &value);
         if (result != 0) {
-            return fail(
+            return fail<Error>(
                 hardware::detail::native_error(result, hardware::Operation::Read, Base::path()));
         }
         return value;

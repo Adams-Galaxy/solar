@@ -33,7 +33,7 @@ class Priority
     [[nodiscard]] static constexpr Result<Priority> try_preemptive(std::uint32_t level) noexcept
     {
         if (level >= CONFIG_NUM_PREEMPT_PRIORITIES) {
-            return fail(Status::Invalid);
+            return fail<solar::Error>({.status = solar::Status::Invalid});
         }
         return Priority{K_PRIO_PREEMPT(static_cast<int>(level))};
     }
@@ -41,7 +41,7 @@ class Priority
     [[nodiscard]] static constexpr Result<Priority> try_cooperative(std::uint32_t level) noexcept
     {
         if (level >= CONFIG_NUM_COOP_PRIORITIES) {
-            return fail(Status::Invalid);
+            return fail<solar::Error>({.status = solar::Status::Invalid});
         }
         return Priority{K_PRIO_COOP(static_cast<int>(level))};
     }
@@ -49,7 +49,7 @@ class Priority
     [[nodiscard]] static constexpr Result<Priority> from_native(int priority) noexcept
     {
         if (priority < -CONFIG_NUM_COOP_PRIORITIES || priority >= CONFIG_NUM_PREEMPT_PRIORITIES) {
-            return fail(Status::Invalid);
+            return fail<solar::Error>({.status = solar::Status::Invalid});
         }
         return Priority{priority};
     }

@@ -105,7 +105,7 @@ namespace detail
     if (result == 0) {
         return {};
     }
-    return fail(native_error(result, operation, endpoint));
+    return fail<Error>(native_error(result, operation, endpoint));
 }
 
 } // namespace detail
