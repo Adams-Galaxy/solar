@@ -66,6 +66,13 @@ enum class SchemaShape : std::uint8_t
 {
     Object = 0,
     StatusCode = 1,
+    Enumeration = 2,
+};
+
+enum class EnumOpenness : std::uint8_t
+{
+    Closed = 0,
+    Open = 1,
 };
 
 enum class Capability : std::uint8_t
@@ -126,7 +133,9 @@ enum class StatusCode : std::uint8_t
 [[nodiscard]] constexpr StatusCode encode_status(Status status) noexcept
 {
     switch (status) {
-#define SOLAR_DETAIL_REMOTE_STATUS(NAME) case Status::NAME: return StatusCode::NAME
+#define SOLAR_DETAIL_REMOTE_STATUS(NAME)                                                           \
+    case Status::NAME:                                                                             \
+        return StatusCode::NAME
         SOLAR_DETAIL_REMOTE_STATUS(Ok);
         SOLAR_DETAIL_REMOTE_STATUS(Error);
         SOLAR_DETAIL_REMOTE_STATUS(Invalid);
@@ -158,7 +167,9 @@ enum class StatusCode : std::uint8_t
 [[nodiscard]] constexpr std::optional<Status> decode_status(StatusCode code) noexcept
 {
     switch (code) {
-#define SOLAR_DETAIL_REMOTE_STATUS(NAME) case StatusCode::NAME: return Status::NAME
+#define SOLAR_DETAIL_REMOTE_STATUS(NAME)                                                           \
+    case StatusCode::NAME:                                                                         \
+        return Status::NAME
         SOLAR_DETAIL_REMOTE_STATUS(Ok);
         SOLAR_DETAIL_REMOTE_STATUS(Error);
         SOLAR_DETAIL_REMOTE_STATUS(Invalid);
@@ -404,8 +415,8 @@ template <typename DataT> class Loan
         bytes_ = {};
     }
 
-    static Loan make(std::span<std::byte> bytes, std::uint16_t slot,
-                     std::uint16_t generation, Release release) noexcept
+    static Loan make(std::span<std::byte> bytes, std::uint16_t slot, std::uint16_t generation,
+                     Release release) noexcept
     {
         Loan loan;
         loan.bytes_ = bytes;

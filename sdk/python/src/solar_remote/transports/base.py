@@ -1,0 +1,13 @@
+"""Transport boundary shared by the Remote session."""
+
+from __future__ import annotations
+
+from typing import Protocol, runtime_checkable
+
+
+@runtime_checkable
+class AsyncTransport(Protocol):
+    async def open(self) -> None: ...
+    async def read(self, maximum: int) -> bytes: ...
+    async def write(self, data: bytes) -> None: ...
+    async def close(self) -> None: ...

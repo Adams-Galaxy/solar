@@ -4,20 +4,15 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 from pathlib import Path
-import struct
 import sys
 
 import cbor2
 from elftools.elf.elffile import ELFFile
 
-KINDS = {1: "schema", 2: "field", 3: "data", 4: "action", 5: "topic", 6: "stream", 7: "link"}
-COLLECTIONS = {3: "data", 5: "topics", 6: "streams", 7: "links"}
-CODECS = {1: "cbor", 2: "packed"}
-SHAPES = {0: "object", 1: "status-code"}
-SCALARS = {1: "bool", 2: "unsigned", 3: "signed", 4: "float32", 5: "float64", 6: "enum", 7: "text", 8: "bytes"}
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "sdk/python/src"))
+from solar_remote.manifest import ManifestError, parse_manifest
 
 
 def read_image(path: Path) -> bytes:
@@ -32,117 +27,251 @@ def read_image(path: Path) -> bytes:
     start = data.find(b"SLRM")
     if start < 0 or len(data) < start + 16:
         raise ValueError("manifest section has no valid image")
-    total = struct.unpack_from("<I", data, start + 12)[0]
-    image = data[start:start + total]
+    total = int.from_bytes(data[start + 12 : start + 16], "little")
+    image = data[start : start + total]
     if len(image) != total:
         raise ValueError("truncated manifest image")
     return image
 
 
-def parse_image(data: bytes) -> dict:
-    if data[:4] != b"SLRM":
-        raise ValueError("invalid manifest magic")
-    format_version, major, minor, count, reserved, total = struct.unpack_from("<HBBHHI", data, 4)
-    if format_version != 1 or reserved or total != len(data):
-        raise ValueError("unsupported manifest header")
-    result = {"format": format_version, "protocol": [major, minor], "schemas": [], "data": [],
-              "actions": [], "topics": [], "streams": [], "links": []}
-    schemas: dict[int, dict] = {}
-    offset = 16
-    parsed = 0
-    while parsed < count:
-        kind = data[offset]
-        if kind == 2:
-            _, scalar, field_id, schema_id, width, required, field_reserved = struct.unpack_from(
-                "<BBHIHBB", data, offset)
-            if field_reserved or scalar not in SCALARS or schema_id not in schemas:
-                raise ValueError("malformed field record")
-            schemas[schema_id]["fields"].append({"id": field_id, "kind": SCALARS[scalar],
-                                                  "width": width, "required": bool(required)})
-            offset += 12
-        elif kind == 1:
-            _, codec_and_shape, version, stable_id, maximum, name_len, description_len = struct.unpack_from(
-                "<BBHIIHH", data, offset)
-            codec = codec_and_shape & 0x0F
-            shape = codec_and_shape >> 4
-            offset += 16
-            name = data[offset:offset + name_len].decode("utf-8")
-            offset += name_len
-            description = data[offset:offset + description_len].decode("utf-8")
-            offset += description_len
-            record = {"id": stable_id, "name": name, "description": description,
-                      "version": version, "codec": CODECS[codec], "shape": SHAPES[shape],
-                      "max_encoded_size": maximum,
-                      "fields": []}
-            result["schemas"].append(record)
-            schemas[stable_id] = record
-        elif kind == 4:
-            (_, access, version, stable_id, request, response, error, name_len,
-             description_len) = struct.unpack_from("<BBHIIIIHH", data, offset)
-            offset += 24
-            name = data[offset:offset + name_len].decode("utf-8"); offset += name_len
-            description = data[offset:offset + description_len].decode("utf-8"); offset += description_len
-            result["actions"].append({"id": stable_id, "name": name, "description": description,
-                                      "version": version, "request_schema": request,
-                                      "response_schema": response, "error_schema": error,
-                                      "access_mask": access})
-        elif kind in (3, 5, 6, 7):
-            _, flags, version, stable_id, schema, name_len, description_len = struct.unpack_from(
-                "<BBHIIHH", data, offset)
-            offset += 16
-            name = data[offset:offset + name_len].decode("utf-8"); offset += name_len
-            description = data[offset:offset + description_len].decode("utf-8"); offset += description_len
-            record = {"id": stable_id, "name": name, "description": description, "version": version}
-            if kind != 7:
-                record["schema"] = schema
-            if kind == 3:
-                record["capability_mask"] = flags
-            elif kind in (5, 6):
-                record["codec"] = CODECS[flags]
-            result[COLLECTIONS[kind]].append(record)
-        else:
-            raise ValueError(f"unknown manifest record kind {kind}")
-        parsed += 1
-    if offset != len(data):
-        raise ValueError("manifest has trailing bytes")
-    for collection in ("schemas", "data", "actions", "topics", "streams", "links"):
-        result[collection].sort(key=lambda item: item["id"])
-    return result
+def identifier(value: str) -> str:
+    cleaned = "".join(character if character.isalnum() else "_" for character in value)
+    if not cleaned or cleaned[0].isdigit():
+        cleaned = "_" + cleaned
+    return cleaned
+
+
+def annotation(field: dict, schemas: dict[int, dict]) -> str:
+    kind = field["kind"]
+    base = {
+        "bool": "bool",
+        "unsigned": "int",
+        "signed": "int",
+        "float": "float",
+        "text": "str",
+        "bytes": "bytes",
+    }.get(kind)
+    if base is None and field["schema"]:
+        base = identifier(schemas[field["schema"]]["name"])
+    if base is None:
+        base = "object"
+    return base if field["required"] else f"{base} | None"
 
 
 def generate(elf: Path, output: Path) -> None:
-    manifest = parse_image(read_image(elf))
+    parsed = parse_manifest(read_image(elf))
+    manifest = parsed.to_dict()
     canonical = cbor2.dumps(manifest, canonical=True)
-    digest = hashlib.sha256(canonical).hexdigest()
+    digest = parsed.digest.hex()
     output.mkdir(parents=True, exist_ok=True)
     (output / "manifest.cbor").write_bytes(canonical)
-    review = {**manifest, "schema_sha256": digest}
-    (output / "manifest.json").write_text(json.dumps(review, indent=2, sort_keys=True) + "\n")
+    (output / "manifest.bin").write_bytes(parsed.image)
+    (output / "manifest.json").write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n"
+    )
     (output / "manifest.sha256").write_text(digest + "\n")
-    python = ["# Generated by Solar Remote; do not edit.", f"PROTOCOL = {tuple(manifest['protocol'])!r}",
-              f"SCHEMA_SHA256 = bytes.fromhex({digest!r})"]
-    for collection, prefix in (("schemas", "SCHEMA"), ("data", "DATA"), ("actions", "ACTION"),
-                               ("topics", "TOPIC"), ("streams", "STREAM"), ("links", "LINK")):
+    python = [
+        "# Generated by Solar Remote; do not edit.",
+        f"PROTOCOL = {tuple(manifest['protocol'])!r}",
+        f"MANIFEST_SHA256 = bytes.fromhex({digest!r})",
+        "SCHEMA_SHA256 = MANIFEST_SHA256",
+    ]
+    for collection, prefix in (
+        ("schemas", "SCHEMA"),
+        ("data", "DATA"),
+        ("actions", "ACTION"),
+        ("topics", "TOPIC"),
+        ("streams", "STREAM"),
+        ("links", "LINK"),
+    ):
         for item in manifest[collection]:
-            name = "".join(character if character.isalnum() else "_" for character in item["name"]).upper()
+            name = identifier(item["name"]).upper()
             python.append(f"{prefix}_{name} = 0x{item['id']:08X}")
+    for capability in manifest["capabilities"]:
+        name = f"{capability['domain']}_{capability['endpoint']:08X}_{capability['kind']}".upper()
+        python.append(f"CAPABILITY_{name} = {capability!r}")
     (output / "constants.py").write_text("\n".join(python) + "\n")
-    client = ["# Generated by Solar Remote; do not edit.",
-              "from solar_remote import Client", "", "class FirmwareClient(Client):",
-              f"    protocol = {tuple(manifest['protocol'])!r}",
-              f"    schema_sha256 = bytes.fromhex({digest!r})"]
-    for collection, prefix in (("data", "DATA"), ("actions", "ACTION"),
-                               ("topics", "TOPIC"), ("streams", "STREAM")):
+    models = [
+        "# Generated by Solar Remote; do not edit.",
+        "from dataclasses import dataclass",
+        "from enum import IntEnum",
+        "",
+    ]
+    schemas = {item["id"]: item for item in manifest["schemas"]}
+    for schema in manifest["schemas"]:
+        class_name = identifier(schema["name"])
+        if schema["shape"] in ("enumeration", "status-code"):
+            models.append(f"class {class_name}(IntEnum):")
+            for value in schema["values"]:
+                models.append(
+                    f"    {identifier(value['name']).upper()} = {value['value']}"
+                )
+            if schema["open"]:
+                models.extend(
+                    [
+                        "",
+                        "    @classmethod",
+                        "    def _missing_(cls, value):",
+                        "        member = int.__new__(cls, value)",
+                        '        member._name_ = f"UNKNOWN_{value}"',
+                        "        member._value_ = value",
+                        "        return member",
+                    ]
+                )
+            models.append("")
+        elif schema["shape"] == "object":
+            models.extend(["@dataclass(slots=True)", f"class {class_name}:"])
+            if not schema["fields"]:
+                models.append("    pass")
+            else:
+                required = [item for item in schema["fields"] if item["required"]]
+                optional = [item for item in schema["fields"] if not item["required"]]
+                for value in required + optional:
+                    default = "" if value["required"] else " = None"
+                    models.append(
+                        f"    {identifier(value['name'])}: {annotation(value, schemas)}{default}"
+                    )
+                enum_fields = [
+                    value
+                    for value in schema["fields"]
+                    if value["schema"]
+                    and schemas[value["schema"]]["shape"]
+                    in ("enumeration", "status-code")
+                ]
+                if enum_fields:
+                    models.extend(["", "    def __post_init__(self):"])
+                    for value in enum_fields:
+                        enum_model = identifier(schemas[value["schema"]]["name"])
+                        name = identifier(value["name"])
+                        if value["required"]:
+                            models.append(
+                                f"        self.{name} = {enum_model}(self.{name})"
+                            )
+                        else:
+                            models.append(
+                                f"        if self.{name} is not None:"
+                                f" self.{name} = {enum_model}(self.{name})"
+                            )
+            models.append("")
+    (output / "models.py").write_text("\n".join(models) + "\n")
+    client = [
+        "# Generated by Solar Remote; do not edit.",
+        "from solar_remote import AsyncSession",
+        "try:",
+        "    from . import models",
+        "except ImportError:",
+        "    import models",
+        "",
+        "class FirmwareClient:",
+        f"    protocol = {tuple(manifest['protocol'])!r}",
+        f"    manifest_sha256 = bytes.fromhex({digest!r})",
+        "    schema_sha256 = manifest_sha256",
+        "",
+        "    def __init__(self, session: AsyncSession | None = None):",
+        "        self.session = session",
+    ]
+    for collection, prefix in (
+        ("data", "DATA"),
+        ("actions", "ACTION"),
+        ("topics", "TOPIC"),
+        ("streams", "STREAM"),
+    ):
         for item in manifest[collection]:
-            name = "".join(character if character.isalnum() else "_" for character in item["name"]).upper()
+            name = identifier(item["name"]).upper()
             client.append(f"    {prefix}_{name} = 0x{item['id']:08X}")
+    for item in manifest["data"]:
+        method = identifier(item["name"])
+        capabilities = [
+            value
+            for value in manifest["capabilities"]
+            if value["domain"] == "data" and value["endpoint"] == item["id"]
+        ]
+        if any(value["kind"] == "query" for value in capabilities):
+            model = identifier(schemas[item["schema"]]["name"])
+            client.extend(
+                [
+                    "",
+                    f"    async def query_{method}(self) -> models.{model}:",
+                    '        if self.session is None: raise RuntimeError("client is not bound")',
+                    f"        return models.{model}(**await self.session.query(0x{item['id']:08X}))",
+                ]
+            )
+        if any(value["kind"] == "update" for value in capabilities):
+            client.extend(
+                [
+                    "",
+                    f"    async def update_{method}(self, value):",
+                    '        if self.session is None: raise RuntimeError("client is not bound")',
+                    f"        return await self.session.update(0x{item['id']:08X}, value)",
+                ]
+            )
+        if any(value["kind"] == "watch" for value in capabilities):
+            client.extend(
+                [
+                    "",
+                    f"    async def watch_{method}(self, **policy):",
+                    '        if self.session is None: raise RuntimeError("client is not bound")',
+                    f"        return await self.session.watch(0x{item['id']:08X}, **policy)",
+                ]
+            )
+        if any(value["kind"] == "out_stream" for value in capabilities):
+            client.extend(
+                [
+                    "",
+                    f"    async def stream_{method}(self, **policy):",
+                    '        if self.session is None: raise RuntimeError("client is not bound")',
+                    f"        return await self.session.stream(0x{item['id']:08X}, **policy)",
+                ]
+            )
+    for item in manifest["actions"]:
+        method = identifier(item["name"])
+        request_model = identifier(schemas[item["request_schema"]]["name"])
+        response_model = identifier(schemas[item["response_schema"]]["name"])
+        client.extend(
+            [
+                "",
+                f"    async def action_{method}(self, value: models.{request_model} | None = None)"
+                f" -> models.{response_model}:",
+                '        if self.session is None: raise RuntimeError("client is not bound")',
+                f"        result = await self.session.action(0x{item['id']:08X}, value)",
+                f"        return models.{response_model}(**result)",
+            ]
+        )
+    for item in manifest["topics"]:
+        method = identifier(item["name"])
+        client.extend(
+            [
+                "",
+                f"    async def topic_{method}(self, **policy):",
+                '        if self.session is None: raise RuntimeError("client is not bound")',
+                f"        return await self.session.topic(0x{item['id']:08X}, **policy)",
+            ]
+        )
+    for item in manifest["streams"]:
+        method = identifier(item["name"])
+        client.extend(
+            [
+                "",
+                f"    async def stream_{method}(self, **policy):",
+                '        if self.session is None: raise RuntimeError("client is not bound")',
+                f"        return await self.session.stream(0x{item['id']:08X}, **policy)",
+            ]
+        )
     (output / "client.py").write_text("\n".join(client) + "\n")
-    cpp = ["#pragma once", "", "#include <array>", "#include <cstdint>", "",
-           "namespace solar::remote::generated {",
-           f"inline constexpr std::uint8_t protocol_major = {manifest['protocol'][0]};",
-           f"inline constexpr std::uint8_t protocol_minor = {manifest['protocol'][1]};",
-           "inline constexpr std::array<std::uint8_t, 32> schema_sha256{" +
-           ", ".join(f"0x{digest[index:index + 2]}" for index in range(0, 64, 2)) + "};"]
+    cpp = [
+        "#pragma once",
+        "",
+        "#include <array>",
+        "#include <cstdint>",
+        "",
+        "namespace solar::remote::generated {",
+        f"inline constexpr std::uint8_t protocol_major = {manifest['protocol'][0]};",
+        f"inline constexpr std::uint8_t protocol_minor = {manifest['protocol'][1]};",
+        "inline constexpr std::array<std::uint8_t, 32> manifest_sha256{"
+        + ", ".join(f"0x{digest[index : index + 2]}" for index in range(0, 64, 2))
+        + "};",
+    ]
+    cpp.append("inline constexpr auto schema_sha256 = manifest_sha256;")
     cpp.append("} // namespace solar::remote::generated\n")
     (output / "manifest.hpp").write_text("\n".join(cpp))
 
@@ -154,7 +283,7 @@ def main() -> int:
     args = parser.parse_args()
     try:
         generate(args.elf, args.output)
-    except (OSError, ValueError, KeyError, struct.error) as error:
+    except (OSError, ValueError, KeyError, ManifestError) as error:
         print(f"solar-remote-generate: {error}", file=sys.stderr)
         return 1
     return 0

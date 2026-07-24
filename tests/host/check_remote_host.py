@@ -28,6 +28,8 @@ from solar_remote.protocol import (
     SubscriptionPolicy,
     SubscriptionRequest,
     IntrospectionSummary,
+    ManifestChunk,
+    ServerInformation,
     crc32c,
     decode_batch,
     decode_frame,
@@ -52,9 +54,14 @@ def main() -> int:
     decoded, decoded_payload = decode_frame(frame)
     assert decoded_payload == payload and decoded.payload_size == len(payload)
     query = envelope.with_operation(OPERATION_QUERY)
-    assert query.operation == OPERATION_QUERY and Envelope.decode(query.encode()) == query
+    assert (
+        query.operation == OPERATION_QUERY and Envelope.decode(query.encode()) == query
+    )
     topic = envelope.with_subscription(SUBSCRIPTION_TOPIC)
-    assert topic.subscription == SUBSCRIPTION_TOPIC and Envelope.decode(topic.encode()) == topic
+    assert (
+        topic.subscription == SUBSCRIPTION_TOPIC
+        and Envelope.decode(topic.encode()) == topic
+    )
     request = SubscriptionRequest(minimum_interval_us=20_000, batch_size=4)
     assert SubscriptionRequest.decode(request.encode()) == request
     policy = SubscriptionPolicy(minimum_interval_us=20_000, batch_size=1, codec=1)
@@ -66,7 +73,9 @@ def main() -> int:
     crc_vector = vector["crc32c"]
     assert crc32c(bytes.fromhex(crc_vector["input_hex"])) == crc_vector["value"]
     cbor_value = {int(key): value for key, value in vector["cbor"]["value"].items()}
-    assert cbor2.dumps(cbor_value, canonical=True).hex() == vector["cbor"]["canonical_hex"]
+    assert (
+        cbor2.dumps(cbor_value, canonical=True).hex() == vector["cbor"]["canonical_hex"]
+    )
     corrupt = bytearray(frame)
     corrupt[8] ^= 0x10
     try:
@@ -89,16 +98,24 @@ def main() -> int:
     now = [0.0]
     reassembler = Reassembler(32, slots=1, timeout=1.0, clock=lambda: now[0])
     fragmented = Envelope(
-        kind=KIND_DATA, flags=FLAG_FRAGMENTED, fragment_id=7, fragment_count=2,
-        target=4, session_epoch=2,
+        kind=KIND_DATA,
+        flags=FLAG_FRAGMENTED,
+        fragment_id=7,
+        fragment_count=2,
+        target=4,
+        session_epoch=2,
     )
     assert reassembler.push(fragmented, b"abc") is None
     complete = reassembler.push(
-        replace(fragmented, flags=FLAG_FRAGMENTED | FLAG_FINAL, fragment_index=1), b"def"
+        replace(fragmented, flags=FLAG_FRAGMENTED | FLAG_FINAL, fragment_index=1),
+        b"def",
     )
     assert complete is not None and complete.payload == b"abcdef"
     expiring = Envelope(
-        kind=KIND_DATA, flags=FLAG_FRAGMENTED, fragment_id=8, fragment_count=2,
+        kind=KIND_DATA,
+        flags=FLAG_FRAGMENTED,
+        fragment_id=8,
+        fragment_count=2,
     )
     assert reassembler.push(expiring, b"old") is None
     now[0] = 2.0
@@ -115,10 +132,15 @@ def main() -> int:
     client_hello = client.take_outgoing()
     assert client_hello is not None
     client_envelope, client_payload = decode_frame(client_hello)
-    assert client_envelope.kind == 1 and Hello.decode(client_payload).maximum_frame_bytes == 64
-    client.feed(encode_frame(
-        Envelope(kind=KIND_SERVER_HELLO, session_epoch=3, frame_sequence=2), hello
-    ))
+    assert (
+        client_envelope.kind == 1
+        and Hello.decode(client_payload).maximum_frame_bytes == 64
+    )
+    client.feed(
+        encode_frame(
+            Envelope(kind=KIND_SERVER_HELLO, session_epoch=3, frame_sequence=2), hello
+        )
+    )
     assert client.active and client.session_epoch == 3
     request_id = client.request(0x1234, b"query", OPERATION_QUERY)
     request_frames = []
@@ -146,41 +168,86 @@ def main() -> int:
     assert introspection_payload == b""
     summary = IntrospectionSummary.decode(
         bytes((1, 1, 0, 1))
-        + (3).to_bytes(2, "little") + (4).to_bytes(2, "little")
-        + (5).to_bytes(2, "little") + (6).to_bytes(2, "little")
-        + (7).to_bytes(2, "little") + (8).to_bytes(2, "little")
-        + (1024).to_bytes(4, "little") + (8192).to_bytes(4, "little")
+        + (3).to_bytes(2, "little")
+        + (4).to_bytes(2, "little")
+        + (5).to_bytes(2, "little")
+        + (6).to_bytes(2, "little")
+        + (7).to_bytes(2, "little")
+        + (8).to_bytes(2, "little")
+        + (1024).to_bytes(4, "little")
+        + (8192).to_bytes(4, "little")
     )
     assert summary.schemas == 3 and summary.links == 8
     assert summary.maximum_message_bytes == 8192
+    digest = bytes(range(32))
+    information = ServerInformation.decode(
+        bytes((1, 1, 0, 1))
+        + struct.pack("<IIQ", 1024, 8192, 0x1234)
+        + digest
+        + struct.pack("<I", 4096)
+    )
+    assert information.manifest_digest == digest and information.manifest_size == 4096
+    chunk = ManifestChunk.decode(struct.pack("<II", 10, 20) + b"abc")
+    assert chunk.offset == 10 and chunk.data == b"abc"
+    server_info_id = client.request_server_information()
+    server_info_frame = client.take_outgoing()
+    assert server_info_frame is not None and server_info_id == 3
+    info_envelope, info_payload = decode_frame(server_info_frame)
+    assert info_envelope.target == 3 and info_payload == b""
+    manifest_id = client.request_manifest_chunk(128, 256)
+    manifest_frame = client.take_outgoing()
+    assert manifest_frame is not None and manifest_id == 4
+    manifest_envelope, manifest_payload = decode_frame(manifest_frame)
+    assert manifest_envelope.target == 4
+    assert manifest_payload == struct.pack("<IHH", 128, 256, 0)
     collection_payload = (
-        bytes((1, 1)) + (1).to_bytes(2, "little") + (1).to_bytes(2, "little")
+        bytes((1, 1))
+        + (1).to_bytes(2, "little")
+        + (1).to_bytes(2, "little")
         + bytes((0, 0))
-        + (0).to_bytes(2, "little") + (0x6D9A0001).to_bytes(4, "little")
-        + (1).to_bytes(2, "little") + bytes((1, 17, 2, 0, 0, 1))
-        + (8).to_bytes(2, "little") + (32).to_bytes(2, "little")
-        + (16).to_bytes(2, "little") + bytes((0, 10)) + b"components"
+        + (0).to_bytes(2, "little")
+        + (0x6D9A0001).to_bytes(4, "little")
+        + (1).to_bytes(2, "little")
+        + bytes((1, 17, 2, 0, 0, 1))
+        + (8).to_bytes(2, "little")
+        + (32).to_bytes(2, "little")
+        + (16).to_bytes(2, "little")
+        + bytes((0, 10))
+        + b"components"
     )
     collection_page = CollectionPage.decode(collection_payload)
     assert collection_page.total == 1
     assert collection_page.collections[0].name == "components"
     assert collection_page.collections[0].stable_id == 0x6D9A0001
-    query_page = CollectionQueryPage.decode(cbor2.dumps({
-        0: 0x6D9A0002, 1: 1, 2: 4, 3: True, 4: 7, 5: 1, 6: 0,
-        7: 0, 8: [{0: 1, 1: 2}], 9: True,
-    }, canonical=True))
+    query_page = CollectionQueryPage.decode(
+        cbor2.dumps(
+            {
+                0: 0x6D9A0002,
+                1: 1,
+                2: 4,
+                3: True,
+                4: 7,
+                5: 1,
+                6: 0,
+                7: 0,
+                8: [{0: 1, 1: 2}],
+                9: True,
+            },
+            canonical=True,
+        )
+    )
     assert query_page.stable_id == 0x6D9A0002 and query_page.loss_known
     assert query_page.records == ({0: 1, 1: 2},)
     collections_id = client.introspect(1, encode_collection_request(limit=4))
     collections_frame = client.take_outgoing()
-    assert collections_frame is not None and collections_id == 3
+    assert collections_frame is not None and collections_id == 5
     collections_envelope, collections_request = decode_frame(collections_frame)
     assert collections_envelope.target == 1 and collections_request == b"\0\0\4\0"
     query_id = client.introspect(
         2, encode_collection_query_request(0x6D9A0002, offset=3, revision=4, limit=2)
     )
     query_frame = client.take_outgoing()
-    assert query_frame is not None and query_id == 4
+    assert query_frame is not None and query_id == 6
     query_envelope, query_request = decode_frame(query_frame)
     assert query_envelope.target == 2
     assert query_request == struct.pack("<IIIH", 0x6D9A0002, 3, 4, 2)

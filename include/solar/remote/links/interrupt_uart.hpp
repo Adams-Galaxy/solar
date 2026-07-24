@@ -22,6 +22,14 @@ template <typename Derived, const device* Device, std::size_t RxCapacity> class 
 {
     static_assert(RxCapacity > 0);
 
+    [[nodiscard]] static consteval bool manually_signalled_connection() noexcept
+    {
+        if constexpr (requires { Derived::manual_connection_events; }) {
+            return Derived::manual_connection_events;
+        }
+        return false;
+    }
+
   public:
     [[nodiscard]] static Result<void, LinkError> open(LinkEventSink sink) noexcept
     {
@@ -39,6 +47,7 @@ template <typename Derived, const device* Device, std::size_t RxCapacity> class 
             rx_size_ = 0;
             tx_active_ = false;
             tx_offset_ = 0;
+            connected_ = false;
         }
         const auto status = uart_irq_callback_user_data_set(Device, &interrupt, nullptr);
         if (status != 0) {
@@ -48,8 +57,38 @@ template <typename Derived, const device* Device, std::size_t RxCapacity> class 
             return fail<LinkError>({.status = status_from_errno(status), .native_error = status});
         }
         uart_irq_rx_enable(Device);
-        sink.notify(LinkEvent{.kind = LinkEventKind::Connected});
+        if constexpr (!manually_signalled_connection()) {
+            signal_connected();
+        }
         return {};
+    }
+
+    static void signal_connected() noexcept
+    {
+        LinkEventSink sink;
+        {
+            auto guard = lock_.acquire();
+            if (!opened_ || connected_) {
+                return;
+            }
+            connected_ = true;
+            sink = sink_;
+        }
+        sink.notify(LinkEvent{.kind = LinkEventKind::Connected});
+    }
+
+    static void signal_disconnected() noexcept
+    {
+        LinkEventSink sink;
+        {
+            auto guard = lock_.acquire();
+            if (!opened_ || !connected_) {
+                return;
+            }
+            connected_ = false;
+            sink = sink_;
+        }
+        sink.notify(LinkEvent{.kind = LinkEventKind::Disconnected});
     }
 
     static void close() noexcept
@@ -62,6 +101,7 @@ template <typename Derived, const device* Device, std::size_t RxCapacity> class 
         rx_occupied_ = false;
         rx_size_ = 0;
         tx_active_ = false;
+        connected_ = false;
         tx_bytes_ = {};
         sink_ = {};
     }
@@ -194,6 +234,7 @@ template <typename Derived, const device* Device, std::size_t RxCapacity> class 
     inline static std::size_t tx_offset_{};
     inline static std::uint16_t rx_generation_{};
     inline static bool opened_{};
+    inline static bool connected_{};
     inline static bool rx_occupied_{};
     inline static bool tx_active_{};
 };

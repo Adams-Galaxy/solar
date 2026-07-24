@@ -56,7 +56,7 @@ template <> struct solar::remote::Schema<fixture::Blob>
         .id = TypeId{0xD201},
         .name = "fixture.Blob",
     };
-    using Fields = remote::Fields<Field<1, &fixture::Blob::bytes>>;
+    using Fields = remote::Fields<Field<1, "bytes", &fixture::Blob::bytes>>;
     static constexpr std::size_t max_encoded_size = 720;
     static constexpr Codec codec = Codec::Cbor;
 };

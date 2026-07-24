@@ -9,6 +9,10 @@
 #include "solar/log/platform.hpp"
 #include "solar/log/types.hpp"
 
+#if defined(__ZEPHYR__)
+#include "solar/log/sinks/zephyr_console.hpp"
+#endif
+
 #if defined(CONFIG_SOLAR_LOG) && defined(CONFIG_SOLAR_EVENTS)
 #include "solar/events/log.hpp"
 #endif

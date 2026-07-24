@@ -3231,6 +3231,56 @@ template <typename System>
     };
 }
 
+template <typename System> [[nodiscard]] protocol::ServerInformation server_information() noexcept
+{
+    return {
+        .maximum_frame_bytes = CONFIG_SOLAR_REMOTE_MAX_FRAME_BYTES,
+        .maximum_message_bytes = CONFIG_SOLAR_REMOTE_MAX_MESSAGE_BYTES,
+#if defined(CONFIG_SOLAR_REMOTE_BUILD_ID)
+        .build_id = CONFIG_SOLAR_REMOTE_BUILD_ID,
+#else
+        .build_id = 0,
+#endif
+        .manifest_digest = manifest::Image<System>::digest,
+        .manifest_size = static_cast<std::uint32_t>(manifest::Image<System>::bytes.size()),
+        .feature_flags = 0U
+#if defined(CONFIG_SOLAR_REMOTE_MANIFEST_RETRIEVAL)
+                         | 0x01U
+#endif
+#if defined(CONFIG_SOLAR_REMOTE_RUNTIME_INTROSPECTION)
+                         | 0x02U
+#endif
+#if defined(CONFIG_SOLAR_INSPECTION_REMOTE)
+                         | 0x04U
+#endif
+        ,
+    };
+}
+
+template <typename System>
+[[nodiscard]] Result<std::size_t, Error> manifest_chunk(std::span<const std::byte> request_bytes,
+                                                        std::span<std::byte> output) noexcept
+{
+    auto request = protocol::decode_manifest_request(request_bytes);
+    constexpr auto& image = manifest::Image<System>::bytes;
+    if (!request || request->limit == 0 || request->offset > image.size()) {
+        return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::Decode});
+    }
+    const auto count =
+        (std::min)({static_cast<std::size_t>(request->limit), image.size() - request->offset,
+                    output.size() >= protocol::manifest_chunk_header_size
+                        ? output.size() - protocol::manifest_chunk_header_size
+                        : std::size_t{}});
+    if (output.size() < protocol::manifest_chunk_header_size || count == 0) {
+        return fail<Error>({Status::NoSpace, Reason::NoSpace, Operation::Encode});
+    }
+    protocol::detail::put_u32(output, 0, request->offset);
+    protocol::detail::put_u32(output, 4, static_cast<std::uint32_t>(image.size()));
+    std::copy_n(image.begin() + request->offset, count,
+                output.begin() + protocol::manifest_chunk_header_size);
+    return protocol::manifest_chunk_header_size + count;
+}
+
 #if defined(CONFIG_SOLAR_INSPECTION_REMOTE)
 template <typename System>
 [[nodiscard]] Result<std::size_t, Error>

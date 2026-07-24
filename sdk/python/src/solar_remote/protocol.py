@@ -1,4 +1,4 @@
-"""Transport-independent Solar Remote protocol v1 primitives."""
+"""Transport-independent Solar Remote protocol primitives."""
 
 from __future__ import annotations
 
@@ -18,6 +18,8 @@ INTROSPECTION_SUMMARY_SIZE = 24
 INTROSPECTION_PROTOCOL_SUMMARY = 0
 INTROSPECTION_COLLECTIONS = 1
 INTROSPECTION_COLLECTION_QUERY = 2
+INTROSPECTION_SERVER_INFORMATION = 3
+INTROSPECTION_MANIFEST = 4
 COLLECTION_PAGE_HEADER_SIZE = 8
 COLLECTION_DESCRIPTOR_HEADER_SIZE = 22
 
@@ -70,13 +72,62 @@ class IntrospectionSummary:
     @classmethod
     def decode(cls, payload: bytes) -> "IntrospectionSummary":
         if (
-            len(payload) != INTROSPECTION_SUMMARY_SIZE or payload[0] != 1
+            len(payload) != INTROSPECTION_SUMMARY_SIZE
+            or payload[0] != 1
             or payload[1] != PROTOCOL_MAJOR
         ):
             raise FrameError("invalid introspection summary")
         counts = struct.unpack_from("<6H", payload, 4)
         maximum_frame, maximum_message = struct.unpack_from("<II", payload, 16)
         return cls(*counts, maximum_frame, maximum_message)
+
+
+@dataclass(frozen=True, slots=True)
+class ServerInformation:
+    maximum_frame_bytes: int
+    maximum_message_bytes: int
+    build_id: int
+    manifest_digest: bytes
+    manifest_size: int
+    feature_flags: int
+
+    @classmethod
+    def decode(cls, payload: bytes) -> "ServerInformation":
+        if len(payload) != 56 or payload[0] != 1 or payload[1] != PROTOCOL_MAJOR:
+            raise FrameError("invalid server information")
+        maximum_frame, maximum_message = struct.unpack_from("<II", payload, 4)
+        build_id = struct.unpack_from("<Q", payload, 12)[0]
+        manifest_size = struct.unpack_from("<I", payload, 52)[0]
+        return cls(
+            maximum_frame,
+            maximum_message,
+            build_id,
+            payload[20:52],
+            manifest_size,
+            payload[3],
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class ManifestChunk:
+    offset: int
+    total: int
+    data: bytes
+
+    @classmethod
+    def decode(cls, payload: bytes) -> "ManifestChunk":
+        if len(payload) < 8:
+            raise FrameError("invalid manifest chunk")
+        offset, total = struct.unpack_from("<II", payload)
+        if offset > total or offset + len(payload) - 8 > total:
+            raise FrameError("manifest chunk exceeds advertised image")
+        return cls(offset, total, payload[8:])
+
+
+def encode_manifest_request(offset: int, limit: int) -> bytes:
+    if not 0 <= offset <= 0xFFFFFFFF or not 0 < limit <= 0xFFFF:
+        raise ValueError("manifest request is out of range")
+    return struct.pack("<IHH", offset, limit, 0)
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,12 +185,26 @@ class CollectionPage:
                 name = payload[name_begin:name_end].decode("utf-8")
             except UnicodeDecodeError as error:
                 raise FrameError("invalid collection name") from error
-            records.append(CollectionDescriptor(
-                local_id, stable_id, version, subsystem, capabilities,
-                consistency, synchronization, context, cost, maximum_page,
-                record_size, query_size, bool(flags & 1), bool(flags & 2),
-                bool(flags & 4), name,
-            ))
+            records.append(
+                CollectionDescriptor(
+                    local_id,
+                    stable_id,
+                    version,
+                    subsystem,
+                    capabilities,
+                    consistency,
+                    synchronization,
+                    context,
+                    cost,
+                    maximum_page,
+                    record_size,
+                    query_size,
+                    bool(flags & 1),
+                    bool(flags & 2),
+                    bool(flags & 4),
+                    name,
+                )
+            )
             offset = name_end
         if offset != len(payload):
             raise FrameError("trailing collection page data")
@@ -170,14 +235,33 @@ class CollectionQueryPage:
         records = value[8]
         if not isinstance(records, list) or value[1] != len(records):
             raise FrameError("invalid collection query records")
-        scalar_fields = (value[0], value[1], value[2], value[4], value[5], value[6], value[7])
-        if any(not isinstance(field, int) or isinstance(field, bool) for field in scalar_fields):
+        scalar_fields = (
+            value[0],
+            value[1],
+            value[2],
+            value[4],
+            value[5],
+            value[6],
+            value[7],
+        )
+        if any(
+            not isinstance(field, int) or isinstance(field, bool)
+            for field in scalar_fields
+        ):
             raise FrameError("invalid collection query metadata")
         if not isinstance(value[3], bool) or not isinstance(value[9], bool):
             raise FrameError("invalid collection query flags")
         return cls(
-            value[0], value[1], value[2], value[3], value[4], value[5], value[6],
-            value[7], value[9], tuple(records),
+            value[0],
+            value[1],
+            value[2],
+            value[3],
+            value[4],
+            value[5],
+            value[6],
+            value[7],
+            value[9],
+            tuple(records),
         )
 
 
@@ -188,7 +272,10 @@ def encode_collection_request(offset: int = 0, limit: int = 8) -> bytes:
 
 
 def encode_collection_query_request(
-    stable_id: int, offset: int = 0, revision: int = 0, limit: int = 8,
+    stable_id: int,
+    offset: int = 0,
+    revision: int = 0,
+    limit: int = 8,
 ) -> bytes:
     if not 1 <= stable_id <= 0xFFFFFFFF:
         raise FrameError("invalid collection stable ID")
@@ -264,10 +351,19 @@ class Envelope:
         if values[0] != PROTOCOL_MAJOR or values[4] != ENVELOPE_SIZE:
             raise FrameError("unsupported protocol version")
         return cls(
-            major=values[0], minor=values[1], kind=values[2], flags=values[3],
-            session_epoch=values[5], frame_sequence=values[6], target=values[7],
-            request_id=values[8], payload_size=values[9], fragment_id=values[10],
-            fragment_index=values[11], fragment_count=values[12], reserved=values[13],
+            major=values[0],
+            minor=values[1],
+            kind=values[2],
+            flags=values[3],
+            session_epoch=values[5],
+            frame_sequence=values[6],
+            target=values[7],
+            request_id=values[8],
+            payload_size=values[9],
+            fragment_id=values[10],
+            fragment_index=values[11],
+            fragment_count=values[12],
+            reserved=values[13],
         )
 
 
@@ -352,11 +448,11 @@ def decode_batch(data: bytes) -> tuple[int, list[bytes]]:
     for _ in range(count):
         if offset + 2 > len(data):
             raise FrameError("truncated batch length")
-        size = struct.unpack("<H", data[offset:offset + 2])[0]
+        size = struct.unpack("<H", data[offset : offset + 2])[0]
         offset += 2
         if offset + size > len(data):
             raise FrameError("truncated batch entry")
-        entries.append(data[offset:offset + size])
+        entries.append(data[offset : offset + size])
         offset += size
     if offset != len(data):
         raise FrameError("trailing batch data")
@@ -405,7 +501,7 @@ def cobs_decode(data: bytes) -> bytes:
         index += 1
         if not code or index + code - 1 > len(data):
             raise FrameError("malformed COBS frame")
-        output.extend(data[index:index + code - 1])
+        output.extend(data[index : index + code - 1])
         index += code - 1
         if code != 0xFF and index < len(data):
             output.append(0)

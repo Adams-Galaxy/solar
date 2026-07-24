@@ -58,8 +58,8 @@ template <> struct solar::remote::Schema<fixture::Sample>
         .id = TypeId{0xA201},
         .name = "fixture.LoanSample",
     };
-    using Fields =
-        remote::Fields<Field<1, &fixture::Sample::sequence>, Field<2, &fixture::Sample::value>>;
+    using Fields = remote::Fields<Field<1, "sequence", &fixture::Sample::sequence>,
+                                  Field<2, "value", &fixture::Sample::value>>;
     static constexpr std::size_t max_encoded_size = 6;
     static constexpr Codec codec = Codec::Packed;
 };

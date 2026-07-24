@@ -61,7 +61,7 @@ find_package(Python3 REQUIRED COMPONENTS Interpreter)
 add_test(
     NAME solar.host.remote_protocol.python
     COMMAND ${CMAKE_COMMAND} -E env
-        PYTHONPATH=${PROJECT_SOURCE_DIR}/tools/remote
+        PYTHONPATH=${PROJECT_SOURCE_DIR}/sdk/python/src
         ${Python3_EXECUTABLE}
         ${CMAKE_CURRENT_SOURCE_DIR}/check_remote_host.py
         --vectors ${PROJECT_SOURCE_DIR}/tests/vectors/remote_protocol_v1.json)
@@ -73,6 +73,13 @@ add_test(
         --generator ${PROJECT_SOURCE_DIR}/tools/remote/generate_manifest.py
         --elf $<TARGET_FILE:solar_host_remote_protocol>
         --compiler ${CMAKE_CXX_COMPILER})
+
+add_test(
+    NAME solar.host.remote_sdk
+    COMMAND ${CMAKE_COMMAND} -E env
+        PYTHONPATH=${PROJECT_SOURCE_DIR}/sdk/python/src
+        ${Python3_EXECUTABLE}
+        ${CMAKE_CURRENT_SOURCE_DIR}/check_remote_sdk.py)
 
 set(compile_fail_harness
     ${CMAKE_CURRENT_SOURCE_DIR}/../compile_fail/expect_failure.py)
@@ -210,6 +217,39 @@ solar_add_compile_failure(
     solar.compile_fail.remote_capability_collision
     SOLAR_DIAGNOSTIC_REMOTE_CAPABILITY_COLLISION
     ${CMAKE_CURRENT_SOURCE_DIR}/../compile_fail/fixtures/remote_capability_collision.cpp)
+
+solar_add_compile_failure(
+    solar.compile_fail.remote_empty_field_name
+    SOLAR_DIAGNOSTIC_REMOTE_EMPTY_FIELD_NAME
+    ${CMAKE_CURRENT_SOURCE_DIR}/../compile_fail/fixtures/remote_empty_field_name.cpp)
+solar_add_compile_failure(
+    solar.compile_fail.remote_duplicate_field_name
+    SOLAR_DIAGNOSTIC_REMOTE_DUPLICATE_FIELD_NAME
+    ${CMAKE_CURRENT_SOURCE_DIR}/../compile_fail/fixtures/remote_duplicate_field_name.cpp)
+solar_add_compile_failure(
+    solar.compile_fail.remote_field_attribute_collision
+    SOLAR_DIAGNOSTIC_REMOTE_FIELD_ATTRIBUTE_COLLISION
+    ${CMAKE_CURRENT_SOURCE_DIR}/../compile_fail/fixtures/remote_field_attribute_collision.cpp)
+solar_add_compile_failure(
+    solar.compile_fail.remote_missing_enum_schema
+    SOLAR_DIAGNOSTIC_REMOTE_MISSING_ENUM_SCHEMA
+    ${CMAKE_CURRENT_SOURCE_DIR}/../compile_fail/fixtures/remote_missing_enum_schema.cpp)
+solar_add_compile_failure(
+    solar.compile_fail.remote_unbound_enum_schema
+    SOLAR_DIAGNOSTIC_REMOTE_UNBOUND_ENUM_SCHEMA
+    ${CMAKE_CURRENT_SOURCE_DIR}/../compile_fail/fixtures/remote_unbound_enum_schema.cpp)
+solar_add_compile_failure(
+    solar.compile_fail.remote_empty_enum
+    SOLAR_DIAGNOSTIC_REMOTE_EMPTY_ENUM
+    ${CMAKE_CURRENT_SOURCE_DIR}/../compile_fail/fixtures/remote_empty_enum.cpp)
+solar_add_compile_failure(
+    solar.compile_fail.remote_duplicate_enum_name
+    SOLAR_DIAGNOSTIC_REMOTE_DUPLICATE_ENUM_NAME
+    ${CMAKE_CURRENT_SOURCE_DIR}/../compile_fail/fixtures/remote_duplicate_enum_name.cpp)
+solar_add_compile_failure(
+    solar.compile_fail.remote_duplicate_enum_value
+    SOLAR_DIAGNOSTIC_REMOTE_DUPLICATE_ENUM_VALUE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../compile_fail/fixtures/remote_duplicate_enum_value.cpp)
 
 solar_add_compile_failure(
     solar.compile_fail.catalog_empty_name

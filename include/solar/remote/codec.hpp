@@ -86,6 +86,15 @@ template <typename T> bool encode_value(zcbor_state_t* state, const T& value)
     if constexpr (std::is_same_v<T, bool>) {
         return zcbor_bool_put(state, value);
     } else if constexpr (std::is_enum_v<T>) {
+        static_assert(EnumerationSchemaType<T> || StatusSchemaType<T>,
+                      "SOLAR_DIAGNOSTIC_REMOTE_MISSING_ENUM_SCHEMA: enum field requires an "
+                      "enumeration Schema<T>");
+        if constexpr (EnumerationSchemaType<T> &&
+                      remote::detail::enum_openness<T>() == EnumOpenness::Closed) {
+            if (!declared_enum_value(value)) {
+                return false;
+            }
+        }
         return encode_value(state, static_cast<std::underlying_type_t<T>>(value));
     } else if constexpr (std::unsigned_integral<T>) {
         return zcbor_uint64_put(state, static_cast<std::uint64_t>(value));
@@ -113,11 +122,18 @@ template <typename T> bool decode_value(zcbor_state_t* state, T& value)
     if constexpr (std::is_same_v<T, bool>) {
         return zcbor_bool_decode(state, &value);
     } else if constexpr (std::is_enum_v<T>) {
+        static_assert(EnumerationSchemaType<T> || StatusSchemaType<T>,
+                      "SOLAR_DIAGNOSTIC_REMOTE_MISSING_ENUM_SCHEMA: enum field requires an "
+                      "enumeration Schema<T>");
         std::underlying_type_t<T> decoded{};
         if (!decode_value(state, decoded)) {
             return false;
         }
         value = static_cast<T>(decoded);
+        if constexpr (EnumerationSchemaType<T> &&
+                      remote::detail::enum_openness<T>() == EnumOpenness::Closed) {
+            return declared_enum_value(value);
+        }
         return true;
     } else if constexpr (std::unsigned_integral<T>) {
         std::uint64_t decoded{};

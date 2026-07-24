@@ -21,18 +21,27 @@ struct TelemetrySample
     float value{};
 };
 
-struct ScaleRequest { std::int32_t value{}; };
-struct ScaleResponse { std::int32_t value{}; };
+struct ScaleRequest
+{
+    std::int32_t value{};
+};
+struct ScaleResponse
+{
+    std::int32_t value{};
+};
 // [types]
 
 // [endpoints]
 struct Telemetry
 {
     using Value = TelemetrySample;
-    static constexpr solar::remote::DataDescriptor descriptor{
-        .id = solar::remote::DataId{0x7101}, .name = "demo.telemetry"};
+    static constexpr solar::remote::DataDescriptor descriptor{.id = solar::remote::DataId{0x7101},
+                                                              .name = "demo.telemetry"};
 
-    static Value read() { return {.sequence = 7, .value = 2.5F}; }
+    static Value read()
+    {
+        return {.sequence = 7, .value = 2.5F};
+    }
 
     using Capabilities = solar::remote::Capabilities<
         solar::remote::Query<&Telemetry::read>,
@@ -48,14 +57,17 @@ struct Scale
         .id = solar::remote::ActionId{0x7301}, .name = "demo.scale"};
     using Execution = solar::remote::Inline;
 
-    static Response execute(const Request& request) { return {.value = request.value * 2}; }
+    static Response execute(const Request& request)
+    {
+        return {.value = request.value * 2};
+    }
 };
 // [endpoints]
 
 struct Link : solar::remote::testing::InMemoryLink<Link, 256, 256>
 {
-    static constexpr solar::remote::LinkDescriptor descriptor{
-        .id = solar::remote::LinkId{0x7001}, .name = "demo.memory"};
+    static constexpr solar::remote::LinkDescriptor descriptor{.id = solar::remote::LinkId{0x7001},
+                                                              .name = "demo.memory"};
     using Grants = solar::remote::Requires<solar::remote::permission::Observe,
                                            solar::remote::permission::Control>;
 };
@@ -75,18 +87,17 @@ using System = solar::System<solar::Blueprint<solar::Facilities<Root>>>;
 template <> struct solar::remote::Schema<app::TelemetrySample>
 {
     static constexpr SchemaDescriptor descriptor{.id = TypeId{0x7201},
-                                                  .name = "demo.TelemetrySample"};
-    using Fields = remote::Fields<Field<1, &app::TelemetrySample::sequence>,
-                                  Field<2, &app::TelemetrySample::value>>;
+                                                 .name = "demo.TelemetrySample"};
+    using Fields = remote::Fields<Field<1, "sequence", &app::TelemetrySample::sequence>,
+                                  Field<2, "value", &app::TelemetrySample::value>>;
     static constexpr std::size_t max_encoded_size = 24;
     static constexpr Codec codec = Codec::Cbor;
 };
 
 template <> struct solar::remote::Schema<app::ScaleRequest>
 {
-    static constexpr SchemaDescriptor descriptor{.id = TypeId{0x7202},
-                                                  .name = "demo.ScaleRequest"};
-    using Fields = remote::Fields<Field<1, &app::ScaleRequest::value>>;
+    static constexpr SchemaDescriptor descriptor{.id = TypeId{0x7202}, .name = "demo.ScaleRequest"};
+    using Fields = remote::Fields<Field<1, "value", &app::ScaleRequest::value>>;
     static constexpr std::size_t max_encoded_size = 12;
     static constexpr Codec codec = Codec::Cbor;
 };
@@ -94,8 +105,8 @@ template <> struct solar::remote::Schema<app::ScaleRequest>
 template <> struct solar::remote::Schema<app::ScaleResponse>
 {
     static constexpr SchemaDescriptor descriptor{.id = TypeId{0x7203},
-                                                  .name = "demo.ScaleResponse"};
-    using Fields = remote::Fields<Field<1, &app::ScaleResponse::value>>;
+                                                 .name = "demo.ScaleResponse"};
+    using Fields = remote::Fields<Field<1, "value", &app::ScaleResponse::value>>;
     static constexpr std::size_t max_encoded_size = 12;
     static constexpr Codec codec = Codec::Cbor;
 };

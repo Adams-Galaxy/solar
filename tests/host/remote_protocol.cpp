@@ -6,6 +6,7 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 
 #include <solar/remote.hpp>
@@ -14,12 +15,34 @@
 namespace fixture
 {
 
+enum class Mode : std::int8_t
+{
+    Idle = -1,
+    Active = 2,
+};
+
+enum class OpenMode : std::uint8_t
+{
+    Known = 1,
+};
+
+struct ModeValue
+{
+    Mode mode{};
+};
+
+struct OpenModeValue
+{
+    OpenMode mode{};
+};
+
 struct Sample
 {
     std::uint32_t sequence{};
     std::int16_t value{};
     float gain{};
     bool valid{};
+    std::optional<std::uint16_t> quality{};
     constexpr bool operator==(const Sample&) const = default;
 };
 
@@ -55,11 +78,54 @@ struct Component
     static constexpr solar::component::Descriptor descriptor{.name = "fixture.component"};
     using RemoteData = solar::remote::ContributeData<Telemetry>;
     using RemoteActions = solar::remote::ContributeActions<Reset>;
+    using RemoteSchemas = solar::remote::ContributeSchemas<Mode, OpenMode>;
 };
 
 using System = solar::System<solar::Blueprint<solar::Facilities<Component>>>;
 
 } // namespace fixture
+
+template <> struct solar::remote::Schema<fixture::Mode>
+{
+    static constexpr SchemaDescriptor descriptor{
+        .id = TypeId{0x3000},
+        .name = "fixture.Mode",
+        .description = "Fixture operating mode",
+    };
+    static constexpr SchemaShape shape = SchemaShape::Enumeration;
+    static constexpr EnumOpenness openness = EnumOpenness::Closed;
+    using Values = remote::EnumValues<remote::EnumValue<fixture::Mode::Idle, "idle">,
+                                      remote::EnumValue<fixture::Mode::Active, "active",
+                                                        remote::Description<"Actively sampling">>>;
+};
+
+template <> struct solar::remote::Schema<fixture::OpenMode>
+{
+    static constexpr SchemaDescriptor descriptor{
+        .id = TypeId{0x3003},
+        .name = "fixture.OpenMode",
+    };
+    static constexpr SchemaShape shape = SchemaShape::Enumeration;
+    static constexpr EnumOpenness openness = EnumOpenness::Open;
+    using Values = remote::EnumValues<remote::EnumValue<fixture::OpenMode::Known, "known">>;
+};
+
+template <> struct solar::remote::Schema<fixture::ModeValue>
+{
+    static constexpr SchemaDescriptor descriptor{.id = TypeId{0x3004}, .name = "fixture.ModeValue"};
+    using Fields = remote::Fields<Field<1, "mode", &fixture::ModeValue::mode>>;
+    static constexpr std::size_t max_encoded_size = 1;
+    static constexpr Codec codec = Codec::Packed;
+};
+
+template <> struct solar::remote::Schema<fixture::OpenModeValue>
+{
+    static constexpr SchemaDescriptor descriptor{.id = TypeId{0x3005},
+                                                 .name = "fixture.OpenModeValue"};
+    using Fields = remote::Fields<Field<1, "mode", &fixture::OpenModeValue::mode>>;
+    static constexpr std::size_t max_encoded_size = 1;
+    static constexpr Codec codec = Codec::Packed;
+};
 
 template <> struct solar::remote::Schema<fixture::Sample>
 {
@@ -67,9 +133,12 @@ template <> struct solar::remote::Schema<fixture::Sample>
         .id = TypeId{0x3001},
         .name = "fixture.Sample",
     };
-    using Fields =
-        remote::Fields<Field<1, &fixture::Sample::sequence>, Field<2, &fixture::Sample::value>,
-                       Field<3, &fixture::Sample::gain>, Field<4, &fixture::Sample::valid>>;
+    using Fields = remote::Fields<
+        Field<1, "sequence", &fixture::Sample::sequence>,
+        Field<2, "value", &fixture::Sample::value, remote::Description<"Measured value">>,
+        Field<3, "gain", &fixture::Sample::gain, remote::Unit<"ratio">>,
+        Field<4, "valid", &fixture::Sample::valid, remote::Deprecated<"use status">>,
+        Field<5, "quality", &fixture::Sample::quality>>;
     static constexpr std::size_t max_encoded_size = 32;
     static constexpr Codec codec = Codec::Cbor;
 };
@@ -80,8 +149,8 @@ template <> struct solar::remote::Schema<fixture::PackedSample>
         .id = TypeId{0x3002},
         .name = "fixture.PackedSample",
     };
-    using Fields = remote::Fields<Field<1, &fixture::PackedSample::sequence>,
-                                  Field<2, &fixture::PackedSample::value>>;
+    using Fields = remote::Fields<Field<1, "sequence", &fixture::PackedSample::sequence>,
+                                  Field<2, "value", &fixture::PackedSample::value>>;
     static constexpr std::size_t max_encoded_size = 6;
     static constexpr Codec codec = Codec::Packed;
 };
@@ -89,9 +158,24 @@ template <> struct solar::remote::Schema<fixture::PackedSample>
 SOLAR_REMOTE_EMIT_MANIFEST(fixture::System);
 
 static_assert(solar::remote::validate_schema<fixture::Sample>());
+static_assert(solar::remote::validate_enum_schema<fixture::Mode>());
+static_assert(solar::remote::detail::enum_openness<fixture::OpenMode>() ==
+              solar::remote::EnumOpenness::Open);
 static_assert(solar::remote::packed::encoded_size<fixture::PackedSample> == 6);
 static_assert(fixture::System::RemoteDataCatalog::contains<fixture::Telemetry>);
 static_assert(fixture::System::RemoteActionCatalog::contains<fixture::Reset>);
+static constexpr std::array sha_input{std::byte{'a'}, std::byte{'b'}, std::byte{'c'}};
+static_assert(solar::remote::detail::sha256(std::span<const std::byte>{sha_input}) ==
+              std::array<std::byte, 32>{
+                  std::byte{0xba}, std::byte{0x78}, std::byte{0x16}, std::byte{0xbf},
+                  std::byte{0x8f}, std::byte{0x01}, std::byte{0xcf}, std::byte{0xea},
+                  std::byte{0x41}, std::byte{0x41}, std::byte{0x40}, std::byte{0xde},
+                  std::byte{0x5d}, std::byte{0xae}, std::byte{0x22}, std::byte{0x23},
+                  std::byte{0xb0}, std::byte{0x03}, std::byte{0x61}, std::byte{0xa3},
+                  std::byte{0x96}, std::byte{0x17}, std::byte{0x7a}, std::byte{0x9c},
+                  std::byte{0xb4}, std::byte{0x10}, std::byte{0xff}, std::byte{0x61},
+                  std::byte{0xf2}, std::byte{0x00}, std::byte{0x15}, std::byte{0xad},
+              });
 
 int main()
 {
@@ -122,6 +206,21 @@ int main()
     assert(*bytes == expected);
     const auto decoded_envelope = protocol::decode(*bytes);
     assert(decoded_envelope && *decoded_envelope == envelope);
+    protocol::ServerInformation information{
+        .maximum_frame_bytes = 1024,
+        .maximum_message_bytes = 4096,
+        .build_id = 0x12345678,
+        .manifest_digest = solar::remote::manifest::Image<fixture::System>::digest,
+        .manifest_size =
+            static_cast<std::uint32_t>(solar::remote::manifest::Image<fixture::System>::byte_count),
+        .feature_flags = 1,
+    };
+    const auto information_bytes = protocol::encode(information);
+    const auto decoded_information = protocol::decode_server_information(information_bytes);
+    assert(decoded_information && *decoded_information == information);
+    constexpr protocol::ManifestRequest manifest_request{.offset = 12, .limit = 64};
+    assert(protocol::decode_manifest_request(protocol::encode(manifest_request)) ==
+           manifest_request);
     auto query_envelope = envelope;
     query_envelope.set_operation(protocol::OperationKind::Query);
     const auto query_bytes = protocol::encode(query_envelope);
@@ -209,6 +308,11 @@ int main()
     assert(packed_bytes == packed_expected);
     auto unpacked = packed::decode<fixture::PackedSample>(packed_bytes);
     assert(unpacked && *unpacked == sample);
+    constexpr std::array closed_unknown{std::byte{0x03}};
+    assert(!packed::decode<fixture::ModeValue>(closed_unknown));
+    constexpr std::array open_unknown{std::byte{0x07}};
+    auto open_value = packed::decode<fixture::OpenModeValue>(open_unknown);
+    assert(open_value && static_cast<std::uint8_t>(open_value->mode) == 7);
 
     constexpr auto& manifest = solar::remote::manifest::Image<fixture::System>::bytes;
     static_assert(manifest.size() > 16);

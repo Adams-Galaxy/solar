@@ -55,9 +55,11 @@ if(DEFINED ZEPHYR_BASE AND COMMAND zephyr_include_directories)
             OUTPUT ${solar_remote_cbor}
             BYPRODUCTS
                 ${solar_remote_output}/manifest.json
+                ${solar_remote_output}/manifest.bin
                 ${solar_remote_output}/manifest.sha256
                 ${solar_remote_output}/constants.py
                 ${solar_remote_output}/client.py
+                ${solar_remote_output}/models.py
                 ${solar_remote_output}/manifest.hpp
             COMMAND
                 ${Python3_EXECUTABLE}
@@ -67,6 +69,7 @@ if(DEFINED ZEPHYR_BASE AND COMMAND zephyr_include_directories)
             DEPENDS
                 ${CMAKE_BINARY_DIR}/zephyr/zephyr.elf
                 ${CMAKE_CURRENT_LIST_DIR}/tools/remote/generate_manifest.py
+                ${CMAKE_CURRENT_LIST_DIR}/sdk/python/src/solar_remote/manifest.py
             VERBATIM)
         add_custom_target(solar_remote_manifest_artifacts ALL DEPENDS ${solar_remote_cbor})
     endif()

@@ -67,7 +67,7 @@ template <> struct solar::remote::Schema<fixture::Change>
         .id = TypeId{0xB201},
         .name = "fixture.Change",
     };
-    using Fields = remote::Fields<Field<1, &fixture::Change::sequence>>;
+    using Fields = remote::Fields<Field<1, "sequence", &fixture::Change::sequence>>;
     static constexpr std::size_t max_encoded_size = 12;
     static constexpr Codec codec = Codec::Cbor;
 };

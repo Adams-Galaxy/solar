@@ -1100,6 +1100,20 @@ config SOLAR_REMOTE_RUNTIME_INTROSPECTION
 	  supplied by Solar Inspection and remains absent when that subsystem is not
 	  selected.
 
+config SOLAR_REMOTE_MANIFEST_RETRIEVAL
+	bool "Allow bounded runtime manifest retrieval"
+	default y
+	help
+	  Advertise the exact embedded manifest digest and allow authenticated
+	  clients with Observe permission to retrieve the image in bounded chunks.
+
+config SOLAR_REMOTE_BUILD_ID
+	hex "Remote firmware build identity"
+	default 0
+	help
+	  Application or release-specific 64-bit build identity reported by Remote
+	  server information. The manifest digest remains the interface identity.
+
 endif # SOLAR_REMOTE
 
 endmenu

@@ -67,6 +67,17 @@ template <typename T> bool write(T value, std::span<std::byte> output, std::size
 {
     static_assert(supported_v<T>,
                   "SOLAR_DIAGNOSTIC_REMOTE_PACKED_FIELD: Packed supports fixed scalar fields");
+    if constexpr (std::is_enum_v<T>) {
+        static_assert(EnumerationSchemaType<T> || StatusSchemaType<T>,
+                      "SOLAR_DIAGNOSTIC_REMOTE_MISSING_ENUM_SCHEMA: enum field requires an "
+                      "enumeration Schema<T>");
+        if constexpr (EnumerationSchemaType<T> &&
+                      remote::detail::enum_openness<T>() == EnumOpenness::Closed) {
+            if (!declared_enum_value(value)) {
+                return false;
+            }
+        }
+    }
     using Bits = decltype(bits(value));
     if (offset + sizeof(Bits) > output.size()) {
         return false;
@@ -93,6 +104,15 @@ bool read(T& value, std::span<const std::byte> input, std::size_t& offset) noexc
                    << (index * 8U);
     }
     value = from_bits<T>(encoded);
+    if constexpr (std::is_enum_v<T>) {
+        static_assert(EnumerationSchemaType<T> || StatusSchemaType<T>,
+                      "SOLAR_DIAGNOSTIC_REMOTE_MISSING_ENUM_SCHEMA: enum field requires an "
+                      "enumeration Schema<T>");
+        if constexpr (EnumerationSchemaType<T> &&
+                      remote::detail::enum_openness<T>() == EnumOpenness::Closed) {
+            return declared_enum_value(value);
+        }
+    }
     return true;
 }
 

@@ -41,7 +41,8 @@ def render_symbol(symbol: kconfiglib.Symbol) -> list[str]:
 
     if symbol.defaults:
         values = []
-        for value, condition in symbol.defaults:
+        for entry in symbol.defaults:
+            value, condition = entry[:2]
             item = f"`{expression(value)}`"
             if expression(condition) != "y":
                 item += f" if `{expression(condition)}`"
@@ -52,15 +53,18 @@ def render_symbol(symbol: kconfiglib.Symbol) -> list[str]:
         lines.append(f"- Depends on: `{direct}`")
     if symbol.selects:
         values = []
-        for target, condition in symbol.selects:
+        for entry in symbol.selects:
+            target, condition = entry[:2]
             item = f"`{target.name}`"
             if expression(condition) != "y":
                 item += f" if `{expression(condition)}`"
             values.append(item)
         lines.append(f"- Selects: {', '.join(values)}")
     if symbol.ranges:
-        ranges = [f"`{expression(low)}` to `{expression(high)}`"
-                  for low, high, _ in symbol.ranges]
+        ranges = [
+            f"`{expression(entry[0])}` to `{expression(entry[1])}`"
+            for entry in symbol.ranges
+        ]
         lines.append(f"- Range: {', '.join(ranges)}")
 
     help_text = (node.help or "No additional help text.").strip()
@@ -76,8 +80,11 @@ def main() -> int:
 
     kconfig = kconfiglib.Kconfig(str(args.kconfig), warn=False)
     symbols = sorted(
-        (symbol for symbol in kconfig.unique_defined_syms
-         if symbol.name == "SOLAR" or symbol.name.startswith("SOLAR_")),
+        (
+            symbol
+            for symbol in kconfig.unique_defined_syms
+            if symbol.name == "SOLAR" or symbol.name.startswith("SOLAR_")
+        ),
         key=lambda symbol: symbol.name,
     )
 

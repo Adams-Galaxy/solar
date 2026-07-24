@@ -158,8 +158,8 @@ template <> struct solar::remote::Schema<fixture::Sample>
         .id = TypeId{0x7201},
         .name = "fixture.Sample",
     };
-    using Fields =
-        remote::Fields<Field<1, &fixture::Sample::sequence>, Field<2, &fixture::Sample::value>>;
+    using Fields = remote::Fields<Field<1, "sequence", &fixture::Sample::sequence>,
+                                  Field<2, "value", &fixture::Sample::value>>;
     static constexpr std::size_t max_encoded_size = 24;
     static constexpr Codec codec = Codec::Cbor;
 };
@@ -170,7 +170,7 @@ template <> struct solar::remote::Schema<fixture::ScaleRequest>
         .id = TypeId{0x7401},
         .name = "fixture.ScaleRequest",
     };
-    using Fields = remote::Fields<Field<1, &fixture::ScaleRequest::value>>;
+    using Fields = remote::Fields<Field<1, "value", &fixture::ScaleRequest::value>>;
     static constexpr std::size_t max_encoded_size = 12;
     static constexpr Codec codec = Codec::Cbor;
 };
@@ -181,7 +181,7 @@ template <> struct solar::remote::Schema<fixture::ScaleResponse>
         .id = TypeId{0x7402},
         .name = "fixture.ScaleResponse",
     };
-    using Fields = remote::Fields<Field<1, &fixture::ScaleResponse::value>>;
+    using Fields = remote::Fields<Field<1, "value", &fixture::ScaleResponse::value>>;
     static constexpr std::size_t max_encoded_size = 12;
     static constexpr Codec codec = Codec::Cbor;
 };
@@ -921,7 +921,7 @@ ZTEST(remote_runtime, test_generated_service_and_fragmented_rx)
     auto summary =
         solar::remote::protocol::decode_introspection_summary(decoded_introspection->payload);
     zassert_true(summary.has_value());
-    zassert_equal(summary->schemas, 5);
+    zassert_equal(summary->schemas, solar::remote::manifest::Image<fixture::System>::schema_count);
     zassert_equal(summary->data, 1);
     zassert_equal(summary->actions, 3);
     zassert_equal(summary->topics, 0);
@@ -1007,6 +1007,66 @@ ZTEST(remote_runtime, test_generated_service_and_fragmented_rx)
     zassert_equal(decoded_introspection->payload[5], std::byte{0x00});
     zassert_equal(decoded_introspection->payload[6], std::byte{0x02});
 #endif
+    introspection_envelope.frame_sequence = 24;
+    introspection_envelope.request_id = 14;
+    introspection_envelope.target =
+        static_cast<std::uint32_t>(solar::remote::protocol::IntrospectionTarget::ServerInformation);
+    introspection_size =
+        solar::remote::frame::encode(introspection_envelope, {}, scratch, introspection_encoded);
+    zassert_true(introspection_size.has_value());
+    zassert_true(
+        fixture::TestLink::inject(std::span{introspection_encoded}.first(*introspection_size))
+            .has_value());
+    introspection_response =
+        solar::fail<solar::remote::LinkError>({.status = solar::Status::Empty});
+    for (int attempt = 0; attempt < 100 && !introspection_response; ++attempt) {
+        introspection_response = fixture::TestLink::take_transmitted(host_rx);
+        if (!introspection_response) {
+            k_sleep(K_MSEC(1));
+        }
+    }
+    zassert_true(introspection_response.has_value());
+    decoded_introspection = solar::remote::frame::decode(
+        std::span{host_rx}.first(*introspection_response), host_scratch);
+    zassert_true(decoded_introspection.has_value());
+    auto information =
+        solar::remote::protocol::decode_server_information(decoded_introspection->payload);
+    zassert_true(information.has_value());
+    zassert_equal(information->manifest_size,
+                  solar::remote::manifest::Image<fixture::System>::bytes.size());
+    zassert_mem_equal(information->manifest_digest.data(),
+                      solar::remote::manifest::Image<fixture::System>::digest.data(), 32);
+
+    introspection_envelope.frame_sequence = 25;
+    introspection_envelope.request_id = 15;
+    introspection_envelope.target =
+        static_cast<std::uint32_t>(solar::remote::protocol::IntrospectionTarget::Manifest);
+    constexpr auto manifest_request =
+        solar::remote::protocol::encode(solar::remote::protocol::ManifestRequest{.limit = 16});
+    introspection_size = solar::remote::frame::encode(introspection_envelope, manifest_request,
+                                                      scratch, introspection_encoded);
+    zassert_true(introspection_size.has_value());
+    zassert_true(
+        fixture::TestLink::inject(std::span{introspection_encoded}.first(*introspection_size))
+            .has_value());
+    introspection_response =
+        solar::fail<solar::remote::LinkError>({.status = solar::Status::Empty});
+    for (int attempt = 0; attempt < 100 && !introspection_response; ++attempt) {
+        introspection_response = fixture::TestLink::take_transmitted(host_rx);
+        if (!introspection_response) {
+            k_sleep(K_MSEC(1));
+        }
+    }
+    zassert_true(introspection_response.has_value());
+    decoded_introspection = solar::remote::frame::decode(
+        std::span{host_rx}.first(*introspection_response), host_scratch);
+    zassert_true(decoded_introspection.has_value());
+    zassert_equal(solar::remote::protocol::detail::get_u32(decoded_introspection->payload, 0), 0);
+    zassert_equal(solar::remote::protocol::detail::get_u32(decoded_introspection->payload, 4),
+                  solar::remote::manifest::Image<fixture::System>::bytes.size());
+    zassert_mem_equal(decoded_introspection->payload.data() +
+                          solar::remote::protocol::manifest_chunk_header_size,
+                      solar::remote::manifest::Image<fixture::System>::bytes.data(), 16);
 #else
     zassert_equal(decoded_introspection->envelope.kind, solar::remote::protocol::Kind::Error);
 #endif

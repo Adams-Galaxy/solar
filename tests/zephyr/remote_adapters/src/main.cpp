@@ -47,7 +47,7 @@ template <> struct solar::remote::Schema<fixture::Command>
         .id = TypeId{0xA204},
         .name = "fixture.Command",
     };
-    using Fields = remote::Fields<Field<1, &fixture::Command::value>>;
+    using Fields = remote::Fields<Field<1, "value", &fixture::Command::value>>;
     static constexpr std::size_t max_encoded_size = 12;
     static constexpr Codec codec = Codec::Cbor;
 };
@@ -164,6 +164,11 @@ SOLAR_BIND_SYSTEM(fixture::System);
 
 ZTEST(remote_adapters, test_adapters_use_canonical_subsystem_state)
 {
+    using Manifest = solar::remote::manifest::Image<fixture::System>;
+    static_assert(solar::contains_v<solar::lifecycle::SystemState, typename Manifest::EnumSchemas>);
+    static_assert(
+        solar::contains_v<solar::lifecycle::ComponentState, typename Manifest::EnumSchemas>);
+    static_assert(solar::contains_v<solar::log::Level, typename Manifest::EnumSchemas>);
     static_assert(fixture::System::RemoteDataCatalog::contains<fixture::GainRemote>);
     static_assert(fixture::System::RemoteDataCatalog::contains<fixture::FramesRemote>);
     static_assert(fixture::System::RemoteDataCatalog::contains<fixture::LifecycleRemote>);

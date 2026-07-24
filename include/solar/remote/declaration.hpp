@@ -8,6 +8,7 @@
 #include <type_traits>
 #include <utility>
 
+#include "solar/core/fixed_string.hpp"
 #include "solar/core/type_list.hpp"
 #include "solar/remote/types.hpp"
 
@@ -16,33 +17,23 @@ namespace solar::remote
 
 template <typename Value> struct Schema;
 
-template <FieldId Id, auto Member, bool Required = true> struct Field
+template <FixedString Text> struct Description
 {
-    static_assert(Id != 0, "SOLAR_DIAGNOSTIC_REMOTE_FIELD_ZERO_ID: field ID zero is reserved");
-    static_assert(std::is_member_object_pointer_v<decltype(Member)>,
-                  "SOLAR_DIAGNOSTIC_REMOTE_FIELD_MEMBER: Field requires a data-member pointer");
-
-    static constexpr FieldId id = Id;
-    static constexpr auto member = Member;
-    static constexpr bool required = Required;
+    static constexpr auto text = Text;
 };
 
-template <typename... FieldTypes> struct Fields
+template <FixedString Text> struct Unit
 {
-    using Entries = TypeList<FieldTypes...>;
-    static constexpr std::size_t size = sizeof...(FieldTypes);
+    static constexpr auto text = Text;
+};
+
+template <FixedString Reason> struct Deprecated
+{
+    static constexpr auto reason = Reason;
 };
 
 namespace detail
 {
-
-template <typename T> struct IsFields : std::false_type
-{};
-
-template <typename... Entries> struct IsFields<Fields<Entries...>> : std::true_type
-{};
-
-template <typename T> inline constexpr bool is_fields_v = IsFields<T>::value;
 
 template <typename T> struct IsOptional : std::false_type
 {};
@@ -64,6 +55,159 @@ template <typename T> struct OptionalValue<std::optional<T>>
 
 template <typename T> using optional_value_t = typename OptionalValue<T>::type;
 
+template <typename T> struct MemberPointer;
+
+template <typename Owner, typename Member> struct MemberPointer<Member Owner::*>
+{
+    using OwnerType = Owner;
+    using MemberType = Member;
+};
+
+template <typename T> struct IsDescription : std::false_type
+{};
+
+template <FixedString Text> struct IsDescription<Description<Text>> : std::true_type
+{};
+
+template <typename T> struct IsUnit : std::false_type
+{};
+
+template <FixedString Text> struct IsUnit<Unit<Text>> : std::true_type
+{};
+
+template <typename T> struct IsDeprecated : std::false_type
+{};
+
+template <FixedString Reason> struct IsDeprecated<Deprecated<Reason>> : std::true_type
+{};
+
+template <typename... Attributes> struct FieldAttributes;
+
+template <> struct FieldAttributes<>
+{
+    static constexpr std::string_view description{};
+    static constexpr std::string_view unit{};
+    static constexpr std::string_view deprecation{};
+    static constexpr std::size_t description_count{};
+    static constexpr std::size_t unit_count{};
+    static constexpr std::size_t deprecation_count{};
+};
+
+template <typename Head, typename... Tail>
+struct FieldAttributes<Head, Tail...> : FieldAttributes<Tail...>
+{
+  private:
+    using Base = FieldAttributes<Tail...>;
+    static_assert(IsDescription<Head>::value || IsUnit<Head>::value || IsDeprecated<Head>::value,
+                  "SOLAR_DIAGNOSTIC_REMOTE_UNKNOWN_FIELD_ATTRIBUTE: Field contains an "
+                  "unsupported metadata attribute");
+
+  public:
+    static constexpr std::size_t description_count =
+        Base::description_count + static_cast<std::size_t>(IsDescription<Head>::value);
+    static constexpr std::size_t unit_count =
+        Base::unit_count + static_cast<std::size_t>(IsUnit<Head>::value);
+    static constexpr std::size_t deprecation_count =
+        Base::deprecation_count + static_cast<std::size_t>(IsDeprecated<Head>::value);
+    static_assert(description_count <= 1 && unit_count <= 1 && deprecation_count <= 1,
+                  "SOLAR_DIAGNOSTIC_REMOTE_FIELD_ATTRIBUTE_COLLISION: Field repeats a metadata "
+                  "attribute kind");
+
+    static constexpr std::string_view description = [] {
+        if constexpr (IsDescription<Head>::value) {
+            return Head::text.view();
+        } else {
+            return Base::description;
+        }
+    }();
+
+    static constexpr std::string_view unit = [] {
+        if constexpr (IsUnit<Head>::value) {
+            return Head::text.view();
+        } else {
+            return Base::unit;
+        }
+    }();
+
+    static constexpr std::string_view deprecation = [] {
+        if constexpr (IsDeprecated<Head>::value) {
+            return Head::reason.view();
+        } else {
+            return Base::deprecation;
+        }
+    }();
+};
+
+} // namespace detail
+
+template <auto Value, FixedString Name, typename... Attributes> struct EnumValue
+{
+    static_assert(std::is_enum_v<decltype(Value)>,
+                  "SOLAR_DIAGNOSTIC_REMOTE_ENUM_VALUE_TYPE: EnumValue requires an enumerator");
+    static_assert(!Name.empty(),
+                  "SOLAR_DIAGNOSTIC_REMOTE_EMPTY_ENUM_NAME: Enum value name must not be empty");
+
+    static constexpr auto value = Value;
+    static constexpr auto name_text = Name;
+    static constexpr std::string_view name = Name.view();
+    using Metadata = detail::FieldAttributes<Attributes...>;
+    static constexpr std::string_view description = Metadata::description;
+    static constexpr std::string_view deprecation = Metadata::deprecation;
+    static constexpr bool deprecated = !deprecation.empty();
+};
+
+template <typename... ValueTypes> struct EnumValues
+{
+    using Entries = TypeList<ValueTypes...>;
+    static constexpr std::size_t size = sizeof...(ValueTypes);
+};
+
+template <FieldId Id, FixedString Name, auto Member, typename... Attributes> struct Field
+{
+    static_assert(Id != 0, "SOLAR_DIAGNOSTIC_REMOTE_FIELD_ZERO_ID: field ID zero is reserved");
+    static_assert(!Name.empty(),
+                  "SOLAR_DIAGNOSTIC_REMOTE_EMPTY_FIELD_NAME: Field name must not be empty");
+    static_assert(std::is_member_object_pointer_v<decltype(Member)>,
+                  "SOLAR_DIAGNOSTIC_REMOTE_FIELD_MEMBER: Field requires a data-member pointer");
+
+    static constexpr FieldId id = Id;
+    static constexpr auto name_text = Name;
+    static constexpr std::string_view name = Name.view();
+    static constexpr auto member = Member;
+    using MemberType = typename detail::MemberPointer<decltype(Member)>::MemberType;
+    static constexpr bool required = !detail::is_optional_v<MemberType>;
+    using Metadata = detail::FieldAttributes<Attributes...>;
+    static constexpr std::string_view description = Metadata::description;
+    static constexpr std::string_view unit = Metadata::unit;
+    static constexpr std::string_view deprecation = Metadata::deprecation;
+    static constexpr bool deprecated = !deprecation.empty();
+};
+
+template <typename... FieldTypes> struct Fields
+{
+    using Entries = TypeList<FieldTypes...>;
+    static constexpr std::size_t size = sizeof...(FieldTypes);
+};
+
+namespace detail
+{
+
+template <typename T> struct IsFields : std::false_type
+{};
+
+template <typename... Entries> struct IsFields<Fields<Entries...>> : std::true_type
+{};
+
+template <typename T> inline constexpr bool is_fields_v = IsFields<T>::value;
+
+template <typename T> struct IsEnumValues : std::false_type
+{};
+
+template <typename... Values> struct IsEnumValues<EnumValues<Values...>> : std::true_type
+{};
+
+template <typename T> inline constexpr bool is_enum_values_v = IsEnumValues<T>::value;
+
 template <typename T> struct IsBoundedText : std::false_type
 {};
 
@@ -83,8 +227,9 @@ inline constexpr bool supported_scalar_v =
 
 template <typename FieldT> struct FieldMember;
 
-template <FieldId Id, typename Owner, typename Member, Member Owner::* Pointer, bool Required>
-struct FieldMember<Field<Id, Pointer, Required>>
+template <FieldId Id, FixedString Name, typename Owner, typename Member, Member Owner::* Pointer,
+          typename... Attributes>
+struct FieldMember<Field<Id, Name, Pointer, Attributes...>>
 {
     using OwnerType = Owner;
     using type = Member;
@@ -116,6 +261,19 @@ template <typename... FieldTypes> consteval bool ordered_field_ids(Fields<FieldT
     return true;
 }
 
+template <typename... FieldTypes> consteval bool unique_field_names(Fields<FieldTypes...>)
+{
+    constexpr std::array<std::string_view, sizeof...(FieldTypes)> names{FieldTypes::name...};
+    for (std::size_t left{}; left < names.size(); ++left) {
+        for (std::size_t right = left + 1; right < names.size(); ++right) {
+            if (names[left] == names[right]) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 template <typename... FieldTypes> consteval bool supported_fields(Fields<FieldTypes...>)
 {
     return (supported_scalar_v<optional_value_t<field_member_t<FieldTypes>>> && ...);
@@ -124,7 +282,7 @@ template <typename... FieldTypes> consteval bool supported_fields(Fields<FieldTy
 } // namespace detail
 
 template <typename Value>
-concept SchemaType =
+concept ObjectSchemaType =
     requires {
         { Schema<Value>::descriptor } -> std::convertible_to<SchemaDescriptor>;
         typename Schema<Value>::Fields;
@@ -133,18 +291,120 @@ concept SchemaType =
     } && detail::is_fields_v<typename Schema<Value>::Fields> && std::is_object_v<Value> &&
     std::is_default_constructible_v<Value> && std::is_copy_constructible_v<Value>;
 
+template <typename Value>
+concept EnumerationSchemaType = std::is_enum_v<Value> &&
+                                requires {
+                                    {
+                                        Schema<Value>::descriptor
+                                    } -> std::convertible_to<SchemaDescriptor>;
+                                    typename Schema<Value>::Values;
+                                    { Schema<Value>::shape } -> std::convertible_to<SchemaShape>;
+                                } && detail::is_enum_values_v<typename Schema<Value>::Values> &&
+                                Schema<Value>::shape == SchemaShape::Enumeration;
+
+template <typename Value>
+concept StatusSchemaType = std::is_enum_v<Value> && ObjectSchemaType<Value> && requires {
+    Schema<Value>::shape;
+} && Schema<Value>::shape == SchemaShape::StatusCode;
+
+template <typename Value>
+concept SchemaType = ObjectSchemaType<Value> || EnumerationSchemaType<Value>;
+
+namespace detail
+{
+
+template <typename T> consteval EnumOpenness enum_openness()
+{
+    if constexpr (requires { Schema<T>::openness; }) {
+        return Schema<T>::openness;
+    }
+    return EnumOpenness::Closed;
+}
+
+template <typename Enum, typename... Values>
+consteval bool enum_value_types_match(EnumValues<Values...>)
+{
+    return (std::same_as<std::remove_cv_t<decltype(Values::value)>, Enum> && ...);
+}
+
+template <typename... Values> consteval bool unique_enum_names(EnumValues<Values...>)
+{
+    constexpr std::array<std::string_view, sizeof...(Values)> names{Values::name...};
+    for (std::size_t left{}; left < names.size(); ++left) {
+        for (std::size_t right = left + 1; right < names.size(); ++right) {
+            if (names[left] == names[right]) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+template <typename Enum, typename... Values>
+consteval bool unique_enum_values(EnumValues<Values...>)
+{
+    using Underlying = std::underlying_type_t<Enum>;
+    constexpr std::array<Underlying, sizeof...(Values)> values{
+        static_cast<Underlying>(Values::value)...};
+    for (std::size_t left{}; left < values.size(); ++left) {
+        for (std::size_t right = left + 1; right < values.size(); ++right) {
+            if (values[left] == values[right]) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+template <typename Enum, typename... Values>
+[[nodiscard]] constexpr bool declared_enum_value(Enum value, EnumValues<Values...>) noexcept
+{
+    return ((value == Values::value) || ...);
+}
+
+template <typename FieldT> consteval bool field_enum_schema_present()
+{
+    using Member = optional_value_t<field_member_t<FieldT>>;
+    if constexpr (std::is_enum_v<Member>) {
+        return EnumerationSchemaType<Member> || StatusSchemaType<Member>;
+    }
+    return true;
+}
+
+template <typename... FieldTypes> consteval bool field_enum_schemas_present(Fields<FieldTypes...>)
+{
+    return (field_enum_schema_present<FieldTypes>() && ...);
+}
+
+template <typename... FieldTypes> consteval bool field_metadata_valid(Fields<FieldTypes...>)
+{
+    return ((FieldTypes::Metadata::description_count <= 1 &&
+             FieldTypes::Metadata::unit_count <= 1 &&
+             FieldTypes::Metadata::deprecation_count <= 1) &&
+            ...);
+}
+
+} // namespace detail
+
 template <typename Value> consteval bool validate_schema()
 {
-    static_assert(SchemaType<Value>,
+    static_assert(ObjectSchemaType<Value>,
                   "SOLAR_DIAGNOSTIC_REMOTE_MISSING_SCHEMA: external value requires Schema<T>");
     using FieldList = typename Schema<Value>::Fields;
     static_assert(detail::unique_field_ids(FieldList{}),
                   "SOLAR_DIAGNOSTIC_REMOTE_DUPLICATE_FIELD_ID: Schema field IDs must be unique");
     static_assert(detail::ordered_field_ids(FieldList{}),
                   "SOLAR_DIAGNOSTIC_REMOTE_FIELD_ORDER: Schema fields must be ordered by ID");
+    static_assert(detail::unique_field_names(FieldList{}),
+                  "SOLAR_DIAGNOSTIC_REMOTE_DUPLICATE_FIELD_NAME: Schema field names must be "
+                  "unique");
     static_assert(detail::supported_fields(FieldList{}),
                   "SOLAR_DIAGNOSTIC_REMOTE_UNSUPPORTED_FIELD: Schema contains an unsupported or "
                   "unbounded field type");
+    static_assert(detail::field_metadata_valid(FieldList{}));
+    static_assert(detail::field_enum_schemas_present(FieldList{}),
+                  "SOLAR_DIAGNOSTIC_REMOTE_MISSING_ENUM_SCHEMA: enum field requires an "
+                  "enumeration Schema<T>");
     static_assert(Schema<Value>::descriptor.id.value != 0,
                   "SOLAR_DIAGNOSTIC_REMOTE_MISSING_SCHEMA_ID: Schema requires a nonzero TypeId");
     static_assert(!Schema<Value>::descriptor.name.empty(),
@@ -164,6 +424,47 @@ template <typename Value> consteval bool validate_schema()
                   "CONFIG_SOLAR_REMOTE_MAX_MESSAGE_BYTES");
 #endif
     return true;
+}
+
+template <typename Value> consteval bool validate_enum_schema()
+{
+    static_assert(EnumerationSchemaType<Value>,
+                  "SOLAR_DIAGNOSTIC_REMOTE_MISSING_ENUM_SCHEMA: enum field requires an "
+                  "enumeration Schema<T>");
+    using Values = typename Schema<Value>::Values;
+    using Underlying = std::underlying_type_t<Value>;
+    static_assert(sizeof(Underlying) <= sizeof(std::uint64_t) &&
+                      (std::signed_integral<Underlying> || std::unsigned_integral<Underlying>),
+                  "SOLAR_DIAGNOSTIC_REMOTE_ENUM_REPRESENTATION: enum underlying representation "
+                  "must be a signed or unsigned integer up to 64 bits");
+    static_assert(Values::size != 0,
+                  "SOLAR_DIAGNOSTIC_REMOTE_EMPTY_ENUM: enum schema requires at least one value");
+    static_assert(detail::enum_value_types_match<Value>(Values{}),
+                  "SOLAR_DIAGNOSTIC_REMOTE_ENUM_VALUE_TYPE: enum schema values must belong to "
+                  "the declared enum");
+    static_assert(detail::unique_enum_names(Values{}),
+                  "SOLAR_DIAGNOSTIC_REMOTE_DUPLICATE_ENUM_NAME: enum value names must be unique");
+    static_assert(detail::unique_enum_values<Value>(Values{}),
+                  "SOLAR_DIAGNOSTIC_REMOTE_DUPLICATE_ENUM_VALUE: enum numeric values must be "
+                  "unique");
+    static_assert(Schema<Value>::descriptor.id.value != 0,
+                  "SOLAR_DIAGNOSTIC_REMOTE_MISSING_SCHEMA_ID: enum schema requires a nonzero "
+                  "TypeId");
+    static_assert(!Schema<Value>::descriptor.name.empty(),
+                  "SOLAR_DIAGNOSTIC_REMOTE_EMPTY_SCHEMA_NAME: enum schema name must not be empty");
+    static_assert(Schema<Value>::descriptor.version != 0,
+                  "SOLAR_DIAGNOSTIC_REMOTE_SCHEMA_VERSION: enum schema version zero is reserved");
+    constexpr auto openness = detail::enum_openness<Value>();
+    static_assert(openness == EnumOpenness::Closed || openness == EnumOpenness::Open,
+                  "SOLAR_DIAGNOSTIC_REMOTE_ENUM_REPRESENTATION: invalid enum openness");
+    return true;
+}
+
+template <typename Enum>
+[[nodiscard]] constexpr bool declared_enum_value(Enum value) noexcept
+    requires EnumerationSchemaType<Enum>
+{
+    return detail::declared_enum_value(value, typename Schema<Enum>::Values{});
 }
 
 template <typename... CapabilitiesT> struct Capabilities
@@ -524,7 +825,7 @@ concept Data = requires {
     typename T::Value;
     typename T::Capabilities;
     { T::descriptor } -> std::convertible_to<DataDescriptor>;
-} && SchemaType<typename T::Value>;
+} && ObjectSchemaType<typename T::Value>;
 
 template <typename T>
 concept Action = requires {
@@ -535,13 +836,13 @@ template <typename T>
 concept Topic = requires {
     typename T::Value;
     { T::descriptor } -> std::convertible_to<TopicDescriptor>;
-} && SchemaType<typename T::Value>;
+} && ObjectSchemaType<typename T::Value>;
 
 template <typename T>
 concept Stream = requires {
     typename T::Value;
     { T::descriptor } -> std::convertible_to<StreamDescriptor>;
-} && SchemaType<typename T::Value>;
+} && ObjectSchemaType<typename T::Value>;
 
 template <> struct Schema<Empty>
 {
@@ -563,8 +864,8 @@ template <> struct Schema<Status>
 template <> struct Schema<solar::Error>
 {
     static constexpr SchemaDescriptor descriptor{.id = TypeId{3}, .name = "solar.Error"};
-    using Fields = remote::Fields<remote::Field<1, &solar::Error::status>,
-                                  remote::Field<2, &solar::Error::native>>;
+    using Fields = remote::Fields<remote::Field<1, "status", &solar::Error::status>,
+                                  remote::Field<2, "native", &solar::Error::native>>;
     static constexpr std::size_t max_encoded_size = 16;
     static constexpr Codec codec = Codec::Cbor;
 };

@@ -1035,6 +1035,9 @@ template <typename ArchitectureT> struct Service
                                   0x0FU
 #if defined(CONFIG_SOLAR_REMOTE_RUNTIME_INTROSPECTION)
                                       | 0x10U
+#if defined(CONFIG_SOLAR_REMOTE_MANIFEST_RETRIEVAL)
+                                      | 0x40U
+#endif
 #endif
 #if defined(CONFIG_SOLAR_INSPECTION_REMOTE)
                                       | 0x20U
@@ -1050,10 +1053,16 @@ template <typename ArchitectureT> struct Service
                                     : protocol::IntrospectionSummary{});
     }
 
+    [[nodiscard]] static auto server_information_payload() noexcept
+    {
+        return protocol::encode(FacilityType::server_information != nullptr
+                                    ? FacilityType::server_information()
+                                    : protocol::ServerInformation{});
+    }
+
     template <typename LinkT, std::uint16_t Index>
     static void process_introspection(const frame::Decoded& decoded) noexcept
     {
-#if defined(CONFIG_SOLAR_REMOTE_RUNTIME_INTROSPECTION)
         using State = detail::LinkState<Service, LinkT, Index>;
         constexpr auto observe =
             remote::detail::PermissionMask<Requires<permission::Observe>>::value;
@@ -1067,6 +1076,7 @@ template <typename ArchitectureT> struct Service
                                                protocol::ErrorCode::DecodeFailure);
             return;
         }
+#if defined(CONFIG_SOLAR_REMOTE_RUNTIME_INTROSPECTION)
         if (decoded.envelope.target ==
             static_cast<std::uint32_t>(protocol::IntrospectionTarget::ProtocolSummary)) {
             if (!decoded.payload.empty()) {
@@ -1080,6 +1090,39 @@ template <typename ArchitectureT> struct Service
                                          decoded.envelope.request_id, decoded.envelope.target);
             return;
         }
+#endif
+        if (decoded.envelope.target ==
+            static_cast<std::uint32_t>(protocol::IntrospectionTarget::ServerInformation)) {
+            if (!decoded.payload.empty()) {
+                (void)protocol_error<LinkT, Index>(decoded.envelope.request_id,
+                                                   decoded.envelope.target,
+                                                   protocol::ErrorCode::DecodeFailure);
+                return;
+            }
+            const auto information = server_information_payload();
+            (void)transmit<LinkT, Index>(protocol::Kind::Introspection, information,
+                                         decoded.envelope.request_id, decoded.envelope.target);
+            return;
+        }
+#if defined(CONFIG_SOLAR_REMOTE_MANIFEST_RETRIEVAL)
+        if (decoded.envelope.target ==
+                static_cast<std::uint32_t>(protocol::IntrospectionTarget::Manifest) &&
+            FacilityType::manifest_chunk != nullptr) {
+            static std::array<std::byte, CONFIG_SOLAR_REMOTE_MAX_FRAME_BYTES> manifest_payload{};
+            auto encoded = FacilityType::manifest_chunk(decoded.payload, manifest_payload);
+            if (!encoded) {
+                (void)protocol_error<LinkT, Index>(
+                    decoded.envelope.request_id, decoded.envelope.target,
+                    encoded.error().reason == Reason::Malformed ? protocol::ErrorCode::DecodeFailure
+                                                                : protocol::ErrorCode::NoCapacity);
+                return;
+            }
+            (void)transmit<LinkT, Index>(protocol::Kind::Introspection,
+                                         std::span{manifest_payload}.first(*encoded),
+                                         decoded.envelope.request_id, decoded.envelope.target);
+            return;
+        }
+#endif
 #if defined(CONFIG_SOLAR_INSPECTION_REMOTE)
         static std::array<std::byte, CONFIG_SOLAR_INSPECTION_REMOTE_RESPONSE_BYTES>
             inspection_payload{};
@@ -1143,10 +1186,6 @@ template <typename ArchitectureT> struct Service
             (void)protocol_error<LinkT, Index>(decoded.envelope.request_id, decoded.envelope.target,
                                                protocol::ErrorCode::UnknownTarget);
         }
-#else
-        (void)protocol_error<LinkT, Index>(decoded.envelope.request_id, decoded.envelope.target,
-                                           protocol::ErrorCode::UnsupportedOperation);
-#endif
     }
 
     [[nodiscard]] static constexpr bool has_flag(protocol::Flags flags,

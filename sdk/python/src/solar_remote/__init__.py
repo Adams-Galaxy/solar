@@ -1,6 +1,10 @@
-"""Solar Remote host protocol core generated from firmware manifests."""
+"""Async-first host SDK for Solar Remote."""
 
 from .client import Client, Hello, Message, Reassembler
+from .codec import CodecError, DynamicCodec, UnknownEnumValue
+from .connect import connect
+from .manifest import Manifest, ManifestError, compatibility, parse_manifest
+from .session import ActionError, AsyncSession, RemoteError, SessionClosed, Subscription
 
 from .protocol import (
     CreditGrant,
@@ -10,6 +14,8 @@ from .protocol import (
     Envelope,
     FrameDecoder,
     FrameError,
+    ManifestChunk,
+    ServerInformation,
     IntrospectionSummary,
     SUBSCRIPTION_DATA_STREAM,
     SUBSCRIPTION_DATA_WATCH,
@@ -27,6 +33,9 @@ from .protocol import (
 
 __all__ = [
     "Client",
+    "AsyncSession",
+    "ActionError",
+    "CodecError",
     "CreditGrant",
     "CollectionDescriptor",
     "CollectionPage",
@@ -34,20 +43,32 @@ __all__ = [
     "Envelope",
     "FrameDecoder",
     "FrameError",
+    "DynamicCodec",
     "Hello",
     "IntrospectionSummary",
+    "Manifest",
+    "ManifestChunk",
+    "ManifestError",
     "Message",
     "Reassembler",
+    "RemoteError",
+    "ServerInformation",
+    "SessionClosed",
     "SUBSCRIPTION_DATA_STREAM",
     "SUBSCRIPTION_DATA_WATCH",
     "SUBSCRIPTION_STREAM",
     "SUBSCRIPTION_TOPIC",
     "SubscriptionPolicy",
+    "Subscription",
     "SubscriptionRequest",
+    "UnknownEnumValue",
+    "compatibility",
+    "connect",
     "decode_batch",
     "decode_frame",
     "encode_batch",
     "encode_collection_request",
     "encode_collection_query_request",
     "encode_frame",
+    "parse_manifest",
 ]

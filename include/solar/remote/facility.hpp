@@ -21,7 +21,8 @@ struct Decoded;
 namespace protocol
 {
 struct IntrospectionSummary;
-}
+struct ServerInformation;
+} // namespace protocol
 
 template <typename Architecture> struct Facility;
 template <typename Architecture> struct Service;
@@ -43,6 +44,10 @@ template <typename System> void reset_session(std::uint16_t link) noexcept;
 template <typename System> void open_session(std::uint16_t link) noexcept;
 template <typename System>
 [[nodiscard]] protocol::IntrospectionSummary introspection_summary() noexcept;
+template <typename System> [[nodiscard]] protocol::ServerInformation server_information() noexcept;
+template <typename System>
+[[nodiscard]] Result<std::size_t, Error> manifest_chunk(std::span<const std::byte> request,
+                                                        std::span<std::byte> output) noexcept;
 template <typename System>
 [[nodiscard]] Result<std::size_t, Error>
 inspection_collections(std::span<const std::byte> request, std::span<std::byte> output) noexcept;
@@ -103,6 +108,7 @@ template <typename ArchitectureT> struct Facility
     using ResetSession = void (*)(std::uint16_t) noexcept;
     using OpenSession = void (*)(std::uint16_t) noexcept;
     using IntrospectionSummary = protocol::IntrospectionSummary (*)() noexcept;
+    using ServerInformation = protocol::ServerInformation (*)() noexcept;
     using InspectionCollections = Result<std::size_t, Error> (*)(std::span<const std::byte>,
                                                                  std::span<std::byte>) noexcept;
     using InspectionQuery = InspectionCollections;
@@ -115,6 +121,8 @@ template <typename ArchitectureT> struct Facility
     inline static ResetSession reset_session{};
     inline static OpenSession open_session{};
     inline static IntrospectionSummary introspection_summary{};
+    inline static ServerInformation server_information{};
+    inline static InspectionCollections manifest_chunk{};
     inline static InspectionCollections inspection_collections{};
     inline static InspectionQuery inspection_query{};
 
@@ -131,6 +139,8 @@ template <typename ArchitectureT> struct Facility
         reset_session = nullptr;
         open_session = nullptr;
         introspection_summary = nullptr;
+        server_information = nullptr;
+        manifest_chunk = nullptr;
         inspection_collections = nullptr;
         inspection_query = nullptr;
         ready.store(true, std::memory_order_release);
@@ -161,6 +171,8 @@ template <typename ArchitectureT> struct Facility
         reset_session = nullptr;
         open_session = nullptr;
         introspection_summary = nullptr;
+        server_information = nullptr;
+        manifest_chunk = nullptr;
         inspection_collections = nullptr;
         inspection_query = nullptr;
         return {};
@@ -177,6 +189,8 @@ template <typename ArchitectureT> struct Facility
         reset_session = &detail::reset_session<System>;
         open_session = &detail::open_session<System>;
         introspection_summary = &detail::introspection_summary<System>;
+        server_information = &detail::server_information<System>;
+        manifest_chunk = &detail::manifest_chunk<System>;
 #if defined(CONFIG_SOLAR_INSPECTION_REMOTE)
         inspection_collections = &detail::inspection_collections<System>;
         inspection_query = &detail::inspection_query<System>;

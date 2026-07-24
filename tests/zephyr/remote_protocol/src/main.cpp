@@ -26,10 +26,10 @@ template <> struct solar::remote::Schema<fixture::Sample>
         .id = TypeId{0x3001},
         .name = "fixture.Sample",
     };
-    using Fields = remote::Fields<Field<1, &fixture::Sample::sequence>,
-                                  Field<2, &fixture::Sample::value>,
-                                  Field<3, &fixture::Sample::gain>,
-                                  Field<4, &fixture::Sample::valid>>;
+    using Fields = remote::Fields<Field<1, "sequence", &fixture::Sample::sequence>,
+                                  Field<2, "value", &fixture::Sample::value>,
+                                  Field<3, "gain", &fixture::Sample::gain>,
+                                  Field<4, "valid", &fixture::Sample::valid>>;
     static constexpr std::size_t max_encoded_size = 32;
     static constexpr Codec codec = Codec::Cbor;
 };
@@ -63,10 +63,9 @@ ZTEST(solar_remote_protocol, test_canonical_cbor_round_trip_and_validation)
     zassert_equal(*status, solar::Status::Timeout);
 
     constexpr std::array with_unknown{
-        std::byte{0xA5}, std::byte{0x01}, std::byte{0x18}, std::byte{0x2A},
-        std::byte{0x02}, std::byte{0x22}, std::byte{0x03}, std::byte{0xF9},
-        std::byte{0x3E}, std::byte{0x00}, std::byte{0x04}, std::byte{0xF5},
-        std::byte{0x05}, std::byte{0x01},
+        std::byte{0xA5}, std::byte{0x01}, std::byte{0x18}, std::byte{0x2A}, std::byte{0x02},
+        std::byte{0x22}, std::byte{0x03}, std::byte{0xF9}, std::byte{0x3E}, std::byte{0x00},
+        std::byte{0x04}, std::byte{0xF5}, std::byte{0x05}, std::byte{0x01},
     };
     zassert_true(solar::remote::cbor::decode<fixture::Sample>(with_unknown).has_value());
 
@@ -102,17 +101,15 @@ ZTEST(solar_remote_protocol, test_shared_frame_vector_and_corruption)
     };
     constexpr std::array payload{std::byte{0xA1}, std::byte{0x00}, std::byte{0x7F}};
     constexpr std::array expected{
-        std::byte{0x02}, std::byte{0x01}, std::byte{0x04}, std::byte{0x04},
-        std::byte{0x02}, std::byte{0x20}, std::byte{0x12}, std::byte{0x04},
-        std::byte{0x03}, std::byte{0x02}, std::byte{0x01}, std::byte{0x14},
-        std::byte{0x13}, std::byte{0x12}, std::byte{0x11}, std::byte{0x24},
-        std::byte{0x23}, std::byte{0x22}, std::byte{0x21}, std::byte{0x34},
-        std::byte{0x33}, std::byte{0x32}, std::byte{0x31}, std::byte{0x03},
-        std::byte{0x03}, std::byte{0x42}, std::byte{0x41}, std::byte{0x02},
-        std::byte{0x01}, std::byte{0x01}, std::byte{0x01}, std::byte{0x01},
-        std::byte{0x02},
-        std::byte{0xA1}, std::byte{0x06}, std::byte{0x7F}, std::byte{0x6F},
-        std::byte{0x8D}, std::byte{0xFC}, std::byte{0x85}, std::byte{0x00},
+        std::byte{0x02}, std::byte{0x01}, std::byte{0x04}, std::byte{0x04}, std::byte{0x02},
+        std::byte{0x20}, std::byte{0x12}, std::byte{0x04}, std::byte{0x03}, std::byte{0x02},
+        std::byte{0x01}, std::byte{0x14}, std::byte{0x13}, std::byte{0x12}, std::byte{0x11},
+        std::byte{0x24}, std::byte{0x23}, std::byte{0x22}, std::byte{0x21}, std::byte{0x34},
+        std::byte{0x33}, std::byte{0x32}, std::byte{0x31}, std::byte{0x03}, std::byte{0x03},
+        std::byte{0x42}, std::byte{0x41}, std::byte{0x02}, std::byte{0x01}, std::byte{0x01},
+        std::byte{0x01}, std::byte{0x01}, std::byte{0x02}, std::byte{0xA1}, std::byte{0x06},
+        std::byte{0x7F}, std::byte{0x6F}, std::byte{0x8D}, std::byte{0xFC}, std::byte{0x85},
+        std::byte{0x00},
     };
     std::array<std::byte, 64> scratch{};
     std::array<std::byte, 80> output{};

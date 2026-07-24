@@ -3,7 +3,7 @@
 This page is generated from `zephyr/Kconfig`. Change the Kconfig source or
 help text, then rebuild the documentation; do not edit this page manually.
 
-Solar currently defines 173 configuration symbols.
+Solar currently defines 175 configuration symbols.
 
 ## `CONFIG_SOLAR`
 
@@ -1612,6 +1612,18 @@ Include Remote's typed schemas, deterministic CBOR and packed codecs,
 protocol envelope, CRC32C integrity, and COBS framing. Runtime links and
 service resources are emitted only by an effective Stage 14 configuration.
 
+## `CONFIG_SOLAR_REMOTE_BUILD_ID`
+
+Remote firmware build identity
+
+- Type: `hex`
+- Menu: Main menu / Remote protocol
+- Defaults: `0` if `SOLAR_REMOTE and SOLAR`
+- Depends on: `SOLAR_REMOTE and SOLAR`
+
+Application or release-specific 64-bit build identity reported by Remote
+server information. The manifest digest remains the interface identity.
+
 ## `CONFIG_SOLAR_REMOTE_EVENT_QUEUE_DEPTH`
 
 Remote service event queue depth
@@ -1649,6 +1661,18 @@ Enable constrained ISR Push publication
 
 Expose remote::write_from_isr for trivially copyable Push values whose
 Latest ingress path can complete without allocation, waiting, or mutexes.
+
+## `CONFIG_SOLAR_REMOTE_MANIFEST_RETRIEVAL`
+
+Allow bounded runtime manifest retrieval
+
+- Type: `bool`
+- Menu: Main menu / Remote protocol
+- Defaults: `y` if `SOLAR_REMOTE and SOLAR`
+- Depends on: `SOLAR_REMOTE and SOLAR`
+
+Advertise the exact embedded manifest digest and allow authenticated
+clients with Observe permission to retrieve the image in bounded chunks.
 
 ## `CONFIG_SOLAR_REMOTE_MAX_ENDPOINTS`
 

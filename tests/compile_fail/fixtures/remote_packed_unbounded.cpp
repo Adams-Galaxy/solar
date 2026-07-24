@@ -8,7 +8,7 @@ struct Value
 template <> struct solar::remote::Schema<Value>
 {
     static constexpr SchemaDescriptor descriptor{.id = TypeId{2}, .name = "bad.Value"};
-    using Fields = remote::Fields<Field<1, &Value::text>>;
+    using Fields = remote::Fields<Field<1, "text", &Value::text>>;
     static constexpr std::size_t max_encoded_size = 18;
     static constexpr Codec codec = Codec::Packed;
 };

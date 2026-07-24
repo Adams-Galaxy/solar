@@ -1,4 +1,4 @@
-"""Transport-independent Solar Remote host session runtime."""
+"""Transport-independent synchronous Solar Remote session state machine."""
 
 from __future__ import annotations
 
@@ -19,20 +19,21 @@ from .protocol import (
     KIND_CLIENT_HELLO,
     KIND_CREDIT,
     KIND_DATA,
-    KIND_ERROR,
     KIND_KEEPALIVE,
     KIND_INTROSPECTION,
     KIND_REQUEST,
-    KIND_RESPONSE,
     KIND_RESPONSE_ACK,
     KIND_SERVER_HELLO,
     KIND_SESSION_RESET,
     KIND_SUBSCRIBE,
     KIND_UNSUBSCRIBE,
+    INTROSPECTION_MANIFEST,
+    INTROSPECTION_SERVER_INFORMATION,
     OPERATION_ACTION,
     PROTOCOL_MAJOR,
     PROTOCOL_MINOR,
     SubscriptionRequest,
+    encode_manifest_request,
     encode_frame,
 )
 
@@ -58,7 +59,9 @@ class Hello:
         major, minor = payload[0], payload[1]
         if major != PROTOCOL_MAJOR:
             raise FrameError("incompatible protocol major")
-        maximum_frame, maximum_message, capabilities = struct.unpack_from("<III", payload, 4)
+        maximum_frame, maximum_message, capabilities = struct.unpack_from(
+            "<III", payload, 4
+        )
         return cls(major, minor, maximum_frame, maximum_message, capabilities)
 
     def encode(self) -> bytes:
@@ -66,8 +69,12 @@ class Hello:
         output[0] = self.major
         output[1] = self.minor
         struct.pack_into(
-            "<III", output, 4, self.maximum_frame_bytes,
-            self.maximum_message_bytes, self.capabilities,
+            "<III",
+            output,
+            4,
+            self.maximum_frame_bytes,
+            self.maximum_message_bytes,
+            self.capabilities,
         )
         return bytes(output)
 
@@ -116,7 +123,9 @@ class Reassembler:
         if not fragmented and envelope.fragment_count == 1:
             return Message(envelope, payload)
         if (
-            not fragmented or envelope.fragment_count <= 1 or not envelope.fragment_id
+            not fragmented
+            or envelope.fragment_count <= 1
+            or not envelope.fragment_id
             or envelope.fragment_index >= envelope.fragment_count
         ):
             self.rejected += 1
@@ -135,14 +144,17 @@ class Reassembler:
 
         first = slot.envelope
         stable = (
-            envelope.kind == first.kind and envelope.session_epoch == first.session_epoch
-            and envelope.target == first.target and envelope.request_id == first.request_id
+            envelope.kind == first.kind
+            and envelope.session_epoch == first.session_epoch
+            and envelope.target == first.target
+            and envelope.request_id == first.request_id
             and envelope.reserved == first.reserved
             and envelope.fragment_count == first.fragment_count
         )
         is_last = envelope.fragment_index + 1 == envelope.fragment_count
         if (
-            not stable or envelope.fragment_index != slot.next_index
+            not stable
+            or envelope.fragment_index != slot.next_index
             or bool(envelope.flags & FLAG_FINAL) != is_last
             or len(slot.payload) + len(payload) > self.maximum_message_size
         ):
@@ -222,14 +234,16 @@ class Client:
         fragment = self._next_fragment()
         for index in range(count):
             start = index * maximum_payload
-            part = payload[start:start + maximum_payload]
+            part = payload[start : start + maximum_payload]
             flags = envelope.flags | FLAG_FRAGMENTED
             if index + 1 == count:
                 flags |= FLAG_FINAL
             physical = replace(
                 envelope,
                 flags=flags,
-                frame_sequence=envelope.frame_sequence if index == 0 else self._next_frame(),
+                frame_sequence=envelope.frame_sequence
+                if index == 0
+                else self._next_frame(),
                 fragment_id=fragment,
                 fragment_index=index,
                 fragment_count=count,
@@ -248,19 +262,25 @@ class Client:
             if message.envelope.kind == KIND_SERVER_HELLO:
                 hello = Hello.decode(message.payload)
                 self.server_hello = hello
-                self.maximum_frame_size = min(self.maximum_frame_size, hello.maximum_frame_bytes)
+                self.maximum_frame_size = min(
+                    self.maximum_frame_size, hello.maximum_frame_bytes
+                )
                 self.maximum_message_size = min(
                     self.maximum_message_size, hello.maximum_message_bytes
                 )
                 self.session_epoch = message.envelope.session_epoch
                 if not self._hello_sent:
                     client_hello = Hello(
-                        PROTOCOL_MAJOR, min(PROTOCOL_MINOR, hello.minor),
-                        self.maximum_frame_size, self.maximum_message_size,
+                        PROTOCOL_MAJOR,
+                        min(PROTOCOL_MINOR, hello.minor),
+                        self.maximum_frame_size,
+                        self.maximum_message_size,
                         hello.capabilities,
                     )
                     self._queue(
-                        Envelope(kind=KIND_CLIENT_HELLO, frame_sequence=self._next_frame()),
+                        Envelope(
+                            kind=KIND_CLIENT_HELLO, frame_sequence=self._next_frame()
+                        ),
                         client_hello.encode(),
                     )
                     self._hello_sent = True
@@ -277,7 +297,9 @@ class Client:
                 accepted.append(message)
             elif message.envelope.kind == KIND_CREDIT:
                 grant = CreditGrant.decode(message.payload)
-                current = self.credits.get(message.envelope.target, CreditGrant(0, grant.window))
+                current = self.credits.get(
+                    message.envelope.target, CreditGrant(0, grant.window)
+                )
                 self.credits[message.envelope.target] = CreditGrant(
                     min(0xFFFF, current.credits + grant.credits), grant.window
                 )
@@ -335,51 +357,74 @@ class Client:
         return request
 
     def acknowledge(self, response: Message | int) -> None:
-        request = response if isinstance(response, int) else response.envelope.request_id
-        self._queue(Envelope(
-            kind=KIND_RESPONSE_ACK,
-            session_epoch=self.session_epoch,
-            frame_sequence=self._next_frame(),
-            request_id=request,
-        ))
+        request = (
+            response if isinstance(response, int) else response.envelope.request_id
+        )
+        self._queue(
+            Envelope(
+                kind=KIND_RESPONSE_ACK,
+                session_epoch=self.session_epoch,
+                frame_sequence=self._next_frame(),
+                request_id=request,
+            )
+        )
 
     def cancel(self, request: int) -> None:
-        self._queue(Envelope(
-            kind=KIND_CANCEL,
-            session_epoch=self.session_epoch,
-            frame_sequence=self._next_frame(),
-            request_id=request,
-        ))
+        self._queue(
+            Envelope(
+                kind=KIND_CANCEL,
+                session_epoch=self.session_epoch,
+                frame_sequence=self._next_frame(),
+                request_id=request,
+            )
+        )
 
     def keepalive(self, payload: bytes = b"") -> None:
-        self._queue(Envelope(
-            kind=KIND_KEEPALIVE,
-            session_epoch=self.session_epoch,
-            frame_sequence=self._next_frame(),
-        ), payload)
+        self._queue(
+            Envelope(
+                kind=KIND_KEEPALIVE,
+                session_epoch=self.session_epoch,
+                frame_sequence=self._next_frame(),
+            ),
+            payload,
+        )
 
     def introspect(self, target: int = 0, payload: bytes = b"") -> int:
         if not self.active:
             raise FrameError("session is not active")
         request = self._next_request()
-        self._queue(Envelope(
-            kind=KIND_INTROSPECTION,
-            session_epoch=self.session_epoch,
-            frame_sequence=self._next_frame(),
-            target=target,
-            request_id=request,
-        ), payload)
+        self._queue(
+            Envelope(
+                kind=KIND_INTROSPECTION,
+                session_epoch=self.session_epoch,
+                frame_sequence=self._next_frame(),
+                target=target,
+                request_id=request,
+            ),
+            payload,
+        )
         return request
+
+    def request_server_information(self) -> int:
+        return self.introspect(INTROSPECTION_SERVER_INFORMATION)
+
+    def request_manifest_chunk(self, offset: int, limit: int) -> int:
+        return self.introspect(
+            INTROSPECTION_MANIFEST, encode_manifest_request(offset, limit)
+        )
 
     def send_stream(self, target: int, payload: bytes, sequence: int) -> None:
         grant = self.credits.get(target)
         if grant is None or grant.credits == 0:
             raise FrameError("inbound stream has no credit")
         self.credits[target] = CreditGrant(grant.credits - 1, grant.window)
-        self._queue(Envelope(
-            kind=KIND_DATA,
-            session_epoch=self.session_epoch,
-            frame_sequence=self._next_frame(),
-            target=target,
-            request_id=sequence,
-        ), payload)
+        self._queue(
+            Envelope(
+                kind=KIND_DATA,
+                session_epoch=self.session_epoch,
+                frame_sequence=self._next_frame(),
+                target=target,
+                request_id=sequence,
+            ),
+            payload,
+        )

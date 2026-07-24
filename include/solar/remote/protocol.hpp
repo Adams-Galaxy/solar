@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -22,6 +23,9 @@ inline constexpr std::size_t collection_request_size = 4;
 inline constexpr std::size_t collection_page_header_size = 8;
 inline constexpr std::size_t collection_descriptor_header_size = 22;
 inline constexpr std::size_t collection_query_request_size = 14;
+inline constexpr std::size_t server_information_size = 56;
+inline constexpr std::size_t manifest_request_size = 8;
+inline constexpr std::size_t manifest_chunk_header_size = 8;
 inline constexpr std::uint8_t batch_version = 1;
 
 enum class Kind : std::uint8_t
@@ -72,6 +76,8 @@ enum class IntrospectionTarget : std::uint32_t
     ProtocolSummary = 0,
     Collections = 1,
     CollectionQuery = 2,
+    ServerInformation = 3,
+    Manifest = 4,
 };
 
 [[nodiscard]] constexpr Flags operator|(Flags left, Flags right) noexcept
@@ -271,6 +277,26 @@ struct CollectionQueryRequest
     constexpr bool operator==(const CollectionQueryRequest&) const = default;
 };
 
+struct ServerInformation
+{
+    std::uint32_t maximum_frame_bytes{};
+    std::uint32_t maximum_message_bytes{};
+    std::uint64_t build_id{};
+    std::array<std::byte, 32> manifest_digest{};
+    std::uint32_t manifest_size{};
+    std::uint8_t feature_flags{};
+
+    constexpr bool operator==(const ServerInformation&) const = default;
+};
+
+struct ManifestRequest
+{
+    std::uint32_t offset{};
+    std::uint16_t limit{};
+
+    constexpr bool operator==(const ManifestRequest&) const = default;
+};
+
 namespace detail
 {
 constexpr void put_u16(std::span<std::byte> output, std::size_t offset, std::uint16_t value)
@@ -282,6 +308,13 @@ constexpr void put_u16(std::span<std::byte> output, std::size_t offset, std::uin
 constexpr void put_u32(std::span<std::byte> output, std::size_t offset, std::uint32_t value)
 {
     for (std::size_t byte{}; byte < 4; ++byte) {
+        output[offset + byte] = static_cast<std::byte>((value >> (byte * 8U)) & 0xFFU);
+    }
+}
+
+constexpr void put_u64(std::span<std::byte> output, std::size_t offset, std::uint64_t value)
+{
+    for (std::size_t byte{}; byte < 8; ++byte) {
         output[offset + byte] = static_cast<std::byte>((value >> (byte * 8U)) & 0xFFU);
     }
 }
@@ -301,7 +334,73 @@ constexpr void put_u32(std::span<std::byte> output, std::size_t offset, std::uin
     }
     return value;
 }
+
+[[nodiscard]] constexpr std::uint64_t get_u64(std::span<const std::byte> input, std::size_t offset)
+{
+    std::uint64_t value{};
+    for (std::size_t byte{}; byte < 8; ++byte) {
+        value |= static_cast<std::uint64_t>(std::to_integer<std::uint8_t>(input[offset + byte]))
+                 << (byte * 8U);
+    }
+    return value;
+}
 } // namespace detail
+
+[[nodiscard]] constexpr std::array<std::byte, server_information_size>
+encode(const ServerInformation& information) noexcept
+{
+    std::array<std::byte, server_information_size> output{};
+    output[0] = std::byte{1};
+    output[1] = static_cast<std::byte>(major_version);
+    output[2] = static_cast<std::byte>(minor_version);
+    output[3] = static_cast<std::byte>(information.feature_flags);
+    detail::put_u32(output, 4, information.maximum_frame_bytes);
+    detail::put_u32(output, 8, information.maximum_message_bytes);
+    detail::put_u64(output, 12, information.build_id);
+    std::copy(information.manifest_digest.begin(), information.manifest_digest.end(),
+              output.begin() + 20);
+    detail::put_u32(output, 52, information.manifest_size);
+    return output;
+}
+
+[[nodiscard]] constexpr Result<ServerInformation, Error>
+decode_server_information(std::span<const std::byte> input) noexcept
+{
+    if (input.size() != server_information_size || input[0] != std::byte{1} ||
+        input[1] != static_cast<std::byte>(major_version)) {
+        return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::Decode});
+    }
+    ServerInformation output{
+        .maximum_frame_bytes = detail::get_u32(input, 4),
+        .maximum_message_bytes = detail::get_u32(input, 8),
+        .build_id = detail::get_u64(input, 12),
+        .manifest_size = detail::get_u32(input, 52),
+        .feature_flags = std::to_integer<std::uint8_t>(input[3]),
+    };
+    std::copy(input.begin() + 20, input.begin() + 52, output.manifest_digest.begin());
+    return output;
+}
+
+[[nodiscard]] constexpr std::array<std::byte, manifest_request_size>
+encode(const ManifestRequest& request) noexcept
+{
+    std::array<std::byte, manifest_request_size> output{};
+    detail::put_u32(output, 0, request.offset);
+    detail::put_u16(output, 4, request.limit);
+    return output;
+}
+
+[[nodiscard]] constexpr Result<ManifestRequest, Error>
+decode_manifest_request(std::span<const std::byte> input) noexcept
+{
+    if (input.size() != manifest_request_size || detail::get_u16(input, 6) != 0) {
+        return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::Decode});
+    }
+    return ManifestRequest{
+        .offset = detail::get_u32(input, 0),
+        .limit = detail::get_u16(input, 4),
+    };
+}
 
 [[nodiscard]] constexpr std::array<std::byte, subscription_policy_size>
 encode(const SubscriptionRequest& request) noexcept

@@ -193,7 +193,7 @@ struct LifecycleState
     };
     inline static constexpr SchemaDescriptor schema_descriptor{
         .id = SchemaId,
-        .name = "solar.lifecycle.SystemState",
+        .name = "solar.lifecycle.StateValue",
     };
 
     [[nodiscard]] static Value read() noexcept
@@ -490,6 +490,67 @@ struct LogTopic
 
 } // namespace solar::remote::adapters
 
+template <> struct solar::remote::Schema<solar::lifecycle::SystemState>
+{
+    static constexpr SchemaDescriptor descriptor{
+        .id = TypeId{4},
+        .name = "solar.lifecycle.SystemState",
+    };
+    using Values = remote::EnumValues<
+        remote::EnumValue<solar::lifecycle::SystemState::Dormant, "dormant">,
+        remote::EnumValue<solar::lifecycle::SystemState::Initializing, "initializing">,
+        remote::EnumValue<solar::lifecycle::SystemState::Starting, "starting">,
+        remote::EnumValue<solar::lifecycle::SystemState::Running, "running">,
+        remote::EnumValue<solar::lifecycle::SystemState::Stopping, "stopping">,
+        remote::EnumValue<solar::lifecycle::SystemState::Deinitializing, "deinitializing">,
+        remote::EnumValue<solar::lifecycle::SystemState::RollingBack, "rolling_back">,
+        remote::EnumValue<solar::lifecycle::SystemState::Stopped, "stopped">,
+        remote::EnumValue<solar::lifecycle::SystemState::Failed, "failed">>;
+    static constexpr SchemaShape shape = SchemaShape::Enumeration;
+    static constexpr EnumOpenness openness = EnumOpenness::Closed;
+    static constexpr bool builtin = true;
+};
+
+template <> struct solar::remote::Schema<solar::lifecycle::ComponentState>
+{
+    static constexpr SchemaDescriptor descriptor{
+        .id = TypeId{5},
+        .name = "solar.lifecycle.ComponentState",
+    };
+    using Values = remote::EnumValues<
+        remote::EnumValue<solar::lifecycle::ComponentState::Registered, "registered">,
+        remote::EnumValue<solar::lifecycle::ComponentState::Initializing, "initializing">,
+        remote::EnumValue<solar::lifecycle::ComponentState::Initialized, "initialized">,
+        remote::EnumValue<solar::lifecycle::ComponentState::Starting, "starting">,
+        remote::EnumValue<solar::lifecycle::ComponentState::Running, "running">,
+        remote::EnumValue<solar::lifecycle::ComponentState::Stopping, "stopping">,
+        remote::EnumValue<solar::lifecycle::ComponentState::Stopped, "stopped">,
+        remote::EnumValue<solar::lifecycle::ComponentState::Deinitializing, "deinitializing">,
+        remote::EnumValue<solar::lifecycle::ComponentState::Deinitialized, "deinitialized">,
+        remote::EnumValue<solar::lifecycle::ComponentState::Failed, "failed">>;
+    static constexpr SchemaShape shape = SchemaShape::Enumeration;
+    static constexpr EnumOpenness openness = EnumOpenness::Closed;
+    static constexpr bool builtin = true;
+};
+
+template <> struct solar::remote::Schema<solar::log::Level>
+{
+    static constexpr SchemaDescriptor descriptor{
+        .id = TypeId{6},
+        .name = "solar.log.Level",
+    };
+    using Values = remote::EnumValues<remote::EnumValue<solar::log::Level::Trace, "trace">,
+                                      remote::EnumValue<solar::log::Level::Debug, "debug">,
+                                      remote::EnumValue<solar::log::Level::Info, "info">,
+                                      remote::EnumValue<solar::log::Level::Notice, "notice">,
+                                      remote::EnumValue<solar::log::Level::Warning, "warning">,
+                                      remote::EnumValue<solar::log::Level::Error, "error">,
+                                      remote::EnumValue<solar::log::Level::Fatal, "fatal">>;
+    static constexpr SchemaShape shape = SchemaShape::Enumeration;
+    static constexpr EnumOpenness openness = EnumOpenness::Closed;
+    static constexpr bool builtin = true;
+};
+
 template <typename Endpoint>
     requires requires {
         typename Endpoint::Scalar;
@@ -499,7 +560,7 @@ struct solar::remote::Schema<solar::remote::adapters::ScalarValue<Endpoint>>
 {
     using Value = solar::remote::adapters::ScalarValue<Endpoint>;
     static constexpr SchemaDescriptor descriptor = Endpoint::schema_descriptor;
-    using Fields = remote::Fields<remote::Field<1, &Value::value>>;
+    using Fields = remote::Fields<remote::Field<1, "value", &Value::value>>;
     static constexpr std::size_t max_encoded_size = sizeof(typename Endpoint::Scalar) + 16;
     static constexpr Codec codec = Codec::Cbor;
 };
@@ -515,35 +576,35 @@ struct solar::remote::Schema<solar::remote::adapters::ScalarValue<Endpoint>>
         static constexpr Codec codec = Codec::Cbor;                                                \
     }
 
-SOLAR_DETAIL_REMOTE_ADAPTER_SCHEMA(EventStatsValue, remote::Field<1, &Value::attempts>,
-                                   remote::Field<2, &Value::captured>,
-                                   remote::Field<3, &Value::rejected>,
-                                   remote::Field<4, &Value::retained>,
-                                   remote::Field<5, &Value::known_lost>,
-                                   remote::Field<6, &Value::processor_failures>);
-SOLAR_DETAIL_REMOTE_ADAPTER_SCHEMA(LogStatsValue, remote::Field<1, &Value::attempted>,
-                                   remote::Field<2, &Value::captured>,
-                                   remote::Field<3, &Value::processed>,
-                                   remote::Field<4, &Value::dropped>,
-                                   remote::Field<5, &Value::sink_failures>,
-                                   remote::Field<6, &Value::panic>);
-SOLAR_DETAIL_REMOTE_ADAPTER_SCHEMA(ExecutionStatsValue, remote::Field<1, &Value::submissions>,
-                                   remote::Field<2, &Value::started>,
-                                   remote::Field<3, &Value::completed>,
-                                   remote::Field<4, &Value::failed>,
-                                   remote::Field<5, &Value::cancelled>,
-                                   remote::Field<6, &Value::pending>,
-                                   remote::Field<7, &Value::active>);
-SOLAR_DETAIL_REMOTE_ADAPTER_SCHEMA(ComponentStatsValue, remote::Field<1, &Value::state>,
-                                   remote::Field<2, &Value::last_status>,
-                                   remote::Field<3, &Value::transitions>,
-                                   remote::Field<4, &Value::attempts>,
-                                   remote::Field<5, &Value::execution_contained>);
-SOLAR_DETAIL_REMOTE_ADAPTER_SCHEMA(GraphStatsValue, remote::Field<1, &Value::components>,
-                                   remote::Field<2, &Value::devices>,
-                                   remote::Field<3, &Value::facilities>,
-                                   remote::Field<4, &Value::services>,
-                                   remote::Field<5, &Value::executors>);
+SOLAR_DETAIL_REMOTE_ADAPTER_SCHEMA(
+    EventStatsValue, remote::Field<1, "attempts", &Value::attempts>,
+    remote::Field<2, "captured", &Value::captured>, remote::Field<3, "rejected", &Value::rejected>,
+    remote::Field<4, "retained", &Value::retained>,
+    remote::Field<5, "known_lost", &Value::known_lost>,
+    remote::Field<6, "processor_failures", &Value::processor_failures>);
+SOLAR_DETAIL_REMOTE_ADAPTER_SCHEMA(LogStatsValue, remote::Field<1, "attempted", &Value::attempted>,
+                                   remote::Field<2, "captured", &Value::captured>,
+                                   remote::Field<3, "processed", &Value::processed>,
+                                   remote::Field<4, "dropped", &Value::dropped>,
+                                   remote::Field<5, "sink_failures", &Value::sink_failures>,
+                                   remote::Field<6, "panic", &Value::panic>);
+SOLAR_DETAIL_REMOTE_ADAPTER_SCHEMA(
+    ExecutionStatsValue, remote::Field<1, "submissions", &Value::submissions>,
+    remote::Field<2, "started", &Value::started>, remote::Field<3, "completed", &Value::completed>,
+    remote::Field<4, "failed", &Value::failed>, remote::Field<5, "cancelled", &Value::cancelled>,
+    remote::Field<6, "pending", &Value::pending>, remote::Field<7, "active", &Value::active>);
+SOLAR_DETAIL_REMOTE_ADAPTER_SCHEMA(
+    ComponentStatsValue, remote::Field<1, "state", &Value::state>,
+    remote::Field<2, "last_status", &Value::last_status>,
+    remote::Field<3, "transitions", &Value::transitions>,
+    remote::Field<4, "attempts", &Value::attempts>,
+    remote::Field<5, "execution_contained", &Value::execution_contained>);
+SOLAR_DETAIL_REMOTE_ADAPTER_SCHEMA(GraphStatsValue,
+                                   remote::Field<1, "components", &Value::components>,
+                                   remote::Field<2, "devices", &Value::devices>,
+                                   remote::Field<3, "facilities", &Value::facilities>,
+                                   remote::Field<4, "services", &Value::services>,
+                                   remote::Field<5, "executors", &Value::executors>);
 
 #undef SOLAR_DETAIL_REMOTE_ADAPTER_SCHEMA
 
@@ -552,10 +613,11 @@ struct solar::remote::Schema<solar::remote::adapters::LogEntryValue<Endpoint, Ca
 {
     using Value = solar::remote::adapters::LogEntryValue<Endpoint, Capacity>;
     static constexpr SchemaDescriptor descriptor = Endpoint::schema_descriptor;
-    using Fields =
-        remote::Fields<remote::Field<1, &Value::sequence>, remote::Field<2, &Value::timestamp>,
-                       remote::Field<3, &Value::source>, remote::Field<4, &Value::domain>,
-                       remote::Field<5, &Value::level>, remote::Field<6, &Value::text>>;
+    using Fields = remote::Fields<
+        remote::Field<1, "sequence", &Value::sequence>,
+        remote::Field<2, "timestamp", &Value::timestamp>,
+        remote::Field<3, "source", &Value::source>, remote::Field<4, "domain", &Value::domain>,
+        remote::Field<5, "level", &Value::level>, remote::Field<6, "text", &Value::text>>;
     static constexpr std::size_t max_encoded_size = Capacity + 64;
     static constexpr Codec codec = Codec::Cbor;
 };
