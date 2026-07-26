@@ -16,15 +16,21 @@ from .protocol import (
     KIND_DATA,
     KIND_ERROR,
     KIND_INTROSPECTION,
+    KIND_CREDIT,
+    KIND_IN_STREAM_CLOSED,
     KIND_RESPONSE,
     OPERATION_ACTION,
     OPERATION_QUERY,
     OPERATION_UPDATE,
+    PROTOCOL_MINOR,
+    SUBSCRIPTION_DATA_IN_STREAM,
     SUBSCRIPTION_DATA_STREAM,
     SUBSCRIPTION_DATA_WATCH,
     SUBSCRIPTION_STREAM,
     SUBSCRIPTION_TOPIC,
     ManifestChunk,
+    InStreamClosed,
+    InStreamOpenResponse,
     ServerInformation,
     SubscriptionRequest,
     decode_batch,
@@ -97,6 +103,157 @@ class Subscription:
         )
 
 
+class InboundStream(AbstractAsyncContextManager["InboundStream"]):
+    """A typed, token-scoped producer for one firmware inbound stream."""
+
+    def __init__(
+        self,
+        session: "AsyncSession",
+        endpoint: int | str,
+        *,
+        frequency: float | None = None,
+        credit_timeout: float | None = None,
+    ):
+        self.session = session
+        self.endpoint = endpoint
+        self.frequency = frequency
+        self.credit_timeout = credit_timeout
+        self.target = 0
+        self.token = 0
+        self.schema = 0
+        self.effective = None
+        self.closure_reason: int | None = None
+        self._credit = asyncio.Event()
+        self._closed_event = asyncio.Event()
+        self._send_lock = asyncio.Lock()
+        self._opened = False
+        self._closed = False
+
+    @property
+    def closed(self) -> bool:
+        """Whether this producer can no longer accept samples."""
+        return self._closed
+
+    @property
+    def credit_window(self) -> int | None:
+        """The currently advertised firmware credit window, if active."""
+        grant = self.session.core.credits.get((self.target, self.token))
+        return grant.window if grant is not None else None
+
+    async def __aenter__(self) -> "InboundStream":
+        await self.open()
+        return self
+
+    async def __aexit__(self, *_: object) -> None:
+        await self.aclose()
+
+    async def open(self) -> None:
+        if self._opened:
+            return
+        if self.frequency is not None and self.frequency <= 0:
+            raise ValueError("frequency must be positive")
+        hello = self.session.core.server_hello
+        if hello is None or hello.minor < PROTOCOL_MINOR:
+            raise SessionClosed(
+                "firmware does not support explicit inbound-stream activation"
+            )
+        item = self.session._endpoint("data", self.endpoint)
+        capability = next(
+            (
+                value
+                for value in self.session.manifest.capabilities  # type: ignore[union-attr]
+                if value["domain"] == "data"
+                and value["endpoint"] == item["id"]
+                and value["kind"] == "in_stream"
+            ),
+            None,
+        )
+        if capability is None or not capability.get("explicit_open"):
+            raise ValueError(f"{self.endpoint!r} is not an explicit inbound stream")
+        interval = (
+            0
+            if self.frequency is None
+            else max(1, round(1_000_000 / self.frequency))
+        )
+        policy = SubscriptionRequest(
+            minimum_interval_us=interval,
+            batch_size=1,
+            codec={"cbor": 1, "packed": 2}[capability["codec"]],
+            flags=0,
+        )
+        message = await self.session._exchange(
+            self.session.core.subscribe(
+                item["id"], SUBSCRIPTION_DATA_IN_STREAM, policy
+            )
+        )
+        if message.envelope.kind != KIND_RESPONSE:
+            raise SessionClosed("expected inbound-stream open response")
+        opened = InStreamOpenResponse.decode(message.payload)
+        self.target = item["id"]
+        self.schema = item["schema"]
+        self.token = opened.token
+        self.effective = opened.policy
+        self._opened = True
+        self.session._in_streams[(self.target, self.token)] = self
+        if self.session.core.credits.get((self.target, self.token)):
+            self._credit.set()
+
+    def _notify_credit(self) -> None:
+        self._credit.set()
+
+    def _notify_closed(self, reason: int) -> None:
+        self.closure_reason = reason
+        self._closed = True
+        self._credit.set()
+        self._closed_event.set()
+
+    async def wait_closed(self) -> int | None:
+        """Wait until firmware, disconnect, or the owner closes this token."""
+        await self._closed_event.wait()
+        return self.closure_reason
+
+    async def send(self, value: Any, *, timeout: float | None = None) -> None:
+        if not self._opened:
+            await self.open()
+        async with self._send_lock:
+            while True:
+                if self._closed or self.session._closed:
+                    raise SessionClosed(
+                        f"inbound stream closed (reason={self.closure_reason})"
+                    )
+                grant = self.session.core.credits.get((self.target, self.token))
+                if grant is not None and grant.credits:
+                    payload = self.session.codec.encode(self.schema, value)  # type: ignore[union-attr]
+                    self.session.core.send_stream(
+                        self.target, payload, self.token
+                    )
+                    await self.session._flush()
+                    return
+                self._credit.clear()
+                wait = self.credit_timeout if timeout is None else timeout
+                try:
+                    if wait is None:
+                        await self._credit.wait()
+                    else:
+                        await asyncio.wait_for(self._credit.wait(), wait)
+                except TimeoutError as error:
+                    raise TimeoutError("timed out waiting for inbound-stream credit") from error
+
+    async def aclose(self) -> None:
+        if not self._opened or self._closed:
+            return
+        try:
+            await self.session._exchange(
+                self.session.core.close_in_stream(self.target, self.token)
+            )
+        finally:
+            self._closed = True
+            self._credit.set()
+            self._closed_event.set()
+            self.session._in_streams.pop((self.target, self.token), None)
+            self.session.core.credits.pop((self.target, self.token), None)
+
+
 class AsyncSession(AbstractAsyncContextManager["AsyncSession"]):
     def __init__(
         self,
@@ -117,6 +274,7 @@ class AsyncSession(AbstractAsyncContextManager["AsyncSession"]):
         self._active = asyncio.Event()
         self._pending: dict[int, asyncio.Future[Message]] = {}
         self._subscriptions: dict[tuple[int, int], Subscription] = {}
+        self._in_streams: dict[tuple[int, int], InboundStream] = {}
         self._write_lock = asyncio.Lock()
         self._closed = False
 
@@ -160,6 +318,20 @@ class AsyncSession(AbstractAsyncContextManager["AsyncSession"]):
                         subscription = self._subscriptions.get(key)
                         if subscription is not None:
                             subscription._deliver(message.payload)
+                    elif message.envelope.kind == KIND_CREDIT:
+                        token = int.from_bytes(message.payload[:4], "little")
+                        stream = self._in_streams.get(
+                            (message.envelope.target, token)
+                        )
+                        if stream is not None:
+                            stream._notify_credit()
+                    elif message.envelope.kind == KIND_IN_STREAM_CLOSED:
+                        closed = InStreamClosed.decode(message.payload)
+                        stream = self._in_streams.pop(
+                            (message.envelope.target, closed.token), None
+                        )
+                        if stream is not None:
+                            stream._notify_closed(closed.reason)
                     elif request and request in self._pending:
                         self._pending.pop(request).set_result(message)
                 await self._flush()
@@ -167,6 +339,9 @@ class AsyncSession(AbstractAsyncContextManager["AsyncSession"]):
             failure = error
         finally:
             self._closed = True
+            for stream in tuple(self._in_streams.values()):
+                stream._notify_closed(2)
+            self._in_streams.clear()
             for future in self._pending.values():
                 if not future.done():
                     future.set_exception(failure)
@@ -376,10 +551,27 @@ class AsyncSession(AbstractAsyncContextManager["AsyncSession"]):
             queue_depth=queue_depth,
         )
 
+    def in_stream(
+        self,
+        endpoint: int | str,
+        *,
+        frequency: float | None = None,
+        credit_timeout: float | None = None,
+    ) -> InboundStream:
+        return InboundStream(
+            self,
+            endpoint,
+            frequency=frequency,
+            credit_timeout=credit_timeout,
+        )
+
     async def close(self) -> None:
         for subscription in self._subscriptions.values():
             subscription._closed = True
         self._subscriptions.clear()
+        for stream in self._in_streams.values():
+            stream._notify_closed(2)
+        self._in_streams.clear()
         if self._reader is not None:
             self._reader.cancel()
             try:

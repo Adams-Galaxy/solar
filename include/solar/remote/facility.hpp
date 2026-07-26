@@ -39,8 +39,10 @@ template <typename System>
 [[nodiscard]] Result<void> process_poll_work(std::uint32_t target) noexcept;
 template <typename System>
 [[nodiscard]] Result<void> process_in_stream_work(std::uint32_t target) noexcept;
+template <typename System> void initialize_in_stream_runtime() noexcept;
 template <typename System> [[nodiscard]] std::int64_t process_poll_releases() noexcept;
-template <typename System> void reset_session(std::uint16_t link) noexcept;
+template <typename System>
+void reset_session(std::uint16_t link, InStreamCloseReason reason) noexcept;
 template <typename System> void open_session(std::uint16_t link) noexcept;
 template <typename System>
 [[nodiscard]] protocol::IntrospectionSummary introspection_summary() noexcept;
@@ -105,7 +107,7 @@ template <typename ArchitectureT> struct Facility
     using ProcessPollWork = Result<void> (*)(std::uint32_t) noexcept;
     using ProcessInStreamWork = Result<void> (*)(std::uint32_t) noexcept;
     using ProcessPollReleases = std::int64_t (*)() noexcept;
-    using ResetSession = void (*)(std::uint16_t) noexcept;
+    using ResetSession = void (*)(std::uint16_t, InStreamCloseReason) noexcept;
     using OpenSession = void (*)(std::uint16_t) noexcept;
     using IntrospectionSummary = protocol::IntrospectionSummary (*)() noexcept;
     using ServerInformation = protocol::ServerInformation (*)() noexcept;
@@ -180,6 +182,7 @@ template <typename ArchitectureT> struct Facility
 
     template <typename System> static void activate_runtime() noexcept
     {
+        detail::initialize_in_stream_runtime<System>();
         process_publication = &detail::process_publication<System>;
         process_application_frame = &detail::process_application_frame<System>;
         process_action_work = &detail::process_action_work<System>;

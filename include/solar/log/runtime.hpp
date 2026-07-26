@@ -540,10 +540,15 @@ template <typename Sink> [[nodiscard]] Result<void> initialize_sink() noexcept
     return {};
 }
 
-template <typename Sink>
+template <typename System, typename Sink>
 [[nodiscard]] Result<void> consume_sink(RecordView record, std::string_view rendered) noexcept
 {
-    if constexpr (requires { Sink::consume(record, rendered); }) {
+    if constexpr (requires { Sink::template consume<System>(record, rendered); }) {
+        auto result = Sink::template consume<System>(record, rendered);
+        static_assert(VoidResult<decltype(result)>);
+        return result ? Result<void>{}
+                      : Result<void>{fail<solar::Error>({.status = status_of(result.error())})};
+    } else if constexpr (requires { Sink::consume(record, rendered); }) {
         auto result = Sink::consume(record, rendered);
         static_assert(VoidResult<decltype(result)>);
         return result ? Result<void>{}
@@ -590,8 +595,12 @@ template <typename System>
         if constexpr (std::is_same_v<Sink, RetainedHistory>) {
 #if defined(CONFIG_SOLAR_LOG_HISTORY)
             auto guard = Facility::lock.acquire();
-            (void)Facility::history.append(stored);
+            const auto appended = Facility::history.append(stored);
             Facility::record.history_used = Facility::history.used();
+            Facility::record.history_evicted += appended.evicted;
+            if (!appended.stored) {
+                ++Facility::record.history_unstored;
+            }
 #endif
         } else {
             if constexpr (!route_traits<Route>::encoded) {
@@ -604,10 +613,10 @@ template <typename System>
                     rendered_size = *rendering;
                 }
             }
-            auto consumed =
-                consume_sink<Sink>(record, route_traits<Route>::encoded
-                                               ? std::string_view{}
-                                               : std::string_view{rendered.data(), *rendered_size});
+            auto consumed = consume_sink<System, Sink>(
+                record, route_traits<Route>::encoded
+                            ? std::string_view{}
+                            : std::string_view{rendered.data(), *rendered_size});
             if (!consumed) {
                 result = consumed;
                 auto guard = Facility::lock.acquire();

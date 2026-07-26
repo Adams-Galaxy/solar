@@ -122,8 +122,9 @@ struct ReassemblySlot
     case protocol::Kind::ServerHello:
     case protocol::Kind::Keepalive:
     case protocol::Kind::SessionReset:
-    case protocol::Kind::Credit:
         return OutputLane::Control;
+    case protocol::Kind::Credit:
+        return request_id == 0 ? OutputLane::Control : OutputLane::Response;
     case protocol::Kind::Response:
         return OutputLane::Response;
     case protocol::Kind::Error:
@@ -1333,7 +1334,7 @@ template <typename ArchitectureT> struct Service
             break;
         case protocol::Kind::SessionReset: {
             if (FacilityType::reset_session != nullptr) {
-                FacilityType::reset_session(Index);
+                FacilityType::reset_session(Index, InStreamCloseReason::Reset);
             }
             {
                 auto guard = State::response_lock.acquire();
@@ -1406,7 +1407,9 @@ template <typename ArchitectureT> struct Service
     static void reset_sessions(std::index_sequence<Indices...>) noexcept
     {
         if (FacilityType::reset_session != nullptr) {
-            (FacilityType::reset_session(static_cast<std::uint16_t>(Indices)), ...);
+            (FacilityType::reset_session(static_cast<std::uint16_t>(Indices),
+                                         InStreamCloseReason::Reset),
+             ...);
         }
     }
 
@@ -1431,7 +1434,7 @@ template <typename ArchitectureT> struct Service
         switch (event.kind) {
         case LinkEventKind::Connected:
             if (FacilityType::reset_session != nullptr) {
-                FacilityType::reset_session(Index);
+                FacilityType::reset_session(Index, InStreamCloseReason::Disconnect);
             }
             {
                 auto guard = State::output_lock.acquire();
@@ -1468,7 +1471,10 @@ template <typename ArchitectureT> struct Service
         case LinkEventKind::Disconnected:
         case LinkEventKind::Fault:
             if (FacilityType::reset_session != nullptr) {
-                FacilityType::reset_session(Index);
+                FacilityType::reset_session(
+                    Index, event.kind == LinkEventKind::Fault
+                               ? InStreamCloseReason::Fault
+                               : InStreamCloseReason::Disconnect);
             }
             State::connected.store(false, std::memory_order_release);
             State::session.store(event.kind == LinkEventKind::Fault ? SessionState::Faulted

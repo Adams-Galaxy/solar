@@ -12,11 +12,14 @@ namespace solar::remote::protocol
 {
 
 inline constexpr std::uint8_t major_version = 1;
-inline constexpr std::uint8_t minor_version = 0;
+inline constexpr std::uint8_t minor_version = 1;
 inline constexpr std::size_t envelope_size = 32;
 inline constexpr std::size_t crc_size = 4;
 inline constexpr std::size_t subscription_policy_size = 8;
-inline constexpr std::size_t credit_grant_size = 4;
+inline constexpr std::size_t in_stream_open_response_size = 12;
+inline constexpr std::size_t in_stream_close_request_size = 4;
+inline constexpr std::size_t in_stream_closed_size = 8;
+inline constexpr std::size_t credit_grant_size = 8;
 inline constexpr std::size_t batch_header_size = 4;
 inline constexpr std::size_t introspection_summary_size = 24;
 inline constexpr std::size_t collection_request_size = 4;
@@ -44,6 +47,7 @@ enum class Kind : std::uint8_t
     Keepalive = 12,
     SessionReset = 13,
     Introspection = 14,
+    InStreamClosed = 15,
 };
 
 enum class Flags : std::uint8_t
@@ -69,6 +73,7 @@ enum class SubscriptionKind : std::uint8_t
     DataWatch = 1,
     Topic = 2,
     Stream = 3,
+    DataInStream = 4,
 };
 
 enum class IntrospectionTarget : std::uint32_t
@@ -158,7 +163,7 @@ enum class ErrorCode : std::uint16_t
 {
     const auto value = static_cast<std::uint8_t>(kind);
     return value >= static_cast<std::uint8_t>(Kind::ClientHello) &&
-           value <= static_cast<std::uint8_t>(Kind::Introspection);
+           value <= static_cast<std::uint8_t>(Kind::InStreamClosed);
 }
 
 struct Envelope
@@ -222,10 +227,34 @@ struct SubscriptionPolicy
 
 struct CreditGrant
 {
+    std::uint32_t token{};
     std::uint16_t credits{};
     std::uint16_t window{};
 
     constexpr bool operator==(const CreditGrant&) const = default;
+};
+
+struct InStreamOpenResponse
+{
+    SubscriptionPolicy policy{};
+    std::uint32_t token{};
+
+    constexpr bool operator==(const InStreamOpenResponse&) const = default;
+};
+
+struct InStreamCloseRequest
+{
+    std::uint32_t token{};
+
+    constexpr bool operator==(const InStreamCloseRequest&) const = default;
+};
+
+struct InStreamClosed
+{
+    std::uint32_t token{};
+    InStreamCloseReason reason{InStreamCloseReason::Closed};
+
+    constexpr bool operator==(const InStreamClosed&) const = default;
 };
 
 struct BatchHeader
@@ -460,8 +489,9 @@ decode_subscription_policy(std::span<const std::byte> input) noexcept
 encode(const CreditGrant& grant) noexcept
 {
     std::array<std::byte, credit_grant_size> output{};
-    detail::put_u16(output, 0, grant.credits);
-    detail::put_u16(output, 2, grant.window);
+    detail::put_u32(output, 0, grant.token);
+    detail::put_u16(output, 4, grant.credits);
+    detail::put_u16(output, 6, grant.window);
     return output;
 }
 
@@ -471,7 +501,83 @@ decode_credit_grant(std::span<const std::byte> input) noexcept
     if (input.size() != credit_grant_size) {
         return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::Decode});
     }
-    return CreditGrant{.credits = detail::get_u16(input, 0), .window = detail::get_u16(input, 2)};
+    return CreditGrant{
+        .token = detail::get_u32(input, 0),
+        .credits = detail::get_u16(input, 4),
+        .window = detail::get_u16(input, 6),
+    };
+}
+
+[[nodiscard]] constexpr std::array<std::byte, in_stream_open_response_size>
+encode(const InStreamOpenResponse& response) noexcept
+{
+    std::array<std::byte, in_stream_open_response_size> output{};
+    const auto policy = encode(response.policy);
+    std::copy(policy.begin(), policy.end(), output.begin());
+    detail::put_u32(output, subscription_policy_size, response.token);
+    return output;
+}
+
+[[nodiscard]] constexpr Result<InStreamOpenResponse, Error>
+decode_in_stream_open_response(std::span<const std::byte> input) noexcept
+{
+    if (input.size() != in_stream_open_response_size) {
+        return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::Decode});
+    }
+    auto policy = decode_subscription_policy(input.first(subscription_policy_size));
+    const auto token = detail::get_u32(input, subscription_policy_size);
+    if (!policy || token == 0) {
+        return fail<Error>({Status::ProtocolError, Reason::InvalidValue, Operation::Decode});
+    }
+    return InStreamOpenResponse{.policy = *policy, .token = token};
+}
+
+[[nodiscard]] constexpr std::array<std::byte, in_stream_close_request_size>
+encode(const InStreamCloseRequest& request) noexcept
+{
+    std::array<std::byte, in_stream_close_request_size> output{};
+    detail::put_u32(output, 0, request.token);
+    return output;
+}
+
+[[nodiscard]] constexpr Result<InStreamCloseRequest, Error>
+decode_in_stream_close_request(std::span<const std::byte> input) noexcept
+{
+    if (input.size() != in_stream_close_request_size) {
+        return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::Decode});
+    }
+    const auto token = detail::get_u32(input, 0);
+    if (token == 0) {
+        return fail<Error>({Status::ProtocolError, Reason::InvalidValue, Operation::Decode});
+    }
+    return InStreamCloseRequest{.token = token};
+}
+
+[[nodiscard]] constexpr std::array<std::byte, in_stream_closed_size>
+encode(const InStreamClosed& closed) noexcept
+{
+    std::array<std::byte, in_stream_closed_size> output{};
+    detail::put_u32(output, 0, closed.token);
+    output[4] = static_cast<std::byte>(closed.reason);
+    return output;
+}
+
+[[nodiscard]] constexpr Result<InStreamClosed, Error>
+decode_in_stream_closed(std::span<const std::byte> input) noexcept
+{
+    if (input.size() != in_stream_closed_size || input[5] != std::byte{} ||
+        input[6] != std::byte{} || input[7] != std::byte{}) {
+        return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::Decode});
+    }
+    const auto token = detail::get_u32(input, 0);
+    const auto reason =
+        static_cast<InStreamCloseReason>(std::to_integer<std::uint8_t>(input[4]));
+    if (token == 0 ||
+        static_cast<std::uint8_t>(reason) >
+            static_cast<std::uint8_t>(InStreamCloseReason::ConfigurationFailed)) {
+        return fail<Error>({Status::ProtocolError, Reason::InvalidValue, Operation::Decode});
+    }
+    return InStreamClosed{.token = token, .reason = reason};
 }
 
 [[nodiscard]] constexpr std::array<std::byte, introspection_summary_size>

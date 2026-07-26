@@ -93,7 +93,12 @@ class ClientConnection:
                 )
                 return
             try:
-                result = await self.server.runtime.handle_request(operation, arguments)
+                result = await self.server.runtime.handle_request(
+                    operation,
+                    arguments,
+                    owner=self,
+                    owner_name=self.name,
+                )
                 await self.send(
                     {"type": "response", "id": request_id, "result": result}
                 )
@@ -172,6 +177,7 @@ class ClientConnection:
         if self._closed:
             return
         self._closed = True
+        await self.server.runtime.inputs.close_owner(self)
         self.server.clients.discard(self)
         if self._handshaken:
             LOGGER.info(

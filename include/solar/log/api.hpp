@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <span>
 #include <string_view>
@@ -293,6 +294,50 @@ template <typename Application = DefaultApplication>
         using System = bound_system_t<Application>;
         return detail::latest_history<System>();
     }
+}
+
+/**
+ * @brief Replay one bounded page of encoded history directly to a sink.
+ *
+ * Records remain encoded in history and are rendered into one shared scratch
+ * buffer only while they are delivered. Check HistoryPage::stale to warn the
+ * consumer when its cursor fell behind history eviction.
+ */
+template <typename Sink, typename Application = DefaultApplication>
+[[nodiscard]] Result<HistoryPage, Error> replay(Cursor cursor, std::span<Record> records) noexcept
+{
+#if !defined(CONFIG_SOLAR_LOG) || !defined(CONFIG_SOLAR_LOG_HISTORY)
+    (void)cursor;
+    (void)records;
+    return fail<Error>({.status = solar::Status::NotSupported,
+                        .reason = Reason::Disabled,
+                        .operation = Operation::Query});
+#else
+    using System = bound_system_t<Application>;
+    const auto page = detail::read_history<System>(cursor, records);
+    std::array<char, CONFIG_SOLAR_LOG_RENDER_BUFFER_BYTES> rendered{};
+    for (std::size_t index{}; index < page.written; ++index) {
+        const auto record = records[index].view();
+        auto rendering = detail::render_message(record, rendered);
+        if (!rendering) {
+            return fail<Error>({.status = status_of(rendering.error()),
+                                .reason = Reason::InternalInvariant,
+                                .operation = Operation::Render,
+                                .source = record.header.source,
+                                .level = record.header.level});
+        }
+        auto consumed = detail::consume_sink<System, Sink>(
+            record, std::string_view{rendered.data(), *rendering});
+        if (!consumed) {
+            return fail<Error>({.status = status_of(consumed.error()),
+                                .reason = Reason::SinkFailure,
+                                .operation = Operation::Sink,
+                                .source = record.header.source,
+                                .level = record.header.level});
+        }
+    }
+    return page;
+#endif
 }
 
 template <typename SourceT, typename Application = DefaultApplication>

@@ -4,7 +4,14 @@ from .client import Client, Hello, Message, Reassembler
 from .codec import CodecError, DynamicCodec, UnknownEnumValue
 from .connect import connect
 from .manifest import Manifest, ManifestError, compatibility, parse_manifest
-from .session import ActionError, AsyncSession, RemoteError, SessionClosed, Subscription
+from .session import (
+    ActionError,
+    AsyncSession,
+    InboundStream,
+    RemoteError,
+    SessionClosed,
+    Subscription,
+)
 
 from .protocol import (
     CreditGrant,
@@ -17,6 +24,10 @@ from .protocol import (
     ManifestChunk,
     ServerInformation,
     IntrospectionSummary,
+    InStreamClosed,
+    InStreamCloseRequest,
+    InStreamOpenResponse,
+    SUBSCRIPTION_DATA_IN_STREAM,
     SUBSCRIPTION_DATA_STREAM,
     SUBSCRIPTION_DATA_WATCH,
     SUBSCRIPTION_STREAM,
@@ -46,6 +57,10 @@ __all__ = [
     "DynamicCodec",
     "Hello",
     "IntrospectionSummary",
+    "InboundStream",
+    "InStreamClosed",
+    "InStreamCloseRequest",
+    "InStreamOpenResponse",
     "Manifest",
     "ManifestChunk",
     "ManifestError",
@@ -55,6 +70,7 @@ __all__ = [
     "ServerInformation",
     "SessionClosed",
     "SUBSCRIPTION_DATA_STREAM",
+    "SUBSCRIPTION_DATA_IN_STREAM",
     "SUBSCRIPTION_DATA_WATCH",
     "SUBSCRIPTION_STREAM",
     "SUBSCRIPTION_TOPIC",

@@ -14,7 +14,19 @@ async with connect("tcp://127.0.0.1:47000") as remote:
     subscription = await remote.stream("imu.euler", frequency=10)
     async for sample in subscription:
         ...
+
+    async with remote.in_stream(
+        "drive.control.differential",
+        frequency=50,
+    ) as control:
+        await control.send({"throttle": 0.4, "differential": -0.1})
 ```
+
+`InboundStream` resolves its type from the runtime manifest, opens explicitly,
+waits asynchronously for token-specific credit, and wakes blocked senders when
+it is closed or replaced. It exposes `token`, `effective`, `credit_window`,
+`closed`, `closure_reason`, and `wait_closed()`. A disconnected stream is not
+reopened automatically.
 
 Serial uses pySerial through an owned worker thread; public APIs remain
 asyncio-native. Baud 134 is rejected because it is reserved for the explicit

@@ -16,6 +16,7 @@ from .connection import SolarConnectionSupervisor
 from .console import ConsoleConnectionSupervisor
 from .events import EventHub
 from .ipc import UnixSocketServer
+from .inputs import InputRegistry
 from .recorder import Recorder
 from .sources import SourceRegistry
 
@@ -34,11 +35,13 @@ class StationHost:
         self.recorder = Recorder(self.database)
         self.events = EventHub(self.recorder)
         self.sources = SourceRegistry(self.database, self.events)
+        self.inputs = InputRegistry(self.events)
         self.connection = SolarConnectionSupervisor(
             config,
             self.database,
             self.events,
             self.sources,
+            inputs=self.inputs,
             session_factory=session_factory,
         )
         self.console = ConsoleConnectionSupervisor(config, self.events, self.connection)
@@ -96,7 +99,14 @@ class StationHost:
             "live_sequence": self.events.live_sequence,
         }
 
-    async def handle_request(self, operation: str, arguments: dict[str, Any]) -> Any:
+    async def handle_request(
+        self,
+        operation: str,
+        arguments: dict[str, Any],
+        *,
+        owner: object | None = None,
+        owner_name: str = "internal",
+    ) -> Any:
         LOGGER.debug("Local request: %s", operation)
         handlers = {
             "status": self._status,
@@ -106,6 +116,10 @@ class StationHost:
             "call": self._call,
             "stream": self._stream,
             "streams": self._streams,
+            "input.open": self._input_open,
+            "input.send": self._input_send,
+            "input.close": self._input_close,
+            "input.list": self._input_list,
             "reconnect": self._reconnect,
             "logs": self._logs,
             "record_start": self._record_start,
@@ -120,6 +134,12 @@ class StationHost:
             raise StationError(
                 "invalid_request", f"unknown Station operation {operation!r}"
             )
+        if operation.startswith("input."):
+            if owner is None:
+                raise StationError(
+                    "invalid_request", "input operations require a local client owner"
+                )
+            return normalize(await handler(arguments, owner, owner_name))
         return normalize(await handler(arguments))
 
     async def _status(self, _: dict[str, Any]) -> dict[str, Any]:
@@ -215,6 +235,45 @@ class StationHost:
     async def _streams(self, _: dict[str, Any]) -> list[dict[str, Any]]:
         return self.sources.list()
 
+    async def _input_open(
+        self, arguments: dict[str, Any], owner: object, owner_name: str
+    ) -> dict[str, Any]:
+        endpoint = _endpoint_argument(arguments)
+        return await self.inputs.open(
+            owner,
+            owner_name,
+            self.connection.require_session(),
+            endpoint,
+            frequency=_optional_float(arguments.get("frequency"), "frequency"),
+            credit_timeout=_optional_float(
+                arguments.get("credit_timeout"), "credit_timeout"
+            ),
+        )
+
+    async def _input_send(
+        self, arguments: dict[str, Any], owner: object, _: str
+    ) -> dict[str, Any]:
+        if "value" not in arguments:
+            raise StationError("invalid_value", "input.send requires a value")
+        return await self.inputs.send(
+            owner,
+            _integer(arguments.get("handle"), "handle"),
+            arguments["value"],
+            timeout=_optional_float(arguments.get("timeout"), "timeout"),
+        )
+
+    async def _input_close(
+        self, arguments: dict[str, Any], owner: object, _: str
+    ) -> dict[str, Any]:
+        return await self.inputs.close(
+            owner, _integer(arguments.get("handle"), "handle")
+        )
+
+    async def _input_list(
+        self, _: dict[str, Any], owner: object, __: str
+    ) -> list[dict[str, Any]]:
+        return await self.inputs.list(owner)
+
     async def _reconnect(self, arguments: dict[str, Any]) -> dict[str, Any]:
         LOGGER.info("Robot reconnect requested by a client")
         timeout = _optional_float(arguments.get("timeout"), "timeout")
@@ -287,6 +346,7 @@ class StationHost:
         self.events.remove_sink(self.ipc.broadcast)
         await self.console.close()
         await self.connection.close()
+        await self.inputs.offline()
         await self.sources.close()
         await self.database.close()
         LOGGER.info("Stopped cleanly")

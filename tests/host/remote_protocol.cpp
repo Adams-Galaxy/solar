@@ -195,7 +195,7 @@ int main()
     const auto bytes = protocol::encode(envelope);
     assert(bytes);
     constexpr std::array expected{
-        std::byte{0x01}, std::byte{0x00}, std::byte{0x04}, std::byte{0x02}, std::byte{0x20},
+        std::byte{0x01}, std::byte{0x01}, std::byte{0x04}, std::byte{0x02}, std::byte{0x20},
         std::byte{0x00}, std::byte{0x04}, std::byte{0x03}, std::byte{0x02}, std::byte{0x01},
         std::byte{0x14}, std::byte{0x13}, std::byte{0x12}, std::byte{0x11}, std::byte{0x24},
         std::byte{0x23}, std::byte{0x22}, std::byte{0x21}, std::byte{0x34}, std::byte{0x33},
@@ -243,6 +243,33 @@ int main()
     constexpr auto subscription_policy_bytes = protocol::encode(subscription_policy);
     static_assert(protocol::decode_subscription_policy(subscription_policy_bytes) ==
                   subscription_policy);
+    constexpr protocol::InStreamOpenResponse opened{
+        .policy = subscription_policy,
+        .token = 0x11223344,
+    };
+    static_assert(protocol::encode(opened) ==
+                  std::array{std::byte{0x20}, std::byte{0x4e}, std::byte{0x00},
+                             std::byte{0x00}, std::byte{0x01}, std::byte{0x00},
+                             std::byte{0x01}, std::byte{0x00}, std::byte{0x44},
+                             std::byte{0x33}, std::byte{0x22}, std::byte{0x11}});
+    static_assert(protocol::decode_in_stream_open_response(protocol::encode(opened)) == opened);
+    constexpr protocol::CreditGrant credit{
+        .token = opened.token,
+        .credits = 3,
+        .window = 8,
+    };
+    static_assert(protocol::encode(credit) ==
+                  std::array{std::byte{0x44}, std::byte{0x33}, std::byte{0x22},
+                             std::byte{0x11}, std::byte{0x03}, std::byte{0x00},
+                             std::byte{0x08}, std::byte{0x00}});
+    static_assert(protocol::decode_credit_grant(protocol::encode(credit)) == credit);
+    constexpr protocol::InStreamCloseRequest close{.token = opened.token};
+    static_assert(protocol::decode_in_stream_close_request(protocol::encode(close)) == close);
+    constexpr protocol::InStreamClosed replaced{
+        .token = opened.token,
+        .reason = InStreamCloseReason::Replaced,
+    };
+    static_assert(protocol::decode_in_stream_closed(protocol::encode(replaced)) == replaced);
     constexpr protocol::CollectionRequest collection_request{.offset = 3, .limit = 7};
     constexpr auto collection_request_bytes = protocol::encode(collection_request);
     static_assert(protocol::decode_collection_request(collection_request_bytes) ==

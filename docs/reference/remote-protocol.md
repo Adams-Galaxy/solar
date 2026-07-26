@@ -32,6 +32,26 @@ Protocol major mismatch rejects the session. Minor compatibility and manifest
 digest determine which optional operations are safe. Reconnect creates a new
 epoch and invalidates stale responders, leases, requests, and subscriptions.
 
+## Inbound stream flow
+
+Protocol 1.1 makes inbound Data streams explicit:
+
+1. the host sends `Subscribe/DataInStream` with codec, interval, batch, and
+   window policy;
+2. firmware validates exclusivity and runs the application open callback;
+3. the response carries the effective policy and a non-zero stream token;
+4. initial `Credit` follows the successful response and is keyed by endpoint
+   and token;
+5. each host `Data/InStream` frame carries the token in `request_id`;
+6. returned credits carry the same token;
+7. `Unsubscribe/DataInStream` closes an explicit token;
+8. firmware can emit `InStreamClosed` for replacement, disconnect, reset,
+   fault, or configuration failure.
+
+A stale token, exhausted credit, invalid sequence, excessive rate, or
+unsupported configuration is rejected. Reconnection never restores an inbound
+producer automatically.
+
 ## Encoding and compatibility
 
 Ordinary schemas use deterministic CBOR with numeric field IDs. Packed encoding

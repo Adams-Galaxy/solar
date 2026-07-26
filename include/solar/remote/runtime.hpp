@@ -23,6 +23,7 @@
 
 #if defined(__ZEPHYR__) && defined(CONFIG_SOLAR_REMOTE)
 #include "solar/execution/runtime.hpp"
+#include "solar/kernel/semaphore.hpp"
 #include "solar/kernel/spinlock.hpp"
 #include "solar/remote/service.hpp"
 #endif
@@ -309,6 +310,61 @@ template <typename Head, typename... Tail> struct InStreamExecutionPolicy<TypeLi
     using type = std::conditional_t<selected, Head, Remaining>;
 };
 
+template <typename PolicyTypes> struct InStreamLifecycle;
+
+template <typename... Policies> struct InStreamLifecycle<TypeList<Policies...>>
+{
+    static constexpr std::size_t open_count =
+        (static_cast<std::size_t>(remote::detail::IsOnOpen<Policies>::value) + ... + 0U);
+    static constexpr std::size_t close_count =
+        (static_cast<std::size_t>(remote::detail::IsOnClose<Policies>::value) + ... + 0U);
+    static constexpr std::size_t exclusive_count =
+        (static_cast<std::size_t>(remote::detail::IsExclusive<Policies>::value) + ... + 0U);
+    static_assert(open_count <= 1,
+                  "SOLAR_DIAGNOSTIC_REMOTE_DUPLICATE_IN_STREAM_ON_OPEN: InStream declares more "
+                  "than one OnOpen callback");
+    static_assert(close_count <= 1,
+                  "SOLAR_DIAGNOSTIC_REMOTE_DUPLICATE_IN_STREAM_ON_CLOSE: InStream declares more "
+                  "than one OnClose callback");
+    static_assert(exclusive_count <= 1,
+                  "SOLAR_DIAGNOSTIC_REMOTE_DUPLICATE_IN_STREAM_EXCLUSIVE: InStream declares more "
+                  "than one Exclusive policy");
+
+    static constexpr std::uint32_t maximum_rate_hz = [] {
+        std::uint32_t rate{};
+        (([]<typename Policy>(std::uint32_t& value) {
+             if constexpr (requires { Policy::hertz; }) {
+                 value = Policy::hertz;
+             }
+         }.template operator()<Policies>(rate)),
+         ...);
+        return rate;
+    }();
+};
+
+template <typename PolicyTypes> struct FirstInStreamExclusive;
+
+template <> struct FirstInStreamExclusive<TypeList<>>
+{
+    using Group = void;
+    using Behavior = void;
+};
+
+template <typename Head, typename... Tail>
+struct FirstInStreamExclusive<TypeList<Head, Tail...>>
+{
+  private:
+    using Remaining = FirstInStreamExclusive<TypeList<Tail...>>;
+
+  public:
+    using Group = std::conditional_t<remote::detail::IsExclusive<Head>::value,
+                                     typename remote::detail::IsExclusive<Head>::Group,
+                                     typename Remaining::Group>;
+    using Behavior = std::conditional_t<remote::detail::IsExclusive<Head>::value,
+                                        typename remote::detail::IsExclusive<Head>::Behavior,
+                                        typename Remaining::Behavior>;
+};
+
 template <typename DataT> struct InStreamTraits
 {
     using Capability = typename InStreamCapability<typename DataT::Capabilities>::type;
@@ -318,6 +374,13 @@ template <typename DataT> struct InStreamTraits
     using DataExecution = action_execution_t<DataT>;
     using Execution =
         std::conditional_t<!std::is_void_v<AuthoredExecution>, AuthoredExecution, DataExecution>;
+    using Lifecycle = InStreamLifecycle<Policies>;
+    using ExclusivePolicy = FirstInStreamExclusive<Policies>;
+    using ExclusiveGroup = typename ExclusivePolicy::Group;
+    using ExclusiveBehavior = typename ExclusivePolicy::Behavior;
+    static constexpr bool exclusive = !std::is_void_v<ExclusiveGroup>;
+    static constexpr std::uint32_t minimum_interval_us =
+        Lifecycle::maximum_rate_hz == 0 ? 0 : 1'000'000U / Lifecycle::maximum_rate_hz;
 };
 
 template <typename T> struct OutStreamMaxRate : std::integral_constant<std::uint32_t, 0>
@@ -1615,10 +1678,19 @@ enum class InboundSlotState : std::uint8_t
     Running,
 };
 
+enum class InStreamLifecycleOperation : std::uint8_t
+{
+    None,
+    Open,
+    Close,
+};
+
 template <typename DataT> struct InboundSlot
 {
     std::optional<typename DataT::Value> value{};
     protocol::Envelope envelope{};
+    std::uint32_t token{};
+    std::uint32_t generation{};
     InboundSlotState state{InboundSlotState::Free};
 };
 
@@ -1634,8 +1706,18 @@ template <typename System, typename DataT> struct InStreamState
 
     kernel::SpinLock lock{};
     std::array<InboundSlot<DataT>, window * link_count> slots{};
+    std::array<bool, link_count> active{};
+    std::array<std::uint32_t, link_count> token{};
+    std::array<std::uint32_t, link_count> generation{};
     std::array<std::uint16_t, link_count> credits{};
     std::array<std::uint32_t, link_count> last_sequence{};
+    std::array<kernel::Tick, link_count> last_admitted{};
+    std::array<std::uint32_t, link_count> minimum_interval_us{};
+    kernel::BinarySemaphore lifecycle_done{};
+    InStreamLifecycleOperation lifecycle_operation{InStreamLifecycleOperation::None};
+    InStreamOpenContext open_context{};
+    InStreamCloseContext close_context{};
+    bool lifecycle_result{};
     std::uint32_t admitted{};
     std::uint32_t completed{};
     std::uint32_t rejected{};
@@ -1645,25 +1727,79 @@ template <typename System, typename DataT> struct InStreamState
 template <typename DataT> struct InStreamStateKey
 {};
 
+struct InStreamTokenState
+{
+    std::atomic<std::uint32_t> next{1};
+};
+
+struct InStreamTokenStateKey
+{};
+
+template <typename System> [[nodiscard]] std::uint32_t next_in_stream_token() noexcept
+{
+    auto& state =
+        System::template StateSlot<InStreamTokenStateKey, InStreamTokenStateKey,
+                                   InStreamTokenState>::value;
+    auto token = state.next.fetch_add(1, std::memory_order_relaxed);
+    if (token == 0) {
+        token = state.next.fetch_add(1, std::memory_order_relaxed);
+    }
+    return token;
+}
+
 template <typename System, typename DataT> [[nodiscard]] auto& in_stream_state() noexcept
 {
     using State = InStreamState<System, DataT>;
     return System::template StateSlot<DataT, InStreamStateKey<DataT>, State>::value;
 }
 
+template <typename System, typename DataT> void initialize_in_stream_state() noexcept
+{
+    if constexpr (has_in_stream_v<DataT>) {
+        auto& state = in_stream_state<System, DataT>();
+        // State slots are zero-initialized before catalog activation. Initialize
+        // the kernel object explicitly here as well: native_sim does not
+        // reliably run constructors for every weak inline template instance.
+        (void)k_sem_init(state.lifecycle_done.native_handle(), 0, 1);
+    }
+}
+
+template <typename System, typename... DataTypes>
+void initialize_in_stream_states(TypeList<DataTypes...>) noexcept
+{
+    (initialize_in_stream_state<System, DataTypes>(), ...);
+}
+
+template <typename System> void initialize_in_stream_runtime() noexcept
+{
+    using DataTypes = declarations_of_t<typename System::RemoteDataCatalog::EntryTypes>;
+    initialize_in_stream_states<System>(DataTypes{});
+}
+
 template <typename System, typename DataT, typename LinkT, std::uint16_t LinkIndex>
-void send_in_stream_credit(std::uint16_t credits) noexcept
+void send_in_stream_credit(std::uint16_t credits, std::uint32_t correlation = 0) noexcept
 {
     if (credits == 0) {
         return;
     }
     constexpr auto window = InStreamTraits<DataT>::window;
+    auto& state = in_stream_state<System, DataT>();
+    std::uint32_t token{};
+    {
+        auto guard = state.lock.acquire();
+        if (!state.active[LinkIndex]) {
+            return;
+        }
+        token = state.token[LinkIndex];
+    }
     const auto payload = protocol::encode(protocol::CreditGrant{
+        .token = token,
         .credits = credits,
         .window = static_cast<std::uint16_t>(window),
     });
     (void)System::RemoteService::template transmit<LinkT, LinkIndex>(
-        protocol::Kind::Credit, payload, 0, DataT::descriptor.id.value, protocol::Flags::None,
+        protocol::Kind::Credit, payload, correlation, DataT::descriptor.id.value,
+        protocol::Flags::None,
         static_cast<std::uint8_t>(protocol::OperationKind::InStream));
 }
 
@@ -1679,67 +1815,259 @@ void send_in_stream_credit_on_link(std::uint16_t link, std::uint16_t credits,
      ...);
 }
 
-template <typename System, typename DataT> void reset_in_stream_link(std::uint16_t link) noexcept
+template <typename Policy>
+[[nodiscard]] bool invoke_in_stream_open_policy(const InStreamOpenContext& context) noexcept
 {
-    if constexpr (has_in_stream_v<DataT>) {
-        auto& state = in_stream_state<System, DataT>();
-        auto guard = state.lock.acquire();
-        if (link >= state.link_count) {
-            return;
-        }
-        state.credits[link] = 0;
-        state.last_sequence[link] = 0;
-        const auto begin = link * state.window;
-        for (std::size_t offset{}; offset < state.window; ++offset) {
-            auto& slot = state.slots[begin + offset];
-            if (slot.state == InboundSlotState::Pending) {
-                slot = {};
+    if constexpr (!remote::detail::IsOnOpen<Policy>::value) {
+        return true;
+    } else {
+        constexpr auto callback = remote::detail::IsOnOpen<Policy>::callback;
+        if constexpr (std::is_invocable_v<decltype(callback), const InStreamOpenContext&>) {
+            using Return =
+                std::invoke_result_t<decltype(callback), const InStreamOpenContext&>;
+            if constexpr (std::same_as<Return, void>) {
+                callback(context);
+                return true;
+            } else if constexpr (ExpectedVoid<Return>) {
+                return static_cast<bool>(callback(context));
             }
+        } else if constexpr (std::is_invocable_v<decltype(callback)>) {
+            using Return = std::invoke_result_t<decltype(callback)>;
+            if constexpr (std::same_as<Return, void>) {
+                callback();
+                return true;
+            } else if constexpr (ExpectedVoid<Return>) {
+                return static_cast<bool>(callback());
+            }
+        } else {
+            static_assert(solar::detail::dependent_false_v<Policy>,
+                          "SOLAR_DIAGNOSTIC_REMOTE_IN_STREAM_ON_OPEN_SIGNATURE: OnOpen callback "
+                          "must accept InStreamOpenContext or no arguments");
         }
     }
 }
 
-template <typename System, typename DataT> void open_in_stream_link(std::uint16_t link) noexcept
+template <typename... Policies>
+[[nodiscard]] bool invoke_in_stream_open(TypeList<Policies...>,
+                                         const InStreamOpenContext& context) noexcept
 {
-    if constexpr (has_in_stream_v<DataT>) {
+    return (invoke_in_stream_open_policy<Policies>(context) && ...);
+}
+
+template <typename Policy>
+void invoke_in_stream_close_policy(const InStreamCloseContext& context) noexcept
+{
+    if constexpr (remote::detail::IsOnClose<Policy>::value) {
+        constexpr auto callback = remote::detail::IsOnClose<Policy>::callback;
+        if constexpr (std::is_invocable_v<decltype(callback), const InStreamCloseContext&>) {
+            callback(context);
+        } else if constexpr (std::is_invocable_v<decltype(callback)>) {
+            callback();
+        } else {
+            static_assert(solar::detail::dependent_false_v<Policy>,
+                          "SOLAR_DIAGNOSTIC_REMOTE_IN_STREAM_ON_CLOSE_SIGNATURE: OnClose callback "
+                          "must accept InStreamCloseContext or no arguments");
+        }
+    }
+}
+
+template <typename... Policies>
+void invoke_in_stream_close(TypeList<Policies...>,
+                            const InStreamCloseContext& context) noexcept
+{
+    (invoke_in_stream_close_policy<Policies>(context), ...);
+}
+
+template <typename System, typename DataT>
+[[nodiscard]] bool run_in_stream_lifecycle() noexcept
+{
+    if constexpr (!has_in_stream_v<DataT>) {
+        return false;
+    } else {
         auto& state = in_stream_state<System, DataT>();
-        std::uint16_t credits{};
+        InStreamLifecycleOperation operation{};
+        InStreamOpenContext open_context{};
+        InStreamCloseContext close_context{};
         {
             auto guard = state.lock.acquire();
-            if (link >= state.link_count) {
-                return;
+            operation = state.lifecycle_operation;
+            if (operation == InStreamLifecycleOperation::None) {
+                return false;
             }
-            const auto begin = link * state.window;
-            for (std::size_t offset{}; offset < state.window; ++offset) {
-                if (state.slots[begin + offset].state == InboundSlotState::Free) {
-                    ++credits;
-                }
-            }
-            state.credits[link] = credits;
+            open_context = state.open_context;
+            close_context = state.close_context;
+            state.lifecycle_operation = InStreamLifecycleOperation::None;
         }
-        using Links = typename System::RemoteArchitecture::Links;
-        send_in_stream_credit_on_link<System, DataT>(
-            link, credits, Links{}, std::make_index_sequence<list_size_v<Links>>{});
+        bool result{true};
+        if (operation == InStreamLifecycleOperation::Open) {
+            result = invoke_in_stream_open(
+                typename InStreamTraits<DataT>::Policies{}, open_context);
+        } else {
+            invoke_in_stream_close(
+                typename InStreamTraits<DataT>::Policies{}, close_context);
+        }
+        {
+            auto guard = state.lock.acquire();
+            state.lifecycle_result = result;
+        }
+        state.lifecycle_done.give();
+        return true;
     }
 }
 
-template <typename System> void open_session(std::uint16_t link) noexcept
+template <typename System, typename DataT>
+[[nodiscard]] bool execute_in_stream_open_lifecycle(
+    const InStreamOpenContext& context) noexcept
 {
-    using DataTypes = declarations_of_t<typename System::RemoteDataCatalog::EntryTypes>;
-    []<typename... Types>(std::uint16_t session_link, TypeList<Types...>) {
-        (open_in_stream_link<System, Types>(session_link), ...);
-    }(link, DataTypes{});
+    using Traits = InStreamTraits<DataT>;
+    if constexpr (Traits::Lifecycle::open_count == 0) {
+        return true;
+    } else if constexpr (std::same_as<typename Traits::Execution, Inline>) {
+        return invoke_in_stream_open(typename Traits::Policies{}, context);
+    } else {
+        auto& state = in_stream_state<System, DataT>();
+        state.lifecycle_done.reset();
+        {
+            auto guard = state.lock.acquire();
+            if (state.lifecycle_operation != InStreamLifecycleOperation::None) {
+                return false;
+            }
+            state.open_context = context;
+            state.lifecycle_operation = InStreamLifecycleOperation::Open;
+        }
+        auto submission = execution::detail::submit_registration<
+            System,
+            typename System::RemoteService::template InStreamRegistration<DataT>>(false);
+        if (!submission || !state.lifecycle_done.take()) {
+            auto guard = state.lock.acquire();
+            state.lifecycle_operation = InStreamLifecycleOperation::None;
+            return false;
+        }
+        auto guard = state.lock.acquire();
+        return state.lifecycle_result;
+    }
 }
+
+template <typename System, typename DataT>
+void execute_in_stream_close_lifecycle(const InStreamCloseContext& context) noexcept
+{
+    using Traits = InStreamTraits<DataT>;
+    if constexpr (Traits::Lifecycle::close_count == 0) {
+        return;
+    } else if constexpr (std::same_as<typename Traits::Execution, Inline>) {
+        invoke_in_stream_close(typename Traits::Policies{}, context);
+    } else {
+        auto& state = in_stream_state<System, DataT>();
+        state.lifecycle_done.reset();
+        {
+            auto guard = state.lock.acquire();
+            if (state.lifecycle_operation != InStreamLifecycleOperation::None) {
+                return;
+            }
+            state.close_context = context;
+            state.lifecycle_operation = InStreamLifecycleOperation::Close;
+        }
+        auto submission = execution::detail::submit_registration<
+            System,
+            typename System::RemoteService::template InStreamRegistration<DataT>>(false);
+        if (!submission || !state.lifecycle_done.take()) {
+            auto guard = state.lock.acquire();
+            state.lifecycle_operation = InStreamLifecycleOperation::None;
+        }
+    }
+}
+
+template <typename System, typename DataT, typename LinkT, std::uint16_t LinkIndex>
+void send_in_stream_closed(std::uint32_t token, InStreamCloseReason reason) noexcept
+{
+    const auto payload = protocol::encode(protocol::InStreamClosed{
+        .token = token,
+        .reason = reason,
+    });
+    (void)System::RemoteService::template transmit<LinkT, LinkIndex>(
+        protocol::Kind::InStreamClosed, payload, 0, DataT::descriptor.id.value,
+        protocol::Flags::None, static_cast<std::uint8_t>(protocol::OperationKind::InStream));
+}
+
+template <typename System, typename DataT, typename... LinkTypes, std::size_t... Indices>
+void send_in_stream_closed_on_link(std::uint16_t link, std::uint32_t token,
+                                   InStreamCloseReason reason, TypeList<LinkTypes...>,
+                                   std::index_sequence<Indices...>) noexcept
+{
+    ((link == Indices
+          ? (send_in_stream_closed<System, DataT, LinkTypes,
+                                   static_cast<std::uint16_t>(Indices)>(token, reason),
+             void())
+          : void()),
+     ...);
+}
+
+template <typename System, typename DataT>
+[[nodiscard]] std::uint32_t close_in_stream_link(std::uint16_t link,
+                                                 InStreamCloseReason reason,
+                                                 bool notify) noexcept
+{
+    if constexpr (has_in_stream_v<DataT>) {
+        auto& state = in_stream_state<System, DataT>();
+        std::uint32_t token{};
+        {
+            auto guard = state.lock.acquire();
+            if (link >= state.link_count || !state.active[link]) {
+                return 0;
+            }
+            token = state.token[link];
+            state.active[link] = false;
+            state.token[link] = 0;
+            state.credits[link] = 0;
+            state.last_sequence[link] = 0;
+            state.last_admitted[link] = 0;
+            ++state.generation[link];
+            const auto begin = link * state.window;
+            for (std::size_t offset{}; offset < state.window; ++offset) {
+                auto& slot = state.slots[begin + offset];
+                if (slot.state == InboundSlotState::Pending) {
+                    slot = {};
+                }
+            }
+        }
+        execute_in_stream_close_lifecycle<System, DataT>(
+            InStreamCloseContext{
+                .endpoint = DataT::descriptor.id,
+                .link = link,
+                .token = token,
+                .reason = reason,
+            });
+        if (notify) {
+            using Links = typename System::RemoteArchitecture::Links;
+            send_in_stream_closed_on_link<System, DataT>(
+                link, token, reason, Links{},
+                std::make_index_sequence<list_size_v<Links>>{});
+        }
+        return token;
+    } else {
+        return 0;
+    }
+}
+
+template <typename System, typename DataT>
+void reset_in_stream_link(std::uint16_t link, InStreamCloseReason reason) noexcept
+{
+    (void)close_in_stream_link<System, DataT>(link, reason, false);
+}
+
+template <typename System> void open_session(std::uint16_t) noexcept {}
 
 template <typename System> void cancel_session_requests(std::uint16_t link) noexcept;
 
-template <typename System> void reset_session(std::uint16_t link) noexcept
+template <typename System>
+void reset_session(std::uint16_t link, InStreamCloseReason reason) noexcept
 {
     cancel_session_requests<System>(link);
     using DataTypes = declarations_of_t<typename System::RemoteDataCatalog::EntryTypes>;
-    []<typename... Types>(std::uint16_t session_link, TypeList<Types...>) {
-        (reset_in_stream_link<System, Types>(session_link), ...);
-    }(link, DataTypes{});
+    []<typename... Types>(std::uint16_t session_link, InStreamCloseReason close_reason,
+                          TypeList<Types...>) {
+        (reset_in_stream_link<System, Types>(session_link, close_reason), ...);
+    }(link, reason, DataTypes{});
     using Links = typename System::RemoteArchitecture::Links;
     reset_session_link<System>(link, Links{}, std::make_index_sequence<list_size_v<Links>>{});
 }
@@ -2011,26 +2339,35 @@ template <typename DataT>
 }
 
 template <typename System, typename DataT, typename LinkT, std::uint16_t LinkIndex>
-void return_in_stream_credit() noexcept
+void return_in_stream_credit(std::uint32_t token, std::uint32_t generation) noexcept
 {
     using LinkStateT = LinkState<typename System::RemoteService, LinkT, LinkIndex>;
     if (LinkStateT::session.load(std::memory_order_acquire) != SessionState::Active) {
         return;
     }
     auto& state = in_stream_state<System, DataT>();
+    bool returned{};
     {
         auto guard = state.lock.acquire();
-        ++state.credits[LinkIndex];
+        if (state.active[LinkIndex] && state.token[LinkIndex] == token &&
+            state.generation[LinkIndex] == generation) {
+            ++state.credits[LinkIndex];
+            returned = true;
+        }
     }
-    send_in_stream_credit<System, DataT, LinkT, LinkIndex>(1);
+    if (returned) {
+        send_in_stream_credit<System, DataT, LinkT, LinkIndex>(1);
+    }
 }
 
 template <typename System, typename DataT, typename... LinkTypes, std::size_t... Indices>
-void return_in_stream_credit_on_link(std::uint16_t link, TypeList<LinkTypes...>,
+void return_in_stream_credit_on_link(std::uint16_t link, std::uint32_t token,
+                                     std::uint32_t generation, TypeList<LinkTypes...>,
                                      std::index_sequence<Indices...>) noexcept
 {
     ((link == Indices ? (return_in_stream_credit<System, DataT, LinkTypes,
-                                                 static_cast<std::uint16_t>(Indices)>(),
+                                                 static_cast<std::uint16_t>(Indices)>(
+                              token, generation),
                          void())
                       : void()),
      ...);
@@ -2047,6 +2384,8 @@ template <typename System, typename DataT> bool run_pending_in_stream() noexcept
             std::optional<typename DataT::Value> value;
             std::size_t selected{};
             std::uint16_t link{};
+            std::uint32_t token{};
+            std::uint32_t generation{};
             {
                 auto guard = state.lock.acquire();
                 auto found =
@@ -2058,22 +2397,37 @@ template <typename System, typename DataT> bool run_pending_in_stream() noexcept
                 }
                 selected = static_cast<std::size_t>(found - state.slots.begin());
                 link = static_cast<std::uint16_t>(selected / state.window);
+                token = found->token;
+                generation = found->generation;
                 value = std::move(found->value);
                 found->value.reset();
                 found->state = InboundSlotState::Running;
             }
-            const auto consumed = invoke_in_stream_consumer<DataT>(*value);
+            bool current{};
+            {
+                auto guard = state.lock.acquire();
+                current = state.active[link] && state.token[link] == token &&
+                          state.generation[link] == generation &&
+                          state.slots[selected].state == InboundSlotState::Running;
+            }
+            const auto consumed =
+                current ? invoke_in_stream_consumer<DataT>(*value) : Result<void>{};
             {
                 auto guard = state.lock.acquire();
                 state.slots[selected] = {};
-                ++state.completed;
-                if (!consumed) {
+                if (current) {
+                    ++state.completed;
+                } else {
+                    ++state.rejected;
+                }
+                if (current && !consumed) {
                     ++state.consumer_failures;
                 }
             }
             using Links = typename System::RemoteArchitecture::Links;
             return_in_stream_credit_on_link<System, DataT>(
-                link, Links{}, std::make_index_sequence<list_size_v<Links>>{});
+                link, token, generation, Links{},
+                std::make_index_sequence<list_size_v<Links>>{});
             ran = true;
         }
         return ran;
@@ -2632,7 +2986,9 @@ template <typename System, typename... DataTypes>
 {
     bool found{};
     ((target == DataTypes::descriptor.id.value
-          ? (static_cast<void>(run_pending_in_stream<System, DataTypes>()), found = true)
+          ? (static_cast<void>(run_in_stream_lifecycle<System, DataTypes>()),
+             static_cast<void>(run_pending_in_stream<System, DataTypes>()),
+             static_cast<void>(run_in_stream_lifecycle<System, DataTypes>()), found = true)
           : false),
      ...);
     return found ? Result<void>{}
@@ -2910,6 +3266,7 @@ void execute_in_stream_frame(const frame::Decoded& decoded) noexcept
         return;
     }
     if constexpr (!has_in_stream_v<DataT>) {
+        ServiceT::template release_response<LinkT, LinkIndex>(decoded.envelope.request_id);
         (void)ServiceT::template protocol_error<LinkT, LinkIndex>(
             0, decoded.envelope.target, protocol::ErrorCode::UnsupportedOperation);
     } else {
@@ -2930,14 +3287,29 @@ void execute_in_stream_frame(const frame::Decoded& decoded) noexcept
         auto& state = in_stream_state<System, DataT>();
         bool credit_violation{};
         bool sequence_violation{};
+        bool token_violation{};
+        bool rate_violation{};
         bool admitted{};
+        std::uint32_t admitted_generation{};
         {
             auto guard = state.lock.acquire();
-            if (state.credits[LinkIndex] == 0) {
+            const auto token = decoded.envelope.request_id;
+            const auto now = kernel::now_ticks();
+            const auto interval = kernel::to_ticks_ceil(
+                std::chrono::microseconds{state.minimum_interval_us[LinkIndex]});
+            if (!state.active[LinkIndex] || token == 0 ||
+                state.token[LinkIndex] != token) {
+                token_violation = true;
+                ++state.rejected;
+            } else if (state.credits[LinkIndex] == 0) {
                 credit_violation = true;
                 ++state.rejected;
             } else if (decoded.envelope.frame_sequence <= state.last_sequence[LinkIndex]) {
                 sequence_violation = true;
+                ++state.rejected;
+            } else if (state.last_admitted[LinkIndex] != 0 && interval != 0 &&
+                       now - state.last_admitted[LinkIndex] < interval) {
+                rate_violation = true;
                 ++state.rejected;
             } else {
                 const auto begin = LinkIndex * state.window;
@@ -2949,9 +3321,13 @@ void execute_in_stream_frame(const frame::Decoded& decoded) noexcept
                 if (slot != state.slots.begin() + begin + state.window) {
                     --state.credits[LinkIndex];
                     state.last_sequence[LinkIndex] = decoded.envelope.frame_sequence;
+                    state.last_admitted[LinkIndex] = now;
                     slot->value = std::move(*decoded_value);
                     slot->envelope = decoded.envelope;
+                    slot->token = token;
+                    slot->generation = state.generation[LinkIndex];
                     slot->state = InboundSlotState::Pending;
+                    admitted_generation = state.generation[LinkIndex];
                     ++state.admitted;
                     admitted = true;
                 } else {
@@ -2963,8 +3339,11 @@ void execute_in_stream_frame(const frame::Decoded& decoded) noexcept
         if (!admitted) {
             (void)ServiceT::template protocol_error<LinkT, LinkIndex>(
                 0, decoded.envelope.target,
-                sequence_violation ? protocol::ErrorCode::RequestExpired
-                                   : protocol::ErrorCode::CreditViolation);
+                rate_violation
+                    ? protocol::ErrorCode::RateRejected
+                    : ((sequence_violation || token_violation)
+                           ? protocol::ErrorCode::RequestExpired
+                           : protocol::ErrorCode::CreditViolation));
             return;
         }
 
@@ -2990,7 +3369,8 @@ void execute_in_stream_frame(const frame::Decoded& decoded) noexcept
                         *slot = {};
                     }
                 }
-                return_in_stream_credit<System, DataT, LinkT, LinkIndex>();
+                return_in_stream_credit<System, DataT, LinkT, LinkIndex>(
+                    decoded.envelope.request_id, admitted_generation);
                 (void)ServiceT::template protocol_error<LinkT, LinkIndex>(
                     0, decoded.envelope.target, protocol::ErrorCode::Busy);
             }
@@ -3034,6 +3414,235 @@ bool dispatch_in_stream(const frame::Decoded& decoded, TypeList<DataTypes...>) n
             ...);
 }
 
+template <typename System, typename DataT> [[nodiscard]] bool in_stream_is_active() noexcept
+{
+    if constexpr (!has_in_stream_v<DataT>) {
+        return false;
+    } else {
+        auto& state = in_stream_state<System, DataT>();
+        auto guard = state.lock.acquire();
+        return std::any_of(state.active.begin(), state.active.end(),
+                           [](bool active) { return active; });
+    }
+}
+
+template <typename System, typename Group, typename DataT>
+[[nodiscard]] bool in_stream_group_is_active_for() noexcept
+{
+    if constexpr (!has_in_stream_v<DataT>) {
+        return false;
+    } else if constexpr (InStreamTraits<DataT>::exclusive &&
+                         std::same_as<typename InStreamTraits<DataT>::ExclusiveGroup, Group>) {
+        return in_stream_is_active<System, DataT>();
+    } else {
+        return false;
+    }
+}
+
+template <typename System, typename Group, typename... DataTypes>
+[[nodiscard]] bool in_stream_group_is_active(TypeList<DataTypes...>) noexcept
+{
+    return (in_stream_group_is_active_for<System, Group, DataTypes>() || ...);
+}
+
+template <typename System, typename Group, typename DataT>
+void close_in_stream_group_for() noexcept
+{
+    if constexpr (has_in_stream_v<DataT>) {
+        if constexpr (InStreamTraits<DataT>::exclusive &&
+                      std::same_as<typename InStreamTraits<DataT>::ExclusiveGroup, Group>) {
+            auto& state = in_stream_state<System, DataT>();
+            for (std::uint16_t link{}; link < state.link_count; ++link) {
+                (void)close_in_stream_link<System, DataT>(
+                    link, InStreamCloseReason::Replaced, true);
+            }
+        }
+    }
+}
+
+template <typename System, typename Group, typename... DataTypes>
+void close_in_stream_group(TypeList<DataTypes...>) noexcept
+{
+    (close_in_stream_group_for<System, Group, DataTypes>(), ...);
+}
+
+template <typename System, typename DataT>
+[[nodiscard]] Result<protocol::InStreamOpenResponse, protocol::ErrorCode>
+open_in_stream(std::uint16_t link, const protocol::SubscriptionRequest& request) noexcept
+{
+    constexpr auto codec = Schema<typename DataT::Value>::codec;
+    if (request.flags != 0 || request.batch_size > 1 ||
+        (request.codec != 0 && request.codec != static_cast<std::uint8_t>(codec))) {
+        return fail<protocol::ErrorCode>(protocol::ErrorCode::UnsupportedCapability);
+    }
+
+    using DataTypes = declarations_of_t<typename System::RemoteDataCatalog::EntryTypes>;
+    if constexpr (InStreamTraits<DataT>::exclusive) {
+        using Group = typename InStreamTraits<DataT>::ExclusiveGroup;
+        if constexpr (std::same_as<typename InStreamTraits<DataT>::ExclusiveBehavior,
+                                   RejectExisting>) {
+            if (in_stream_group_is_active<System, Group>(DataTypes{})) {
+                return fail<protocol::ErrorCode>(protocol::ErrorCode::Busy);
+            }
+        } else {
+            close_in_stream_group<System, Group>(DataTypes{});
+        }
+    } else {
+        (void)close_in_stream_link<System, DataT>(
+            link, InStreamCloseReason::Replaced, true);
+    }
+
+    auto& state = in_stream_state<System, DataT>();
+    const auto token = next_in_stream_token<System>();
+    const auto minimum_interval =
+        (std::max)(request.minimum_interval_us, InStreamTraits<DataT>::minimum_interval_us);
+    std::uint16_t credits{};
+    std::uint32_t generation{};
+    {
+        auto guard = state.lock.acquire();
+        if (link >= state.link_count) {
+            return fail<protocol::ErrorCode>(protocol::ErrorCode::InternalFailure);
+        }
+        generation = ++state.generation[link];
+        state.active[link] = true;
+        state.token[link] = token;
+        state.last_sequence[link] = 0;
+        state.last_admitted[link] = 0;
+        state.minimum_interval_us[link] = minimum_interval;
+        const auto begin = link * state.window;
+        for (std::size_t offset{}; offset < state.window; ++offset) {
+            auto& slot = state.slots[begin + offset];
+            if (slot.state == InboundSlotState::Free) {
+                ++credits;
+            }
+        }
+        state.credits[link] = credits;
+    }
+
+    if (!execute_in_stream_open_lifecycle<System, DataT>(
+            InStreamOpenContext{
+                .endpoint = DataT::descriptor.id,
+                .link = link,
+                .token = token,
+                .minimum_interval_us = minimum_interval,
+                .window = static_cast<std::uint16_t>(state.window),
+            })) {
+        (void)generation;
+        (void)close_in_stream_link<System, DataT>(
+            link, InStreamCloseReason::ConfigurationFailed, true);
+        return fail<protocol::ErrorCode>(protocol::ErrorCode::InternalFailure);
+    }
+
+    return protocol::InStreamOpenResponse{
+        .policy =
+            {
+                .minimum_interval_us = minimum_interval,
+                .batch_size = 1,
+                .codec = codec,
+                .flags = 0,
+            },
+        .token = token,
+    };
+}
+
+template <typename System, typename LinkT, std::uint16_t LinkIndex, typename DataT>
+bool process_in_stream_subscription_for(const frame::Decoded& decoded, bool enable) noexcept
+{
+    if (decoded.envelope.target != DataT::descriptor.id.value) {
+        return false;
+    }
+    using ServiceT = typename System::RemoteService;
+    if constexpr (!has_in_stream_v<DataT>) {
+        (void)ServiceT::template protocol_error<LinkT, LinkIndex>(
+            decoded.envelope.request_id, decoded.envelope.target,
+            protocol::ErrorCode::UnsupportedOperation);
+        return true;
+    } else if (enable) {
+        protocol::SubscriptionRequest request{};
+        if (!decoded.payload.empty()) {
+            auto decoded_request = protocol::decode_subscription_request(decoded.payload);
+            if (!decoded_request) {
+                ServiceT::template release_response<LinkT, LinkIndex>(
+                    decoded.envelope.request_id);
+                (void)ServiceT::template protocol_error<LinkT, LinkIndex>(
+                    decoded.envelope.request_id, decoded.envelope.target,
+                    protocol::ErrorCode::DecodeFailure);
+                return true;
+            }
+            request = *decoded_request;
+        }
+        auto opened = open_in_stream<System, DataT>(LinkIndex, request);
+        if (!opened) {
+            ServiceT::template release_response<LinkT, LinkIndex>(decoded.envelope.request_id);
+            (void)ServiceT::template protocol_error<LinkT, LinkIndex>(
+                decoded.envelope.request_id, decoded.envelope.target, opened.error());
+            return true;
+        }
+        const auto payload = protocol::encode(*opened);
+        auto response = ServiceT::template respond<LinkT, LinkIndex>(
+            decoded.envelope.request_id, decoded.envelope.target, payload);
+        if (!response) {
+            (void)close_in_stream_link<System, DataT>(
+                LinkIndex, InStreamCloseReason::Fault, true);
+            ServiceT::template release_response<LinkT, LinkIndex>(
+                decoded.envelope.request_id);
+            (void)ServiceT::template protocol_error<LinkT, LinkIndex>(
+                decoded.envelope.request_id, decoded.envelope.target,
+                protocol::ErrorCode::InternalFailure);
+            return true;
+        }
+        ServiceT::template stage_response<LinkT, LinkIndex>();
+        auto& state = in_stream_state<System, DataT>();
+        std::uint16_t credits{};
+        {
+            auto guard = state.lock.acquire();
+            credits = state.credits[LinkIndex];
+        }
+        send_in_stream_credit<System, DataT, LinkT, LinkIndex>(
+            credits, decoded.envelope.request_id);
+        return true;
+    } else {
+        auto request = protocol::decode_in_stream_close_request(decoded.payload);
+        if (!request) {
+            ServiceT::template release_response<LinkT, LinkIndex>(decoded.envelope.request_id);
+            (void)ServiceT::template protocol_error<LinkT, LinkIndex>(
+                decoded.envelope.request_id, decoded.envelope.target,
+                protocol::ErrorCode::DecodeFailure);
+            return true;
+        }
+        auto& state = in_stream_state<System, DataT>();
+        bool token_matches{};
+        {
+            auto guard = state.lock.acquire();
+            token_matches =
+                state.active[LinkIndex] && state.token[LinkIndex] == request->token;
+        }
+        if (!token_matches) {
+            ServiceT::template release_response<LinkT, LinkIndex>(
+                decoded.envelope.request_id);
+            (void)ServiceT::template protocol_error<LinkT, LinkIndex>(
+                decoded.envelope.request_id, decoded.envelope.target,
+                protocol::ErrorCode::RequestExpired);
+            return true;
+        }
+        (void)close_in_stream_link<System, DataT>(
+            LinkIndex, InStreamCloseReason::Closed, false);
+        (void)ServiceT::template respond<LinkT, LinkIndex>(
+            decoded.envelope.request_id, decoded.envelope.target,
+            std::span<const std::byte>{});
+        return true;
+    }
+}
+
+template <typename System, typename LinkT, std::uint16_t LinkIndex, typename... DataTypes>
+bool process_in_stream_subscription_target(const frame::Decoded& decoded, bool enable,
+                                           TypeList<DataTypes...>) noexcept
+{
+    return (process_in_stream_subscription_for<System, LinkT, LinkIndex, DataTypes>(
+                decoded, enable) ||
+            ...);
+}
+
 template <typename System, typename LinkT, std::uint16_t LinkIndex>
 bool admit_request_id(const frame::Decoded& decoded) noexcept
 {
@@ -3072,6 +3681,35 @@ void process_subscription(const frame::Decoded& decoded, bool enable) noexcept
 {
     using ServiceT = typename System::RemoteService;
     using State = LinkState<ServiceT, LinkT, LinkIndex>;
+    if (decoded.envelope.subscription() == protocol::SubscriptionKind::DataInStream) {
+        constexpr auto control = PermissionMask<Requires<permission::Control>>::value;
+        if ((State::grants.load(std::memory_order_acquire) & control) != control) {
+            (void)ServiceT::template protocol_error<LinkT, LinkIndex>(
+                decoded.envelope.request_id, decoded.envelope.target,
+                protocol::ErrorCode::Unauthorized);
+            return;
+        }
+        if (!admit_request_id<System, LinkT, LinkIndex>(decoded)) {
+            return;
+        }
+        if (!ServiceT::template reserve_response<LinkT, LinkIndex>(
+                decoded.envelope.request_id, decoded.envelope.target)) {
+            (void)ServiceT::template protocol_error<LinkT, LinkIndex>(
+                decoded.envelope.request_id, decoded.envelope.target,
+                protocol::ErrorCode::NoCapacity);
+            return;
+        }
+        using DataTypes = declarations_of_t<typename System::RemoteDataCatalog::EntryTypes>;
+        if (!process_in_stream_subscription_target<System, LinkT, LinkIndex>(
+                decoded, enable, DataTypes{})) {
+            ServiceT::template release_response<LinkT, LinkIndex>(
+                decoded.envelope.request_id);
+            (void)ServiceT::template protocol_error<LinkT, LinkIndex>(
+                decoded.envelope.request_id, decoded.envelope.target,
+                protocol::ErrorCode::UnknownTarget);
+        }
+        return;
+    }
     constexpr auto observe = PermissionMask<Requires<permission::Observe>>::value;
     if ((State::grants.load(std::memory_order_acquire) & observe) != observe) {
         (void)ServiceT::template protocol_error<LinkT, LinkIndex>(

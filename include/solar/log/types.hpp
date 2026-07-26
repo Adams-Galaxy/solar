@@ -263,6 +263,8 @@ struct FacilityRecord
     std::size_t ingress_capacity{};
     std::size_t history_used{};
     std::size_t history_capacity{};
+    std::uint64_t history_evicted{};
+    std::uint64_t history_unstored{};
     Sequence next_sequence{1};
     Status last_status{Status::Ok};
     bool ready{};

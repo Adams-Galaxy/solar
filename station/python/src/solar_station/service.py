@@ -5,15 +5,64 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
+from typing import TextIO
 
 from .config import StationConfig, default_database_path, default_socket_path
 from .errors import StationError
 from .server import StationHost
 
 LOGGER = logging.getLogger("solar_station")
+
+_RESET = "\033[0m"
+_DIM = "\033[2m"
+_CYAN = "\033[36m"
+_LEVEL_STYLES = {
+    logging.DEBUG: "\033[34m",
+    logging.INFO: "\033[32m",
+    logging.WARNING: "\033[1;33m",
+    logging.ERROR: "\033[1;31m",
+    logging.CRITICAL: "\033[1;37;41m",
+}
+
+
+class _StationLogFormatter(logging.Formatter):
+    def __init__(self, *, color: bool) -> None:
+        super().__init__(
+            fmt="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
+            datefmt="%H:%M:%S",
+        )
+        self.color = color
+
+    def format(self, record: logging.LogRecord) -> str:
+        if not self.color:
+            return super().format(record)
+
+        timestamp = self.formatTime(record, self.datefmt)
+        level = f"{record.levelname:<7}"
+        level_style = _LEVEL_STYLES.get(record.levelno, "")
+        message = record.getMessage()
+        rendered = (
+            f"{_DIM}{timestamp}{_RESET} "
+            f"{level_style}{level}{_RESET} "
+            f"{_CYAN}{record.name}{_RESET}: {message}"
+        )
+        if record.exc_info:
+            rendered += f"\n{self.formatException(record.exc_info)}"
+        if record.stack_info:
+            rendered += f"\n{self.formatStack(record.stack_info)}"
+        return rendered
+
+
+def _supports_color(stream: TextIO) -> bool:
+    if "NO_COLOR" in os.environ:
+        return False
+    if os.environ.get("FORCE_COLOR"):
+        return True
+    return stream.isatty()
 
 
 def parser() -> argparse.ArgumentParser:
@@ -39,10 +88,11 @@ def parser() -> argparse.ArgumentParser:
 
 
 def configure_logging(level: str) -> None:
+    handler = logging.StreamHandler()
+    handler.setFormatter(_StationLogFormatter(color=_supports_color(sys.stderr)))
     logging.basicConfig(
         level=getattr(logging, level.upper()),
-        format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
-        datefmt="%H:%M:%S",
+        handlers=[handler],
     )
 
 

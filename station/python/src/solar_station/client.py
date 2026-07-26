@@ -71,6 +71,7 @@ class StationClient(AbstractAsyncContextManager["StationClient"]):
         self.recordings: set[str] = set()
         self.active_recordings: set[str] = set()
         self.sources: set[str] = set()
+        self.inputs: dict[int, dict[str, Any]] = {}
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
         self._reader_task: asyncio.Task[None] | None = None
@@ -193,6 +194,12 @@ class StationClient(AbstractAsyncContextManager["StationClient"]):
         except asyncio.CancelledError:
             failure = StationError("client_closed", "Station client closed")
             raise
+        except (asyncio.IncompleteReadError, ConnectionError, OSError) as error:
+            failure = StationError(
+                "server_unavailable",
+                "Station server disconnected",
+                {"type": type(error).__name__},
+            )
         except BaseException as error:
             failure = error
         finally:
@@ -263,6 +270,20 @@ class StationClient(AbstractAsyncContextManager["StationClient"]):
             name = result.get("name")
             if isinstance(name, str):
                 self.active_recordings.discard(name)
+        elif operation == "input.open" and isinstance(result, dict):
+            handle = result.get("handle")
+            if isinstance(handle, int):
+                self.inputs[handle] = result
+        elif operation == "input.close" and isinstance(result, dict):
+            handle = result.get("handle")
+            if isinstance(handle, int):
+                self.inputs.pop(handle, None)
+        elif operation == "input.list" and isinstance(result, list):
+            self.inputs = {
+                item["handle"]: item
+                for item in result
+                if isinstance(item, dict) and isinstance(item.get("handle"), int)
+            }
         return result
 
     async def status(self) -> dict[str, Any]:
@@ -298,6 +319,37 @@ class StationClient(AbstractAsyncContextManager["StationClient"]):
 
     async def list_streams(self) -> list[dict[str, Any]]:
         return await self.request("streams")
+
+    async def open_input(
+        self,
+        endpoint: int | str,
+        *,
+        frequency: float | None = None,
+        credit_timeout: float | None = None,
+    ) -> dict[str, Any]:
+        return await self.request(
+            "input.open",
+            endpoint=endpoint,
+            frequency=frequency,
+            credit_timeout=credit_timeout,
+        )
+
+    async def send_input(
+        self,
+        handle: int,
+        value: Any,
+        *,
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
+        return await self.request(
+            "input.send", handle=handle, value=value, timeout=timeout
+        )
+
+    async def close_input(self, handle: int) -> dict[str, Any]:
+        return await self.request("input.close", handle=handle)
+
+    async def list_inputs(self) -> list[dict[str, Any]]:
+        return await self.request("input.list")
 
     async def reconnect(
         self, *, timeout: float = 10.0  # noqa: ASYNC109
@@ -414,6 +466,8 @@ class StationClient(AbstractAsyncContextManager["StationClient"]):
         elif state == "recording_stopped" and isinstance(value.get("name"), str):
             self.recordings.add(value["name"])
             self.active_recordings.discard(value["name"])
+        elif state == "input_closed" and isinstance(value.get("handle"), int):
+            self.inputs.pop(value["handle"], None)
         for key in ("target", "build_id", "manifest_digest", "reason"):
             if key in value:
                 self.robot_status[key] = value[key]

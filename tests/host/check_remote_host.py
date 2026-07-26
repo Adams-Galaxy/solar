@@ -21,6 +21,9 @@ from solar_remote.protocol import (
     OPERATION_QUERY,
     SUBSCRIPTION_TOPIC,
     CreditGrant,
+    InStreamCloseRequest,
+    InStreamClosed,
+    InStreamOpenResponse,
     CollectionPage,
     CollectionQueryPage,
     Envelope,
@@ -66,8 +69,46 @@ def main() -> int:
     assert SubscriptionRequest.decode(request.encode()) == request
     policy = SubscriptionPolicy(minimum_interval_us=20_000, batch_size=1, codec=1)
     assert SubscriptionPolicy.decode(policy.encode()) == policy
-    credit = CreditGrant(credits=3, window=8)
+    opened = InStreamOpenResponse(policy=policy, token=0x11223344)
+    assert InStreamOpenResponse.decode(opened.encode()) == opened
+    credit = CreditGrant(token=opened.token, credits=3, window=8)
     assert CreditGrant.decode(credit.encode()) == credit
+    close = InStreamCloseRequest(opened.token)
+    assert InStreamCloseRequest.decode(close.encode()) == close
+    replaced = InStreamClosed(opened.token, 1)
+    assert InStreamClosed.decode(replaced.encode()) == replaced
+    in_stream = vector["in_stream"]
+    exact_request = SubscriptionRequest(
+        minimum_interval_us=20_000, batch_size=1, codec=1
+    )
+    assert exact_request.encode().hex() == in_stream["open_request_hex"]
+    assert opened.encode().hex() == in_stream["open_response_hex"]
+    assert credit.encode().hex() == in_stream["initial_credit_hex"]
+    assert (
+        CreditGrant(opened.token, credits=1, window=8).encode().hex()
+        == in_stream["returned_credit_hex"]
+    )
+    assert close.encode().hex() == in_stream["close_request_hex"]
+    assert replaced.encode().hex() == in_stream["replaced_notification_hex"]
+    sample_payload = bytes.fromhex(in_stream["sample_payload_hex"])
+    sample = encode_frame(
+        Envelope(
+            kind=KIND_DATA,
+            flags=FLAG_FINAL,
+            session_epoch=0x01020304,
+            frame_sequence=0x11121314,
+            target=0x21222324,
+            request_id=opened.token,
+        ).with_operation(3),
+        sample_payload,
+    )
+    assert sample.hex() == in_stream["sample_frame_hex"]
+    assert in_stream["rejected_open_error_hex"] == struct.pack("<H", 14).hex()
+    assert in_stream["malformed_token_error_hex"] == struct.pack("<H", 18).hex()
+    assert (
+        in_stream["unsupported_configuration_error_hex"]
+        == struct.pack("<H", 2).hex()
+    )
     batch = [b"one", b"two", b""]
     assert decode_batch(encode_batch(batch, codec=1)) == (1, batch)
     crc_vector = vector["crc32c"]
@@ -150,14 +191,19 @@ def main() -> int:
     assert request_frames[0][0].operation == OPERATION_QUERY
     credit_frame = encode_frame(
         Envelope(kind=KIND_CREDIT, session_epoch=3, target=0x44),
-        CreditGrant(credits=2, window=4).encode(),
+        CreditGrant(token=0xAABBCCDD, credits=2, window=4).encode(),
     )
     client.feed(credit_frame)
-    client.send_stream(0x44, bytes(range(100)), sequence=1)
+    client.send_stream(0x44, bytes(range(100)), token=0xAABBCCDD)
     stream_fragments = []
     while (queued := client.take_outgoing()) is not None:
         stream_fragments.append(decode_frame(queued))
-    assert len(stream_fragments) > 1 and client.credits[0x44].credits == 1
+    assert (
+        len(stream_fragments) > 1
+        and client.credits[(0x44, 0xAABBCCDD)].credits == 1
+    )
+    assert all(item[0].operation == 3 for item in stream_fragments)
+    assert all(item[0].request_id == 0xAABBCCDD for item in stream_fragments)
     assert all(item[0].flags & FLAG_FRAGMENTED for item in stream_fragments)
     assert stream_fragments[-1][0].flags & FLAG_FINAL
     introspection_id = client.introspect()

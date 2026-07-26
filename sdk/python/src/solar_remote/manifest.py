@@ -23,6 +23,7 @@ class RecordKind(IntEnum):
     LINK = 7
     ENUM_VALUE = 8
     CAPABILITY = 9
+    IN_STREAM_GROUP = 10
 
 
 RECORD_REQUIRED = 1
@@ -102,6 +103,7 @@ class Manifest:
     streams: list[dict[str, Any]] = field(default_factory=list)
     links: list[dict[str, Any]] = field(default_factory=list)
     capabilities: list[dict[str, Any]] = field(default_factory=list)
+    in_stream_groups: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def digest(self) -> bytes:
@@ -122,6 +124,7 @@ class Manifest:
             "streams": self.streams,
             "links": self.links,
             "capabilities": self.capabilities,
+            "in_stream_groups": self.in_stream_groups,
         }
 
 
@@ -405,7 +408,7 @@ def parse_manifest(image: bytes) -> Manifest:
                 }
             )
         elif kind == RecordKind.CAPABILITY:
-            if len(body) != 20:
+            if len(body) != 24:
                 raise ManifestError("malformed capability record size")
             (
                 domain,
@@ -418,8 +421,10 @@ def parse_manifest(image: bytes) -> Manifest:
                 window,
                 delivery,
                 (capability_flags),
-                reserved,
-            ) = struct.unpack_from("<BBBBIIHHBBH", body)
+                in_stream_flags,
+                replacement,
+                group,
+            ) = struct.unpack_from("<BBBBIIHHBBBBI", body)
             if (
                 domain not in DOMAINS
                 or capability not in CAPABILITY_KINDS
@@ -427,7 +432,14 @@ def parse_manifest(image: bytes) -> Manifest:
                 or delivery not in DELIVERIES
                 or permission & ~0x0F
                 or capability_flags & ~3
-                or reserved
+                or in_stream_flags & ~0x0F
+                or replacement not in (0, 1, 2)
+                or capability != 5
+                and (in_stream_flags or replacement or group)
+                or capability == 5
+                and not in_stream_flags & 1
+                or bool(in_stream_flags & 8) != bool(group)
+                or bool(group) != bool(replacement)
             ):
                 raise ManifestError("malformed capability record")
             manifest.capabilities.append(
@@ -443,6 +455,39 @@ def parse_manifest(image: bytes) -> Manifest:
                     "delivery": DELIVERIES[delivery],
                     "cancellation": bool(capability_flags & 1),
                     "batched": bool(capability_flags & 2),
+                    "explicit_open": bool(in_stream_flags & 1),
+                    "on_open": bool(in_stream_flags & 2),
+                    "on_close": bool(in_stream_flags & 4),
+                    "exclusive": bool(in_stream_flags & 8),
+                    "replacement": {0: "none", 1: "replace", 2: "reject"}[
+                        replacement
+                    ],
+                    "group": group or None,
+                }
+            )
+        elif kind == RecordKind.IN_STREAM_GROUP:
+            if len(body) < 12:
+                raise ManifestError("short inbound stream group record")
+            stable_id, version, name_size, description_size, reserved = (
+                struct.unpack_from("<IHHHH", body)
+            )
+            name, cursor = _text(body, 12, name_size)
+            description, cursor = _text(body, cursor, description_size)
+            if (
+                not stable_id
+                or not name
+                or reserved
+                or cursor != len(body)
+                or any(item["id"] == stable_id for item in manifest.in_stream_groups)
+                or any(item["name"] == name for item in manifest.in_stream_groups)
+            ):
+                raise ManifestError("malformed or duplicate inbound stream group")
+            manifest.in_stream_groups.append(
+                {
+                    "id": stable_id,
+                    "name": name,
+                    "description": description,
+                    "version": version,
                 }
             )
 
@@ -479,6 +524,11 @@ def parse_manifest(image: bytes) -> Manifest:
             capability_order[item["kind"]],
         )
     )
+    manifest.in_stream_groups.sort(key=lambda item: item["id"])
+    group_ids = {item["id"] for item in manifest.in_stream_groups}
+    for capability in manifest.capabilities:
+        if capability["group"] is not None and capability["group"] not in group_ids:
+            raise ManifestError("inbound stream capability references an unknown group")
     return manifest
 
 
@@ -634,10 +684,38 @@ def compatibility(previous: Manifest, current: Manifest) -> dict[str, list[str]]
                 "maximum_batch",
                 "reliable_window",
                 "delivery",
+                "cancellation",
                 "batched",
+                "explicit_open",
+                "on_open",
+                "on_close",
+                "exclusive",
+                "replacement",
+                "group",
             )
         ):
             changes["behavioral"].append(f"capability {key} policy changed")
     for key in new_capabilities.keys() - old_capabilities.keys():
         changes["wire_additive"].append(f"capability {key} added")
+
+    old_groups = {item["id"]: item for item in previous.in_stream_groups}
+    new_groups = {item["id"]: item for item in current.in_stream_groups}
+    for stable_id, old in old_groups.items():
+        new = new_groups.get(stable_id)
+        if new is None:
+            changes["breaking"].append(
+                f"inbound stream group {old['name']} removed"
+            )
+        elif old["name"] != new["name"]:
+            changes["source"].append(
+                f"inbound stream group 0x{stable_id:08x} renamed"
+            )
+        elif old["description"] != new["description"]:
+            changes["metadata"].append(
+                f"inbound stream group {new['name']} description changed"
+            )
+    for stable_id in new_groups.keys() - old_groups.keys():
+        changes["wire_additive"].append(
+            f"inbound stream group {new_groups[stable_id]['name']} added"
+        )
     return changes

@@ -101,14 +101,14 @@ ZTEST(solar_remote_protocol, test_shared_frame_vector_and_corruption)
     };
     constexpr std::array payload{std::byte{0xA1}, std::byte{0x00}, std::byte{0x7F}};
     constexpr std::array expected{
-        std::byte{0x02}, std::byte{0x01}, std::byte{0x04}, std::byte{0x04}, std::byte{0x02},
+        std::byte{0x06}, std::byte{0x01}, std::byte{0x01}, std::byte{0x04}, std::byte{0x02},
         std::byte{0x20}, std::byte{0x12}, std::byte{0x04}, std::byte{0x03}, std::byte{0x02},
         std::byte{0x01}, std::byte{0x14}, std::byte{0x13}, std::byte{0x12}, std::byte{0x11},
         std::byte{0x24}, std::byte{0x23}, std::byte{0x22}, std::byte{0x21}, std::byte{0x34},
         std::byte{0x33}, std::byte{0x32}, std::byte{0x31}, std::byte{0x03}, std::byte{0x03},
         std::byte{0x42}, std::byte{0x41}, std::byte{0x02}, std::byte{0x01}, std::byte{0x01},
         std::byte{0x01}, std::byte{0x01}, std::byte{0x02}, std::byte{0xA1}, std::byte{0x06},
-        std::byte{0x7F}, std::byte{0x6F}, std::byte{0x8D}, std::byte{0xFC}, std::byte{0x85},
+        std::byte{0x7F}, std::byte{0xBE}, std::byte{0x06}, std::byte{0x08}, std::byte{0xFB},
         std::byte{0x00},
     };
     std::array<std::byte, 64> scratch{};

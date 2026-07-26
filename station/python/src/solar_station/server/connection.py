@@ -27,12 +27,14 @@ class SolarConnectionSupervisor:
         sources: SourceRegistry,
         *,
         session_factory: Callable[[str, Path | None, float], Any] | None = None,
+        inputs: Any = None,
     ):
         self.config = config
         self.database = database
         self.events = events
         self.sources = sources
         self.session_factory = session_factory or self._default_session_factory
+        self.inputs = inputs
         self.state = RobotState.DISCONNECTED
         self.target: str | None = None
         self.session: Any = None
@@ -200,6 +202,8 @@ class SolarConnectionSupervisor:
                 else:
                     LOGGER.debug("Connection still unavailable: %s", reason)
             finally:
+                if self.inputs is not None:
+                    await self.inputs.offline()
                 await self.sources.offline(reason)
                 if self.session is not None:
                     try:

@@ -88,7 +88,22 @@ class DynamicCodec:
         elif field["kind"] == "float":
             if not isinstance(value, (int, float)) or isinstance(value, bool):
                 raise CodecError(f"field {field['name']} is not numeric")
-            return float(value)
+            numeric = float(value)
+            if field["width"] == 32:
+                try:
+                    # cbor2's canonical encoder chooses the narrowest exact
+                    # representation. Quantizing first makes a manifest float32
+                    # travel as CBOR float16/32 instead of an incompatible
+                    # float64 whenever the original Python value is not exactly
+                    # representable at 32 bits.
+                    return struct.unpack("<f", struct.pack("<f", numeric))[0]
+                except OverflowError as error:
+                    raise CodecError(
+                        f"field {field['name']} exceeds its float width"
+                    ) from error
+            if field["width"] == 64:
+                return numeric
+            raise CodecError(f"field {field['name']} has an unsupported float width")
         elif field["kind"] == "enum":
             numeric = value.value if hasattr(value, "value") else value
             if isinstance(value, UnknownEnumValue):

@@ -21,6 +21,7 @@ from .protocol import (
     KIND_DATA,
     KIND_KEEPALIVE,
     KIND_INTROSPECTION,
+    KIND_IN_STREAM_CLOSED,
     KIND_REQUEST,
     KIND_RESPONSE_ACK,
     KIND_SERVER_HELLO,
@@ -30,9 +31,13 @@ from .protocol import (
     INTROSPECTION_MANIFEST,
     INTROSPECTION_SERVER_INFORMATION,
     OPERATION_ACTION,
+    OPERATION_IN_STREAM,
     PROTOCOL_MAJOR,
     PROTOCOL_MINOR,
+    SUBSCRIPTION_DATA_IN_STREAM,
     SubscriptionRequest,
+    InStreamCloseRequest,
+    InStreamClosed,
     encode_manifest_request,
     encode_frame,
 )
@@ -200,7 +205,7 @@ class Client:
         self.active = False
         self._hello_sent = False
         self.server_hello: Hello | None = None
-        self.credits: dict[int, CreditGrant] = {}
+        self.credits: dict[tuple[int, int], CreditGrant] = {}
         self._outgoing: deque[bytes] = deque()
 
     def _next_frame(self) -> int:
@@ -297,12 +302,19 @@ class Client:
                 accepted.append(message)
             elif message.envelope.kind == KIND_CREDIT:
                 grant = CreditGrant.decode(message.payload)
+                key = (message.envelope.target, grant.token)
                 current = self.credits.get(
-                    message.envelope.target, CreditGrant(0, grant.window)
+                    key, CreditGrant(grant.token, 0, grant.window)
                 )
-                self.credits[message.envelope.target] = CreditGrant(
-                    min(0xFFFF, current.credits + grant.credits), grant.window
+                self.credits[key] = CreditGrant(
+                    grant.token,
+                    min(0xFFFF, current.credits + grant.credits),
+                    grant.window,
                 )
+                accepted.append(message)
+            elif message.envelope.kind == KIND_IN_STREAM_CLOSED:
+                closed = InStreamClosed.decode(message.payload)
+                self.credits.pop((message.envelope.target, closed.token), None)
                 accepted.append(message)
             else:
                 accepted.append(message)
@@ -344,7 +356,9 @@ class Client:
         self._queue(envelope, policy.encode())
         return request
 
-    def unsubscribe(self, target: int, subscription: int) -> int:
+    def unsubscribe(
+        self, target: int, subscription: int, payload: bytes = b""
+    ) -> int:
         request = self._next_request()
         envelope = Envelope(
             kind=KIND_UNSUBSCRIBE,
@@ -353,8 +367,15 @@ class Client:
             target=target,
             request_id=request,
         ).with_subscription(subscription)
-        self._queue(envelope)
+        self._queue(envelope, payload)
         return request
+
+    def close_in_stream(self, target: int, token: int) -> int:
+        return self.unsubscribe(
+            target,
+            SUBSCRIPTION_DATA_IN_STREAM,
+            InStreamCloseRequest(token).encode(),
+        )
 
     def acknowledge(self, response: Message | int) -> None:
         request = (
@@ -413,18 +434,19 @@ class Client:
             INTROSPECTION_MANIFEST, encode_manifest_request(offset, limit)
         )
 
-    def send_stream(self, target: int, payload: bytes, sequence: int) -> None:
-        grant = self.credits.get(target)
+    def send_stream(self, target: int, payload: bytes, token: int) -> None:
+        key = (target, token)
+        grant = self.credits.get(key)
         if grant is None or grant.credits == 0:
             raise FrameError("inbound stream has no credit")
-        self.credits[target] = CreditGrant(grant.credits - 1, grant.window)
+        self.credits[key] = CreditGrant(token, grant.credits - 1, grant.window)
         self._queue(
             Envelope(
                 kind=KIND_DATA,
                 session_epoch=self.session_epoch,
                 frame_sequence=self._next_frame(),
                 target=target,
-                request_id=sequence,
-            ),
+                request_id=token,
+            ).with_operation(OPERATION_IN_STREAM),
             payload,
         )

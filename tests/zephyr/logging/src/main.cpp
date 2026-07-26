@@ -79,11 +79,29 @@ struct FailingSink
     }
 };
 
+struct CapturingConsoleRenderer
+{
+    inline static std::array<char, 256> message{};
+    inline static std::atomic_size_t count{};
+
+    static solar::Result<void> render(solar::log::RecordView, std::string_view rendered) noexcept
+    {
+        const auto copied = std::min(rendered.size(), message.size() - 1);
+        std::memcpy(message.data(), rendered.data(), copied);
+        message[copied] = '\0';
+        count.fetch_add(1, std::memory_order_release);
+        return {};
+    }
+};
+
+using CapturingConsole = solar::log::ZephyrConsole<CapturingConsoleRenderer>;
+
 using System = solar::System<solar::Blueprint<
     solar::Facilities<Producer>,
     solar::log::Configuration<solar::log::Sinks<
         solar::log::To<MemorySink, solar::log::MinimumLevel<solar::log::Level::Debug>,
                        solar::log::panic::Safe>,
+        solar::log::To<CapturingConsole, solar::log::MinimumLevel<solar::log::Level::Debug>>,
         solar::log::To<solar::log::RetainedHistory,
                        solar::log::MinimumLevel<solar::log::Level::Notice>>,
         solar::log::To<FailingSink, solar::log::MinimumLevel<solar::log::Level::Error>>>>>>;
@@ -133,6 +151,8 @@ ZTEST(solar_logging, test_sources_formatting_and_deferred_sink)
     static_assert(fixture::System::LogDomainCatalog::contains<solar::log::domain::Transport>);
 
     const auto before = fixture::MemorySink::count.load(std::memory_order_acquire);
+    const auto console_before =
+        fixture::CapturingConsoleRenderer::count.load(std::memory_order_acquire);
     auto first = solar::log::notice<fixture::Producer>(solar::log::correlated(77),
                                                        "value {} hex {:#x} ok {}", -4, 42U, true);
     auto second = solar::log::info<fixture::ParserSource, solar::log::domain::Transport>(
@@ -149,6 +169,13 @@ ZTEST(solar_logging, test_sources_formatting_and_deferred_sink)
     zassert_true(std::string_view{fixture::MemorySink::messages[after - 1].data()}.find(
                      "peer host gain 1.25") != std::string_view::npos);
     zassert_equal(fixture::MemorySink::headers[after - 2].correlation, 77);
+    zassert_equal(solar::log::detail::source_name<fixture::System>(
+                      {.header = fixture::MemorySink::headers[after - 1]}),
+                  "fixture.parser");
+    zassert_true(std::string_view{fixture::CapturingConsoleRenderer::message.data()}.find(
+                     "peer host gain 1.25") != std::string_view::npos);
+    zassert_true(fixture::CapturingConsoleRenderer::count.load(std::memory_order_acquire) >=
+                 console_before + 2);
     zassert_true(solar::log::source_record<fixture::Producer>().captured > 0);
     auto sink = solar::log::sink_record<fixture::MemorySink>();
     zassert_true(sink.has_value());
@@ -187,6 +214,28 @@ ZTEST(solar_logging, test_history_threshold_and_paged_query)
     auto latest = solar::log::latest();
     zassert_true(latest.has_value());
     zassert_equal(latest->header.level, solar::log::Level::Notice);
+}
+
+ZTEST(solar_logging, test_history_replay_reports_eviction_without_storing_rendered_strings)
+{
+    for (std::uint32_t index{}; index < 24; ++index) {
+        zassert_true(solar::log::notice<fixture::Producer>("bring-up {}", index).has_value());
+        zassert_true(solar::log::flush().has_value());
+    }
+
+    const auto accounting = solar::log::record();
+    zassert_true(accounting.history_evicted > 0);
+    zassert_equal(accounting.history_unstored, 0);
+
+    std::array<solar::log::Record, 2> scratch{};
+    const auto before = fixture::MemorySink::count.load(std::memory_order_acquire);
+    auto replayed = solar::log::replay<fixture::MemorySink>({}, scratch);
+    zassert_true(replayed.has_value());
+    zassert_true(replayed->stale);
+    zassert_true(replayed->evicted_before > 0);
+    zassert_equal(replayed->written, scratch.size());
+    zassert_equal(fixture::MemorySink::count.load(std::memory_order_acquire),
+                  before + scratch.size());
 }
 
 ZTEST(solar_logging, test_event_adapter_preserves_event_origin)

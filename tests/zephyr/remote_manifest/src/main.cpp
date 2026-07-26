@@ -12,6 +12,19 @@ struct Reading
     std::uint32_t value{};
 };
 
+struct ManualControl
+{
+    static constexpr solar::remote::InStreamGroupDescriptor descriptor{
+        .id = solar::remote::InStreamGroupId{0x4401},
+        .name = "fixture.manual-control",
+        .description = "Mutually exclusive manual control inputs",
+    };
+};
+
+inline void consume(const Reading&) {}
+inline void opened(const solar::remote::InStreamOpenContext&) {}
+inline void closed(const solar::remote::InStreamCloseContext&) {}
+
 struct Current
 {
     static constexpr solar::remote::DataDescriptor descriptor{.id = solar::remote::DataId{0x2201},
@@ -20,10 +33,23 @@ struct Current
     using Capabilities = solar::remote::Capabilities<solar::remote::Watch<>>;
 };
 
+struct Command
+{
+    static constexpr solar::remote::DataDescriptor descriptor{
+        .id = solar::remote::DataId{0x2202},
+        .name = "fixture.command",
+    };
+    using Value = Reading;
+    using Capabilities = solar::remote::Capabilities<solar::remote::InStream<
+        &consume, solar::remote::OnOpen<&opened>, solar::remote::OnClose<&closed>,
+        solar::remote::Exclusive<ManualControl, solar::remote::Replace>,
+        solar::remote::ReliableWindow<2>, solar::remote::MaxRate<50>>>;
+};
+
 struct Component
 {
     static constexpr solar::component::Descriptor descriptor{.name = "fixture.component"};
-    using RemoteData = solar::remote::ContributeData<Current>;
+    using RemoteData = solar::remote::ContributeData<Current, Command>;
 };
 
 using System = solar::System<solar::Blueprint<solar::Facilities<Component>>>;
@@ -42,8 +68,9 @@ SOLAR_BIND_SYSTEM(fixture::System);
 ZTEST(solar_remote_manifest, test_bound_catalog_drives_manifest)
 {
     using Image = solar::remote::manifest::Image<fixture::System>;
-    static_assert(Image::data_count == 1);
+    static_assert(Image::data_count == 2);
     static_assert(Image::schema_count == 1);
+    static_assert(Image::in_stream_group_count == 1);
     zassert_equal(Image::bytes[0], std::byte{'S'});
     zassert_equal(Image::bytes[3], std::byte{'M'});
     zassert_equal(Image::bytes[4], std::byte{2});

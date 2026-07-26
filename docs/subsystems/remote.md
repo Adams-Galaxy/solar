@@ -45,9 +45,20 @@ uses generation-checked fixed slots for large producer-filled buffers.
 
 Actions execute Inline or on an explicit Execution target. Inline work must be
 strictly bounded and non-blocking. A move-only `Responder<Action>` supports
-bounded asynchronous completion without a heap promise. Inbound Streams use
-owned credit windows and typed consumers; Update capabilities delegate
-validation to the canonical source.
+bounded asynchronous completion without a heap promise. Update capabilities
+delegate validation to the canonical source.
+
+Inbound Streams are explicit, token-scoped producer sessions. The host opens a
+declared input with a requested policy; firmware runs its open callback, returns
+the effective policy and a non-zero token, and only then grants bounded credit.
+Every sample carries that token. Close, replacement, disconnect, reset, and
+fault use the same idempotent closure path and invalidate old queued
+generations.
+
+`Exclusive<Group, Replace>` provides a system-wide mode switch across Data
+endpoints and links. `RejectExisting` is available when takeover must fail
+instead. Stable group identity, lifecycle support, replacement behavior,
+maximum rate, codec, and credit window are all present in the manifest.
 
 ## Sessions and backpressure
 
@@ -58,8 +69,9 @@ cache behavior.
 
 Output is separated into finite priority lanes. Streams expose sequence and
 loss accounting; they do not promise lossless telemetry. Reliable inbound
-streams require credits. Fragmentation, reassembly slots, timeouts, and all
-message/frame sizes are Kconfig bounded.
+streams require token-specific credits. Credit from an old generation is never
+transferred to its replacement. Fragmentation, reassembly slots, timeouts, and
+all message/frame sizes are Kconfig bounded.
 
 See {doc}`../tutorials/remote-control`, {doc}`../reference/api/remote`, and
 {doc}`../reference/remote-protocol`.

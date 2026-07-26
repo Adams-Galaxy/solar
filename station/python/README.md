@@ -49,11 +49,29 @@ async with StationClient() as station:
     async with await station.watch("imu.euler") as samples:
         async for event in samples:
             print(event["value"])
+
+    control = await station.open_input(
+        "drive.control.differential", frequency=50
+    )
+    await station.send_input(
+        control["handle"],
+        {"throttle": 0.4, "differential": -0.1},
+        timeout=0.5,
+    )
+    await station.close_input(control["handle"])
 ```
 
 `configure_stream()` controls the single robot-side source. `watch()` only
 controls consumption by that client. Query and action responses are routed
 only to their requesting client.
+
+Station owns inbound producers on behalf of the local client that opened each
+handle. `open_input()`, `send_input()`, `list_inputs()`, and `close_input()`
+map to `input.open`, `input.send`, `input.list`, and `input.close` on the Unix
+socket. Exclusive firmware replacement removes the old local handle and emits
+an `input_closed` server event. Client disappearance, robot disconnect, or
+reflash closes its affected handles; Station never replays control values or
+reopens them after reconnect.
 
 The initial listener is canonical CBOR over a length-prefixed Unix stream.
 The request/event model is transport-neutral so a binary-CBOR WebSocket

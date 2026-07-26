@@ -8,10 +8,13 @@ import struct
 import cbor2
 
 PROTOCOL_MAJOR = 1
-PROTOCOL_MINOR = 0
+PROTOCOL_MINOR = 1
 ENVELOPE_SIZE = 32
 SUBSCRIPTION_POLICY_SIZE = 8
-CREDIT_GRANT_SIZE = 4
+CREDIT_GRANT_SIZE = 8
+IN_STREAM_OPEN_RESPONSE_SIZE = 12
+IN_STREAM_CLOSE_REQUEST_SIZE = 4
+IN_STREAM_CLOSED_SIZE = 8
 BATCH_HEADER_SIZE = 4
 BATCH_VERSION = 1
 INTROSPECTION_SUMMARY_SIZE = 24
@@ -32,6 +35,7 @@ SUBSCRIPTION_DATA_STREAM = 0
 SUBSCRIPTION_DATA_WATCH = 1
 SUBSCRIPTION_TOPIC = 2
 SUBSCRIPTION_STREAM = 3
+SUBSCRIPTION_DATA_IN_STREAM = 4
 
 KIND_CLIENT_HELLO = 1
 KIND_SERVER_HELLO = 2
@@ -47,6 +51,14 @@ KIND_DATA = 11
 KIND_KEEPALIVE = 12
 KIND_SESSION_RESET = 13
 KIND_INTROSPECTION = 14
+KIND_IN_STREAM_CLOSED = 15
+
+IN_STREAM_CLOSED = 0
+IN_STREAM_REPLACED = 1
+IN_STREAM_DISCONNECT = 2
+IN_STREAM_RESET = 3
+IN_STREAM_FAULT = 4
+IN_STREAM_CONFIGURATION_FAILED = 5
 
 FLAG_FRAGMENTED = 1 << 0
 FLAG_FINAL = 1 << 1
@@ -410,19 +422,89 @@ class SubscriptionPolicy:
 
 @dataclass(frozen=True, slots=True)
 class CreditGrant:
+    token: int
     credits: int
     window: int
 
     def encode(self) -> bytes:
-        if not 0 <= self.credits <= 0xFFFF or not 0 <= self.window <= 0xFFFF:
+        if (
+            not 1 <= self.token <= 0xFFFFFFFF
+            or not 0 <= self.credits <= 0xFFFF
+            or not 0 <= self.window <= 0xFFFF
+        ):
             raise FrameError("invalid credit grant")
-        return struct.pack("<HH", self.credits, self.window)
+        return struct.pack("<IHH", self.token, self.credits, self.window)
 
     @classmethod
     def decode(cls, data: bytes) -> "CreditGrant":
         if len(data) != CREDIT_GRANT_SIZE:
             raise FrameError("invalid credit grant size")
-        return cls(*struct.unpack("<HH", data))
+        grant = cls(*struct.unpack("<IHH", data))
+        if not grant.token:
+            raise FrameError("invalid credit token")
+        return grant
+
+
+@dataclass(frozen=True, slots=True)
+class InStreamOpenResponse:
+    policy: SubscriptionPolicy
+    token: int
+
+    def encode(self) -> bytes:
+        if not 1 <= self.token <= 0xFFFFFFFF:
+            raise FrameError("invalid inbound-stream token")
+        return self.policy.encode() + struct.pack("<I", self.token)
+
+    @classmethod
+    def decode(cls, data: bytes) -> "InStreamOpenResponse":
+        if len(data) != IN_STREAM_OPEN_RESPONSE_SIZE:
+            raise FrameError("invalid inbound-stream open response size")
+        token = struct.unpack_from("<I", data, SUBSCRIPTION_POLICY_SIZE)[0]
+        if not token:
+            raise FrameError("invalid inbound-stream token")
+        return cls(
+            SubscriptionPolicy.decode(data[:SUBSCRIPTION_POLICY_SIZE]),
+            token,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class InStreamCloseRequest:
+    token: int
+
+    def encode(self) -> bytes:
+        if not 1 <= self.token <= 0xFFFFFFFF:
+            raise FrameError("invalid inbound-stream token")
+        return struct.pack("<I", self.token)
+
+    @classmethod
+    def decode(cls, data: bytes) -> "InStreamCloseRequest":
+        if len(data) != IN_STREAM_CLOSE_REQUEST_SIZE:
+            raise FrameError("invalid inbound-stream close request size")
+        request = cls(struct.unpack("<I", data)[0])
+        if not request.token:
+            raise FrameError("invalid inbound-stream token")
+        return request
+
+
+@dataclass(frozen=True, slots=True)
+class InStreamClosed:
+    token: int
+    reason: int
+
+    def encode(self) -> bytes:
+        if not 1 <= self.token <= 0xFFFFFFFF or not 0 <= self.reason <= 5:
+            raise FrameError("invalid inbound-stream closure")
+        return struct.pack("<IB3x", self.token, self.reason)
+
+    @classmethod
+    def decode(cls, data: bytes) -> "InStreamClosed":
+        if len(data) != IN_STREAM_CLOSED_SIZE or data[5:] != b"\0\0\0":
+            raise FrameError("invalid inbound-stream closure size")
+        closed = cls(*struct.unpack_from("<IB", data))
+        if not closed.token or not 0 <= closed.reason <= 5:
+            raise FrameError("invalid inbound-stream closure")
+        return closed
 
 
 def encode_batch(entries: list[bytes], codec: int) -> bytes:

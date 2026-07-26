@@ -1,5 +1,5 @@
 {
-  "protocol": [1, 0],
+  "protocol": [1, 1],
   "envelope": {
     "kind": 4,
     "flags": 2,
@@ -13,8 +13,8 @@
     "fragment_count": 1
   },
   "payload_hex": "a1007f",
-  "envelope_hex": "0100040220000403020114131211242322213433323103004241000100000000",
-  "frame_hex": "020104040220120403020114131211242322213433323103034241020101010102a1067f6f8dfc8500",
+  "envelope_hex": "0101040220000403020114131211242322213433323103004241000100000000",
+  "frame_hex": "060101040220120403020114131211242322213433323103034241020101010102a1067fbe0608fb00",
   "crc32c": {
     "input_hex": "313233343536373839",
     "value": 3808858755
@@ -27,5 +27,18 @@
     "sequence": 4660,
     "value": 1.5,
     "hex": "34120000c03f"
+  },
+  "in_stream": {
+    "open_request_hex": "204e000001000100",
+    "open_response_hex": "204e00000100010044332211",
+    "initial_credit_hex": "4433221103000800",
+    "returned_credit_hex": "4433221101000800",
+    "sample_payload_hex": "a201fa3ecccccd02fabdcccccd",
+    "sample_frame_hex": "0601010b022012040302011413121124232221443322110d010101030103010112a201fa3ecccccd02fabdcccccd51558d4000",
+    "close_request_hex": "44332211",
+    "replaced_notification_hex": "4433221101000000",
+    "rejected_open_error_hex": "0e00",
+    "malformed_token_error_hex": "1200",
+    "unsupported_configuration_error_hex": "0200"
   }
 }

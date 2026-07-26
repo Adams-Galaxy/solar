@@ -21,6 +21,7 @@ struct ActionTag;
 struct TopicTag;
 struct StreamTag;
 struct LinkTag;
+struct InStreamGroupTag;
 
 struct SchemaIdentityDomain;
 struct DataIdentityDomain;
@@ -28,6 +29,7 @@ struct ActionIdentityDomain;
 struct TopicIdentityDomain;
 struct StreamIdentityDomain;
 struct LinkIdentityDomain;
+struct InStreamGroupIdentityDomain;
 
 using TypeId = StableId<SchemaIdentityDomain>;
 using DataId = StableId<DataIdentityDomain>;
@@ -35,6 +37,7 @@ using ActionId = StableId<ActionIdentityDomain>;
 using TopicId = StableId<TopicIdentityDomain>;
 using StreamId = StableId<StreamIdentityDomain>;
 using LinkId = StableId<LinkIdentityDomain>;
+using InStreamGroupId = StableId<InStreamGroupIdentityDomain>;
 using FieldId = std::uint16_t;
 
 template <typename Id> struct BasicDescriptor
@@ -52,6 +55,34 @@ using ActionDescriptor = BasicDescriptor<ActionId>;
 using TopicDescriptor = BasicDescriptor<TopicId>;
 using StreamDescriptor = BasicDescriptor<StreamId>;
 using LinkDescriptor = BasicDescriptor<LinkId>;
+using InStreamGroupDescriptor = BasicDescriptor<InStreamGroupId>;
+
+enum class InStreamCloseReason : std::uint8_t
+{
+    Closed = 0,
+    Replaced = 1,
+    Disconnect = 2,
+    Reset = 3,
+    Fault = 4,
+    ConfigurationFailed = 5,
+};
+
+struct InStreamOpenContext
+{
+    DataId endpoint{};
+    std::uint16_t link{};
+    std::uint32_t token{};
+    std::uint32_t minimum_interval_us{};
+    std::uint16_t window{};
+};
+
+struct InStreamCloseContext
+{
+    DataId endpoint{};
+    std::uint16_t link{};
+    std::uint32_t token{};
+    InStreamCloseReason reason{InStreamCloseReason::Closed};
+};
 
 template <typename Tag, typename Descriptor>
 using DescriptorView = catalog::BasicDescriptorView<Tag, Descriptor>;

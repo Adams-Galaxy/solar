@@ -88,12 +88,12 @@ def main() -> int:
         assert spec and spec.loader
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        assert module.PROTOCOL == (1, 0)
+        assert module.PROTOCOL == (1, 1)
         assert len(module.SCHEMA_SHA256) == 32
         sys.path.insert(0, str(first))
         generated_client = runpy.run_path(str(first / "client.py"))
         client = generated_client["FirmwareClient"]()
-        assert client.protocol == (1, 0) and len(client.schema_sha256) == 32
+        assert client.protocol == (1, 1) and len(client.schema_sha256) == 32
         source = root / "generated.cpp"
         source.write_text(
             '#include "manifest.hpp"\nint main() { return solar::remote::generated::protocol_major == 1 ? 0 : 1; }\n'

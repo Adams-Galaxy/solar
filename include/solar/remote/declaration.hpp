@@ -548,8 +548,35 @@ template <auto Consumer, typename... Policies> struct InStream
     static constexpr Capability kind = Capability::InStream;
 };
 
+template <auto Callback> struct OnOpen
+{
+    static constexpr auto callback = Callback;
+};
+
+template <auto Callback> struct OnClose
+{
+    static constexpr auto callback = Callback;
+};
+
+struct Replace
+{};
+
+struct RejectExisting
+{};
+
+template <typename Group, typename Behavior = Replace> struct Exclusive
+{
+    static_assert(std::same_as<Behavior, Replace> || std::same_as<Behavior, RejectExisting>,
+                  "SOLAR_DIAGNOSTIC_REMOTE_IN_STREAM_EXCLUSIVE_BEHAVIOR: Exclusive requires "
+                  "Replace or RejectExisting behavior");
+    using GroupType = Group;
+    using BehaviorType = Behavior;
+};
+
 template <std::uint32_t Hertz> struct MaxRate
 {
+    static_assert(Hertz > 0,
+                  "SOLAR_DIAGNOSTIC_REMOTE_ZERO_RATE: Remote MaxRate must be positive");
     static constexpr std::uint32_t hertz = Hertz;
 };
 
@@ -602,6 +629,35 @@ template <typename T> struct IsOn : std::false_type
 template <typename Target> struct IsOn<On<Target>> : std::true_type
 {
     using type = Target;
+};
+
+template <typename T> struct IsOnOpen : std::false_type
+{};
+
+template <auto Callback> struct IsOnOpen<OnOpen<Callback>> : std::true_type
+{
+    static constexpr auto callback = Callback;
+};
+
+template <typename T> struct IsOnClose : std::false_type
+{};
+
+template <auto Callback> struct IsOnClose<OnClose<Callback>> : std::true_type
+{
+    static constexpr auto callback = Callback;
+};
+
+template <typename T> struct IsExclusive : std::false_type
+{
+    using Group = void;
+    using Behavior = void;
+};
+
+template <typename GroupT, typename BehaviorT>
+struct IsExclusive<Exclusive<GroupT, BehaviorT>> : std::true_type
+{
+    using Group = GroupT;
+    using Behavior = BehaviorT;
 };
 
 template <typename... Policies> struct PollTarget

@@ -31,6 +31,7 @@ enum class RecordKind : std::uint8_t
     Link = 7,
     EnumValue = 8,
     Capability = 9,
+    InStreamGroup = 10,
 };
 
 enum class RecordFlags : std::uint8_t
@@ -89,6 +90,22 @@ enum class CapabilityFlags : std::uint8_t
     BatchedFraming = 1U << 1,
 };
 
+enum class InStreamFlags : std::uint8_t
+{
+    None = 0,
+    ExplicitOpen = 1U << 0,
+    OnOpen = 1U << 1,
+    OnClose = 1U << 2,
+    Exclusive = 1U << 3,
+};
+
+enum class ReplacementKind : std::uint8_t
+{
+    None = 0,
+    Replace = 1,
+    Reject = 2,
+};
+
 [[nodiscard]] constexpr std::uint8_t bits(RecordFlags value) noexcept
 {
     return static_cast<std::uint8_t>(value);
@@ -105,6 +122,11 @@ enum class CapabilityFlags : std::uint8_t
 }
 
 [[nodiscard]] constexpr std::uint8_t bits(CapabilityFlags value) noexcept
+{
+    return static_cast<std::uint8_t>(value);
+}
+
+[[nodiscard]] constexpr std::uint8_t bits(InStreamFlags value) noexcept
 {
     return static_cast<std::uint8_t>(value);
 }
@@ -959,6 +981,95 @@ struct PolicyWindow<ReliableWindow<Count>>
     static_assert(Count <= UINT16_MAX);
 };
 
+template <typename... Policies> struct FirstExclusivePolicy
+{
+    using type = void;
+};
+
+template <typename Head, typename... Tail>
+struct FirstExclusivePolicy<Head, Tail...>
+{
+    using type =
+        std::conditional_t<remote::detail::IsExclusive<Head>::value, Head,
+                           typename FirstExclusivePolicy<Tail...>::type>;
+};
+
+template <typename... Policies> struct InStreamMetadata
+{
+    static constexpr std::size_t open_count =
+        (std::size_t{} + ... + static_cast<std::size_t>(remote::detail::IsOnOpen<Policies>::value));
+    static constexpr std::size_t close_count =
+        (std::size_t{} + ... + static_cast<std::size_t>(remote::detail::IsOnClose<Policies>::value));
+    static constexpr std::size_t exclusive_count =
+        (std::size_t{} + ... +
+         static_cast<std::size_t>(remote::detail::IsExclusive<Policies>::value));
+    static_assert(open_count <= 1,
+                  "SOLAR_DIAGNOSTIC_REMOTE_DUPLICATE_IN_STREAM_OPEN: InStream declares more "
+                  "than one OnOpen callback");
+    static_assert(close_count <= 1,
+                  "SOLAR_DIAGNOSTIC_REMOTE_DUPLICATE_IN_STREAM_CLOSE: InStream declares more "
+                  "than one OnClose callback");
+    static_assert(exclusive_count <= 1,
+                  "SOLAR_DIAGNOSTIC_REMOTE_DUPLICATE_IN_STREAM_EXCLUSIVE: InStream declares "
+                  "more than one Exclusive policy");
+
+    using ExclusivePolicy = typename FirstExclusivePolicy<Policies...>::type;
+    using Group = std::conditional_t<exclusive_count == 0, void,
+                                     typename remote::detail::IsExclusive<ExclusivePolicy>::Group>;
+    using Behavior =
+        std::conditional_t<exclusive_count == 0, void,
+                           typename remote::detail::IsExclusive<ExclusivePolicy>::Behavior>;
+
+    static constexpr InStreamFlags flags = static_cast<InStreamFlags>(
+        bits(InStreamFlags::ExplicitOpen) |
+        (open_count != 0 ? bits(InStreamFlags::OnOpen) : 0U) |
+        (close_count != 0 ? bits(InStreamFlags::OnClose) : 0U) |
+        (exclusive_count != 0 ? bits(InStreamFlags::Exclusive) : 0U));
+    static constexpr ReplacementKind replacement =
+        exclusive_count == 0
+            ? ReplacementKind::None
+            : (std::same_as<Behavior, Replace> ? ReplacementKind::Replace
+                                               : ReplacementKind::Reject);
+    static constexpr std::uint32_t group_id = [] {
+        if constexpr (exclusive_count == 0) {
+            return std::uint32_t{};
+        } else {
+            static_assert(requires { Group::descriptor; },
+                          "SOLAR_DIAGNOSTIC_REMOTE_IN_STREAM_GROUP_DESCRIPTOR: exclusive group "
+                          "requires an InStreamGroupDescriptor");
+            static_assert(
+                std::convertible_to<decltype(Group::descriptor), InStreamGroupDescriptor>,
+                "SOLAR_DIAGNOSTIC_REMOTE_IN_STREAM_GROUP_DESCRIPTOR: exclusive group descriptor "
+                "has the wrong type");
+            static_assert(Group::descriptor.id.value != 0,
+                          "SOLAR_DIAGNOSTIC_REMOTE_IN_STREAM_GROUP_ZERO_ID: exclusive group ID "
+                          "must be nonzero");
+            static_assert(!Group::descriptor.name.empty(),
+                          "SOLAR_DIAGNOSTIC_REMOTE_IN_STREAM_GROUP_EMPTY_NAME: exclusive group "
+                          "name must not be empty");
+            return Group::descriptor.id.value;
+        }
+    }();
+};
+
+struct NoInStreamMetadata
+{
+    static constexpr InStreamFlags flags{InStreamFlags::None};
+    static constexpr ReplacementKind replacement{ReplacementKind::None};
+    static constexpr std::uint32_t group_id{};
+};
+
+template <typename CapabilityT> struct CapabilityInStreamMetadata
+{
+    using type = NoInStreamMetadata;
+};
+
+template <auto Consumer, typename... Policies>
+struct CapabilityInStreamMetadata<InStream<Consumer, Policies...>>
+{
+    using type = InStreamMetadata<Policies...>;
+};
+
 template <typename T>
 struct QueueDelivery : std::integral_constant<DeliveryKind, DeliveryKind::None>
 {};
@@ -1106,12 +1217,13 @@ template <Permission PermissionT> consteval std::uint8_t permission_bit()
     return static_cast<std::uint8_t>(1U << (static_cast<std::uint8_t>(PermissionT) - 1U));
 }
 
-inline constexpr std::size_t capability_record_size = 24;
+inline constexpr std::size_t capability_record_size = 28;
 
 template <EndpointDomain Domain, typename EndpointT, typename CapabilityT>
 consteval void emit_capability(Writer& writer)
 {
     using Policy = CapabilityPolicy<CapabilityT>;
+    using Inbound = typename CapabilityInStreamMetadata<CapabilityT>::type;
     writer.record(RecordKind::Capability, static_cast<std::uint16_t>(capability_record_size));
     writer.u8(static_cast<std::uint8_t>(Domain));
     writer.u8(static_cast<std::uint8_t>(CapabilityT::kind));
@@ -1123,7 +1235,9 @@ consteval void emit_capability(Writer& writer)
     writer.u16(Policy::window);
     writer.u8(static_cast<std::uint8_t>(Policy::delivery));
     writer.u8(bits(Policy::flags));
-    writer.u16(0);
+    writer.u8(bits(Inbound::flags));
+    writer.u8(static_cast<std::uint8_t>(Inbound::replacement));
+    writer.u32(Inbound::group_id);
 }
 
 template <typename DataT, typename... CapabilityTypes>
@@ -1164,6 +1278,103 @@ consteval void emit_stream_capabilities(Writer& writer, TypeList<StreamTypes...>
     (emit_stream_capability<StreamTypes>(writer), ...);
 }
 
+template <typename CapabilityT> struct CapabilityInStreamGroups
+{
+    using type = TypeList<>;
+};
+
+template <auto Consumer, typename... Policies>
+struct CapabilityInStreamGroups<InStream<Consumer, Policies...>>
+{
+  private:
+    using Metadata = InStreamMetadata<Policies...>;
+
+  public:
+    using type = std::conditional_t<Metadata::exclusive_count == 0, TypeList<>,
+                                    TypeList<typename Metadata::Group>>;
+};
+
+template <typename CapabilitiesT> struct CapabilityListInStreamGroups;
+
+template <typename... CapabilityTypes>
+struct CapabilityListInStreamGroups<Capabilities<CapabilityTypes...>>
+{
+    using type =
+        unique_t<concat_t<typename CapabilityInStreamGroups<CapabilityTypes>::type...>>;
+};
+
+template <typename DataListT> struct DataInStreamGroups;
+
+template <typename... DataTypes> struct DataInStreamGroups<TypeList<DataTypes...>>
+{
+    using type =
+        unique_t<concat_t<typename CapabilityListInStreamGroups<
+            typename DataTypes::Capabilities>::type...>>;
+};
+
+template <typename... GroupTypes> consteval bool unique_group_ids(TypeList<GroupTypes...>)
+{
+    constexpr std::array<std::uint32_t, sizeof...(GroupTypes)> ids{
+        GroupTypes::descriptor.id.value...};
+    for (std::size_t left{}; left < ids.size(); ++left) {
+        for (std::size_t right = left + 1; right < ids.size(); ++right) {
+            if (ids[left] == ids[right]) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+template <typename... GroupTypes> consteval bool unique_group_names(TypeList<GroupTypes...>)
+{
+    constexpr std::array<std::string_view, sizeof...(GroupTypes)> names{
+        GroupTypes::descriptor.name...};
+    for (std::size_t left{}; left < names.size(); ++left) {
+        for (std::size_t right = left + 1; right < names.size(); ++right) {
+            if (names[left] == names[right]) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+template <typename GroupT> consteval std::size_t in_stream_group_record_size()
+{
+    return 16 + GroupT::descriptor.name.size() + GroupT::descriptor.description.size();
+}
+
+template <typename GroupT> consteval void emit_in_stream_group(Writer& writer)
+{
+    constexpr auto descriptor = GroupT::descriptor;
+    constexpr auto size = in_stream_group_record_size<GroupT>();
+    static_assert(size <= UINT16_MAX,
+                  "SOLAR_DIAGNOSTIC_REMOTE_MANIFEST_RECORD_SIZE: inbound stream group record "
+                  "exceeds uint16");
+    writer.record(RecordKind::InStreamGroup, static_cast<std::uint16_t>(size));
+    writer.u32(descriptor.id.value);
+    writer.u16(descriptor.version);
+    writer.u16(static_cast<std::uint16_t>(descriptor.name.size()));
+    writer.u16(static_cast<std::uint16_t>(descriptor.description.size()));
+    writer.u16(0);
+    writer.text(descriptor.name);
+    writer.text(descriptor.description);
+}
+
+template <typename... GroupTypes>
+consteval void emit_in_stream_groups(Writer& writer, TypeList<GroupTypes...>)
+{
+    (emit_in_stream_group<GroupTypes>(writer), ...);
+}
+
+template <typename... GroupTypes>
+consteval std::size_t in_stream_group_text_size(TypeList<GroupTypes...>)
+{
+    return (std::size_t{} + ... +
+            (GroupTypes::descriptor.name.size() + GroupTypes::descriptor.description.size()));
+}
+
 template <typename List> struct DataCapabilityCount;
 
 template <typename... DataTypes>
@@ -1193,6 +1404,8 @@ template <typename System> struct Image
     using Links = detail::sort_t<
         typename detail::Declarations<typename System::RemoteLinkCatalog::EntryTypes>::type,
         detail::EndpointIdLess>;
+    using InStreamGroups = detail::sort_t<typename detail::DataInStreamGroups<Data>::type,
+                                          detail::EndpointIdLess>;
     using InitialCandidateSchemas =
         unique_t<concat_t<AuthoredSchemas, typename detail::DataSchemas<Data>::type,
                           typename detail::ActionSchemas<Actions>::type,
@@ -1222,6 +1435,12 @@ template <typename System> struct Image
     static_assert(detail::unique_schema_names(Schemas{}),
                   "SOLAR_DIAGNOSTIC_REMOTE_DUPLICATE_SCHEMA_NAME: effective schemas share a "
                   "name");
+    static_assert(detail::unique_group_ids(InStreamGroups{}),
+                  "SOLAR_DIAGNOSTIC_REMOTE_DUPLICATE_IN_STREAM_GROUP_ID: inbound stream groups "
+                  "share a stable ID");
+    static_assert(detail::unique_group_names(InStreamGroups{}),
+                  "SOLAR_DIAGNOSTIC_REMOTE_DUPLICATE_IN_STREAM_GROUP_NAME: inbound stream groups "
+                  "share a name");
 
     static constexpr std::size_t schema_count = list_size_v<Schemas>;
     static constexpr std::size_t data_count = list_size_v<Data>;
@@ -1229,6 +1448,7 @@ template <typename System> struct Image
     static constexpr std::size_t topic_count = list_size_v<Topics>;
     static constexpr std::size_t stream_count = list_size_v<Streams>;
     static constexpr std::size_t link_count = list_size_v<Links>;
+    static constexpr std::size_t in_stream_group_count = list_size_v<InStreamGroups>;
     static constexpr std::size_t field_count = detail::SchemaFieldCount<ObjectSchemas>::value;
     static constexpr std::size_t enum_value_count =
         detail::SchemaEnumValueCount<EnumSchemas>::value;
@@ -1236,16 +1456,19 @@ template <typename System> struct Image
         detail::DataCapabilityCount<Data>::value + topic_count + stream_count;
     static constexpr std::size_t record_count = schema_count + field_count + enum_value_count +
                                                 data_count + action_count + topic_count +
-                                                stream_count + capability_count + link_count;
+                                                stream_count + capability_count + link_count +
+                                                in_stream_group_count;
 
     static constexpr std::size_t byte_count =
         image_header_size + schema_count * 24 + field_count * 34 + enum_value_count * 24 +
         data_count * 20 + action_count * 28 + topic_count * 20 + stream_count * 20 +
         capability_count * detail::capability_record_size + link_count * 16 +
+        in_stream_group_count * 16 +
         detail::schema_text_size(Schemas{}) + detail::field_text_size(ObjectSchemas{}) +
         detail::enum_text_size(EnumSchemas{}) + detail::endpoint_text_size(Data{}) +
         detail::endpoint_text_size(Actions{}) + detail::endpoint_text_size(Topics{}) +
-        detail::endpoint_text_size(Streams{}) + detail::endpoint_text_size(Links{});
+        detail::endpoint_text_size(Streams{}) + detail::endpoint_text_size(Links{}) +
+        detail::in_stream_group_text_size(InStreamGroups{});
 
     static_assert(record_count <= UINT16_MAX,
                   "SOLAR_DIAGNOSTIC_REMOTE_MANIFEST_RECORD_CEILING: manifest record count exceeds "
@@ -1275,6 +1498,7 @@ template <typename System> struct Image
         detail::emit_topic_capabilities(writer, Topics{});
         detail::emit_stream_capabilities(writer, Streams{});
         detail::emit_links(writer, Links{});
+        detail::emit_in_stream_groups(writer, InStreamGroups{});
         if (writer.offset != output.size()) {
             __builtin_abort();
         }
