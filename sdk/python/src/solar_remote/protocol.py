@@ -8,7 +8,7 @@ import struct
 import cbor2
 
 PROTOCOL_MAJOR = 1
-PROTOCOL_MINOR = 1
+PROTOCOL_MINOR = 2
 ENVELOPE_SIZE = 32
 SUBSCRIPTION_POLICY_SIZE = 8
 CREDIT_GRANT_SIZE = 8
@@ -52,6 +52,11 @@ KIND_KEEPALIVE = 12
 KIND_SESSION_RESET = 13
 KIND_INTROSPECTION = 14
 KIND_IN_STREAM_CLOSED = 15
+KIND_PING = 16
+KIND_PONG = 17
+
+PING_REQUEST_SIZE = 16
+PING_RESPONSE_SIZE = 32
 
 IN_STREAM_CLOSED = 0
 IN_STREAM_REPLACED = 1
@@ -68,6 +73,29 @@ FLAG_ERROR_PAYLOAD = 1 << 3
 
 class FrameError(ValueError):
     pass
+
+
+@dataclass(frozen=True, slots=True)
+class PingRequest:
+    nonce: int
+    host_monotonic_ns: int
+
+    def encode(self) -> bytes:
+        return struct.pack("<QQ", self.nonce, self.host_monotonic_ns)
+
+
+@dataclass(frozen=True, slots=True)
+class PingResponse:
+    nonce: int
+    host_monotonic_ns: int
+    remote_receive_us: int
+    remote_send_us: int
+
+    @classmethod
+    def decode(cls, payload: bytes) -> "PingResponse":
+        if len(payload) != PING_RESPONSE_SIZE:
+            raise FrameError("invalid ping response")
+        return cls(*struct.unpack("<QQQQ", payload))
 
 
 @dataclass(frozen=True, slots=True)

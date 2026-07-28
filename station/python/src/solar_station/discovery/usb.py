@@ -1,4 +1,4 @@
-"""USB CDC discovery without application-specific device assumptions."""
+"""USB CDC discovery."""
 
 from __future__ import annotations
 
@@ -23,11 +23,17 @@ class UsbTarget:
 def discover_usb(*, vid: int | None = None, pid: int | None = None) -> list[UsbTarget]:
     output = []
     for port in list_ports.comports():
-        if vid is not None and port.vid != vid or pid is not None and port.pid != pid:
+        if (vid is not None and port.vid != vid) or (
+            pid is not None and port.pid != pid
+        ):
             continue
         output.append(
             UsbTarget(
-                port.device, port.vid, port.pid, port.serial_number, port.interface
+                port.device,
+                port.vid,
+                port.pid,
+                port.serial_number,
+                port.interface,
             )
         )
     return sorted(output, key=lambda item: item.device)

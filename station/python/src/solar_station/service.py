@@ -80,6 +80,11 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--vid", type=lambda value: int(value, 0))
     result.add_argument("--pid", type=lambda value: int(value, 0))
     result.add_argument(
+        "--bridge",
+        default="bridge.local",
+        help="Solar Bridge host used by automatic discovery, or none",
+    )
+    result.add_argument(
         "--log-level",
         choices=("debug", "info", "warning", "error"),
         default="info",
@@ -103,6 +108,11 @@ async def async_main(argv: Sequence[str] | None = None) -> int:
     console = "tcp://127.0.0.1:47001" if options.sim else options.console
     if console.lower() in ("none", "off", "disabled"):
         console = None
+    bridge = (
+        None
+        if options.bridge.lower() in ("none", "off", "disabled")
+        else options.bridge
+    )
     config = StationConfig(
         socket_path=options.socket.expanduser(),
         database_path=options.database.expanduser(),
@@ -110,6 +120,7 @@ async def async_main(argv: Sequence[str] | None = None) -> int:
         console_target=console,
         usb_vid=options.vid,
         usb_pid=options.pid,
+        bridge_host=bridge,
     )
     LOGGER.info("Launching host (remote=%s, console=%s)", remote, console or "disabled")
     await StationHost(config).run()

@@ -8,6 +8,8 @@ import hashlib
 import struct
 from typing import Any
 
+from .descriptors import ManifestCatalog
+
 
 class ManifestError(ValueError):
     """The supplied bytes are not a supported, well-formed manifest."""
@@ -104,6 +106,7 @@ class Manifest:
     links: list[dict[str, Any]] = field(default_factory=list)
     capabilities: list[dict[str, Any]] = field(default_factory=list)
     in_stream_groups: list[dict[str, Any]] = field(default_factory=list)
+    catalog: ManifestCatalog | None = field(init=False, default=None)
 
     @property
     def digest(self) -> bytes:
@@ -111,6 +114,11 @@ class Manifest:
 
     def schema(self, stable_id: int) -> dict[str, Any]:
         return next(item for item in self.schemas if item["id"] == stable_id)
+
+    def require_catalog(self) -> ManifestCatalog:
+        if self.catalog is None:
+            raise RuntimeError("manifest descriptor catalog is unavailable")
+        return self.catalog
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -529,6 +537,16 @@ def parse_manifest(image: bytes) -> Manifest:
     for capability in manifest.capabilities:
         if capability["group"] is not None and capability["group"] not in group_ids:
             raise ManifestError("inbound stream capability references an unknown group")
+    manifest.catalog = ManifestCatalog.from_raw(
+        schemas=manifest.schemas,
+        data=manifest.data,
+        actions=manifest.actions,
+        topics=manifest.topics,
+        streams=manifest.streams,
+        links=manifest.links,
+        capabilities=manifest.capabilities,
+        in_stream_groups=manifest.in_stream_groups,
+    )
     return manifest
 
 

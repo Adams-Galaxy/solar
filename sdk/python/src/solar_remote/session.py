@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import AbstractAsyncContextManager
+from dataclasses import dataclass
 import hashlib
 from pathlib import Path
+import secrets
+import time
 from typing import Any
 
 from .client import Client, Message
@@ -18,11 +21,13 @@ from .protocol import (
     KIND_INTROSPECTION,
     KIND_CREDIT,
     KIND_IN_STREAM_CLOSED,
+    KIND_PONG,
     KIND_RESPONSE,
     OPERATION_ACTION,
     OPERATION_QUERY,
     OPERATION_UPDATE,
-    PROTOCOL_MINOR,
+    PingRequest,
+    PingResponse,
     SUBSCRIPTION_DATA_IN_STREAM,
     SUBSCRIPTION_DATA_STREAM,
     SUBSCRIPTION_DATA_WATCH,
@@ -35,7 +40,7 @@ from .protocol import (
     SubscriptionRequest,
     decode_batch,
 )
-from .transports.base import AsyncTransport
+from .channel import AsyncByteChannel
 
 
 class SessionClosed(ConnectionError):
@@ -52,6 +57,23 @@ class ActionError(RuntimeError):
     def __init__(self, value: Any):
         super().__init__(f"Remote action returned a domain error: {value!r}")
         self.value = value
+
+
+@dataclass(frozen=True, slots=True)
+class PingResult:
+    nonce: int
+    round_trip_ns: int
+    remote_processing_ns: int
+    remote_receive_us: int
+    remote_send_us: int
+
+    @property
+    def round_trip_ms(self) -> float:
+        return self.round_trip_ns / 1_000_000
+
+    @property
+    def remote_processing_ms(self) -> float:
+        return self.remote_processing_ns / 1_000_000
 
 
 class Subscription:
@@ -153,7 +175,7 @@ class InboundStream(AbstractAsyncContextManager["InboundStream"]):
         if self.frequency is not None and self.frequency <= 0:
             raise ValueError("frequency must be positive")
         hello = self.session.core.server_hello
-        if hello is None or hello.minor < PROTOCOL_MINOR:
+        if hello is None or hello.minor < 1:
             raise SessionClosed(
                 "firmware does not support explicit inbound-stream activation"
             )
@@ -257,13 +279,13 @@ class InboundStream(AbstractAsyncContextManager["InboundStream"]):
 class AsyncSession(AbstractAsyncContextManager["AsyncSession"]):
     def __init__(
         self,
-        transport: AsyncTransport,
+        channel: AsyncByteChannel,
         *,
         manifest: Manifest | None = None,
         cache: Path | None = None,
         timeout: float = 5.0,
     ):
-        self.transport = transport
+        self.channel = channel
         self.core = Client()
         self.manifest = manifest
         self.cache = cache
@@ -279,14 +301,14 @@ class AsyncSession(AbstractAsyncContextManager["AsyncSession"]):
         self._closed = False
 
     async def __aenter__(self) -> "AsyncSession":
-        await self.open()
+        await self.start()
         return self
 
     async def __aexit__(self, *_: object) -> None:
-        await self.close()
+        await self.stop()
 
-    async def open(self) -> None:
-        await self.transport.open()
+    async def start(self) -> None:
+        """Start protocol negotiation on an already-open byte channel."""
         try:
             self._reader = asyncio.create_task(
                 self._read_loop(), name="solar-remote-reader"
@@ -294,19 +316,19 @@ class AsyncSession(AbstractAsyncContextManager["AsyncSession"]):
             await asyncio.wait_for(self._active.wait(), self.timeout)
             await self.discover()
         except BaseException:
-            await self.close()
+            await self.stop()
             raise
 
     async def _flush(self) -> None:
         async with self._write_lock:
             while (frame := self.core.take_outgoing()) is not None:
-                await self.transport.write(frame)
+                await self.channel.send(frame)
 
     async def _read_loop(self) -> None:
         failure: BaseException = SessionClosed("Remote transport closed")
         try:
             while True:
-                incoming = await self.transport.read(4096)
+                incoming = await self.channel.receive(4096)
                 if not incoming:
                     break
                 for message in self.core.feed(incoming):
@@ -397,6 +419,33 @@ class AsyncSession(AbstractAsyncContextManager["AsyncSession"]):
             self.codec = DynamicCodec(self.manifest)
         return information
 
+    async def ping(self) -> "PingResult":
+        """Measure one correlated protocol-control round trip."""
+        hello = self.core.server_hello
+        if hello is None or hello.minor < 2:
+            raise SessionClosed("firmware does not support protocol ping")
+        started = time.monotonic_ns()
+        nonce = secrets.randbits(64)
+        message = await self._exchange(
+            self.core.ping(PingRequest(nonce, started).encode())
+        )
+        ended = time.monotonic_ns()
+        if message.envelope.kind != KIND_PONG:
+            raise SessionClosed("expected ping response")
+        response = PingResponse.decode(message.payload)
+        if response.nonce != nonce or response.host_monotonic_ns != started:
+            raise SessionClosed("ping response does not match its request")
+        return PingResult(
+            nonce=nonce,
+            round_trip_ns=ended - started,
+            remote_processing_ns=max(
+                0,
+                (response.remote_send_us - response.remote_receive_us) * 1_000,
+            ),
+            remote_receive_us=response.remote_receive_us,
+            remote_send_us=response.remote_send_us,
+        )
+
     async def fetch_manifest(self, chunk_size: int = 1024) -> Manifest:
         if self.server_information is None:
             raise RuntimeError("server information is unavailable")
@@ -426,32 +475,42 @@ class AsyncSession(AbstractAsyncContextManager["AsyncSession"]):
                 return value
         raise KeyError(endpoint)
 
-    async def action(self, endpoint: int | str, value: Any = None) -> Any:
+    async def get(self, endpoint: int | str) -> Any:
+        """Read an endpoint into its manifest-scoped Python model."""
+        item = self._endpoint("data", endpoint)
+        message = await self._exchange(
+            self.core.request(item["id"], b"", OPERATION_QUERY)
+        )
+        return self.codec.decode_model(item["schema"], message.payload)  # type: ignore[union-attr]
+
+    async def set(self, endpoint: int | str, value: Any) -> None:
+        """Update an endpoint using a generated model, dynamic model, or mapping."""
+        item = self._endpoint("data", endpoint)
+        payload = self.codec.encode(item["schema"], value)  # type: ignore[union-attr]
+        await self._exchange(
+            self.core.request(item["id"], payload, OPERATION_UPDATE)
+        )
+
+    async def call(self, endpoint: int | str, value: Any = None) -> Any:
+        """Invoke an action and decode its typed success model."""
         item = self._endpoint("actions", endpoint)
-        payload = self.codec.encode(item["request_schema"], value or {})  # type: ignore[union-attr]
+        payload = self.codec.encode(
+            item["request_schema"], {} if value is None else value
+        )  # type: ignore[union-attr]
         message = await self._exchange(
             self.core.request(item["id"], payload, OPERATION_ACTION)
         )
         if message.envelope.flags & FLAG_ERROR_PAYLOAD:
             raise ActionError(
-                self.codec.decode(item["error_schema"], message.payload)  # type: ignore[union-attr]
+                self.codec.decode_model(item["error_schema"], message.payload)  # type: ignore[union-attr]
             )
-        return self.codec.decode(item["response_schema"], message.payload)  # type: ignore[union-attr]
+        return self.codec.decode_model(item["response_schema"], message.payload)  # type: ignore[union-attr]
 
-    async def query(self, endpoint: int | str) -> Any:
-        item = self._endpoint("data", endpoint)
-        message = await self._exchange(
-            self.core.request(item["id"], b"", OPERATION_QUERY)
-        )
-        return self.codec.decode(item["schema"], message.payload)  # type: ignore[union-attr]
+    def robot(self):
+        """Return the typed endpoint facade for this active session."""
+        from .api import Robot
 
-    async def update(self, endpoint: int | str, value: Any) -> Any:
-        item = self._endpoint("data", endpoint)
-        payload = self.codec.encode(item["schema"], value)  # type: ignore[union-attr]
-        message = await self._exchange(
-            self.core.request(item["id"], payload, OPERATION_UPDATE)
-        )
-        return message.payload
+        return Robot(self)
 
     async def _subscribe(
         self,
@@ -565,7 +624,8 @@ class AsyncSession(AbstractAsyncContextManager["AsyncSession"]):
             credit_timeout=credit_timeout,
         )
 
-    async def close(self) -> None:
+    async def stop(self) -> None:
+        """Stop protocol work without closing the Station-owned channel."""
         for subscription in self._subscriptions.values():
             subscription._closed = True
         self._subscriptions.clear()
@@ -579,4 +639,3 @@ class AsyncSession(AbstractAsyncContextManager["AsyncSession"]):
             except asyncio.CancelledError:
                 pass
             self._reader = None
-        await self.transport.close()

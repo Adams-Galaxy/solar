@@ -4,12 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "solar-station"
-version = "0.1.0"
+version = "0.2.0"
 description = "Persistent multi-client host service for Solar Remote"
 requires-python = ">=3.11"
 dependencies = [
     "cbor2>=5.6",
     "platformdirs>=4.0",
+    "pyserial>=3.5",
     "solar-remote>=0.1.0",
 ]
 

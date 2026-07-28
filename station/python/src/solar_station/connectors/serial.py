@@ -1,27 +1,24 @@
-"""pySerial transport bridged through one owned reader thread."""
+"""Station-owned serial channel bridged through one reader thread."""
 
 from __future__ import annotations
 
 import asyncio
 import threading
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import serial
 
 
-class SerialTransport:
+class SerialChannel:
     def __init__(
         self,
         port: str,
-        baudrate: int = 115200,
+        baudrate: int,
         *,
-        queue_depth: int = 32,
-        serial_factory: Callable[..., Any] = serial.Serial,
+        queue_depth: int,
+        serial_factory: Callable[..., Any],
     ):
-        if baudrate == 134:
-            raise ValueError(
-                "134 baud is reserved for the explicit Teensy reboot trigger"
-            )
         self.port = port
         self.baudrate = baudrate
         self.queue_depth = queue_depth
@@ -33,19 +30,41 @@ class SerialTransport:
         self._closing = threading.Event()
         self._remainder = b""
 
-    async def open(self) -> None:
-        if self._serial is not None:
-            raise RuntimeError("transport is already open")
-        self._loop = asyncio.get_running_loop()
-        self._queue = asyncio.Queue(self.queue_depth)
-        self._closing.clear()
-        self._serial = await asyncio.to_thread(
-            self._factory, self.port, self.baudrate, timeout=0.1, write_timeout=1.0
+    @classmethod
+    async def open(
+        cls,
+        port: str,
+        baudrate: int = 115200,
+        *,
+        queue_depth: int = 32,
+        serial_factory: Callable[..., Any] = serial.Serial,
+    ) -> SerialChannel:
+        if baudrate == 134:
+            raise ValueError(
+                "134 baud is reserved for the explicit Teensy reboot trigger"
+            )
+        channel = cls(
+            port,
+            baudrate,
+            queue_depth=queue_depth,
+            serial_factory=serial_factory,
         )
-        self._thread = threading.Thread(
-            target=self._reader, name=f"solar-remote:{self.port}", daemon=True
+        channel._loop = asyncio.get_running_loop()
+        channel._queue = asyncio.Queue(queue_depth)
+        channel._serial = await asyncio.to_thread(
+            serial_factory,
+            port,
+            baudrate,
+            timeout=0.1,
+            write_timeout=1.0,
         )
-        self._thread.start()
+        channel._thread = threading.Thread(
+            target=channel._reader,
+            name=f"solar-station:{port}",
+            daemon=True,
+        )
+        channel._thread.start()
+        return channel
 
     def _deliver(self, value: bytes | BaseException | None) -> None:
         queue = self._queue
@@ -58,21 +77,28 @@ class SerialTransport:
         queue.put_nowait(value)
 
     def _reader(self) -> None:
+        device = self._serial
+        if device is None:
+            return
         try:
             while not self._closing.is_set():
-                value = self._serial.read(4096)
+                value = _read_available(device, 4096)
                 if value and self._loop is not None and not self._loop.is_closed():
                     self._loop.call_soon_threadsafe(self._deliver, bytes(value))
         except BaseException as error:
-            if self._loop is not None and not self._loop.is_closed():
+            if (
+                not self._closing.is_set()
+                and self._loop is not None
+                and not self._loop.is_closed()
+            ):
                 self._loop.call_soon_threadsafe(self._deliver, error)
         finally:
             if self._loop is not None and not self._loop.is_closed():
                 self._loop.call_soon_threadsafe(self._deliver, None)
 
-    async def read(self, maximum: int) -> bytes:
+    async def receive(self, maximum: int) -> bytes:
         if self._queue is None:
-            raise RuntimeError("transport is not open")
+            raise RuntimeError("serial channel is not open")
         if self._remainder:
             value, self._remainder = (
                 self._remainder[:maximum],
@@ -86,20 +112,21 @@ class SerialTransport:
             return b""
         if len(value) <= maximum:
             return value
-        # The protocol decoder accepts arbitrary chunks; retain the tail in order.
         self._remainder = value[maximum:]
         return value[:maximum]
 
-    async def write(self, data: bytes) -> None:
+    async def send(self, data: bytes) -> None:
         if self._serial is None:
-            raise RuntimeError("transport is not open")
+            raise RuntimeError("serial channel is not open")
 
         def write_all() -> None:
             offset = 0
             while offset < len(data):
                 written = self._serial.write(data[offset:])
                 if not written:
-                    raise serial.SerialTimeoutException("serial write made no progress")
+                    raise serial.SerialTimeoutException(
+                        "serial write made no progress"
+                    )
                 offset += written
 
         await asyncio.to_thread(write_all)
@@ -117,3 +144,9 @@ class SerialTransport:
             if thread.is_alive():
                 raise RuntimeError("serial reader thread did not stop")
         self._deliver(None)
+
+
+def _read_available(device: Any, maximum: int) -> bytes:
+    """Block for the first byte, then drain an already-buffered burst."""
+    waiting = max(0, int(device.in_waiting))
+    return device.read(min(maximum, waiting) if waiting else 1)

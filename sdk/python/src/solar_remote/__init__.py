@@ -1,13 +1,39 @@
 """Async-first host SDK for Solar Remote."""
 
 from .client import Client, Hello, Message, Reassembler
+from .channel import AsyncByteChannel
 from .codec import CodecError, DynamicCodec, UnknownEnumValue
-from .connect import connect
 from .manifest import Manifest, ManifestError, compatibility, parse_manifest
+from .descriptors import (
+    ActionEndpoint,
+    CapabilityDescriptor,
+    Catalog,
+    DataEndpoint,
+    EndpointDescriptor,
+    EnumValueDescriptor,
+    FieldDescriptor,
+    InStreamGroupDescriptor,
+    LinkDescriptor,
+    ManifestCatalog,
+    SchemaDescriptor,
+    StreamEndpoint,
+    TopicEndpoint,
+)
+from .models import ModelRegistry, OpenIntEnum
+from .api import (
+    BoundActionEndpoint,
+    BoundDataEndpoint,
+    BoundOutputEndpoint,
+    FrameSubscription,
+    Robot,
+    UnsupportedOperation,
+)
+from .frames import Frame, QueuePolicy
 from .session import (
     ActionError,
     AsyncSession,
     InboundStream,
+    PingResult,
     RemoteError,
     SessionClosed,
     Subscription,
@@ -45,6 +71,7 @@ from .protocol import (
 __all__ = [
     "Client",
     "AsyncSession",
+    "AsyncByteChannel",
     "ActionError",
     "CodecError",
     "CreditGrant",
@@ -58,12 +85,24 @@ __all__ = [
     "Hello",
     "IntrospectionSummary",
     "InboundStream",
+    "PingResult",
     "InStreamClosed",
     "InStreamCloseRequest",
     "InStreamOpenResponse",
     "Manifest",
+    "ManifestCatalog",
     "ManifestChunk",
     "ManifestError",
+    "ModelRegistry",
+    "OpenIntEnum",
+    "Frame",
+    "FrameSubscription",
+    "QueuePolicy",
+    "Robot",
+    "UnsupportedOperation",
+    "BoundActionEndpoint",
+    "BoundDataEndpoint",
+    "BoundOutputEndpoint",
     "Message",
     "Reassembler",
     "RemoteError",
@@ -79,7 +118,6 @@ __all__ = [
     "SubscriptionRequest",
     "UnknownEnumValue",
     "compatibility",
-    "connect",
     "decode_batch",
     "decode_frame",
     "encode_batch",
@@ -87,4 +125,16 @@ __all__ = [
     "encode_collection_query_request",
     "encode_frame",
     "parse_manifest",
+    "ActionEndpoint",
+    "CapabilityDescriptor",
+    "Catalog",
+    "DataEndpoint",
+    "EndpointDescriptor",
+    "EnumValueDescriptor",
+    "FieldDescriptor",
+    "InStreamGroupDescriptor",
+    "LinkDescriptor",
+    "SchemaDescriptor",
+    "StreamEndpoint",
+    "TopicEndpoint",
 ]

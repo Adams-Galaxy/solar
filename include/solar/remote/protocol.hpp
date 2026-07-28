@@ -12,13 +12,15 @@ namespace solar::remote::protocol
 {
 
 inline constexpr std::uint8_t major_version = 1;
-inline constexpr std::uint8_t minor_version = 1;
+inline constexpr std::uint8_t minor_version = 2;
 inline constexpr std::size_t envelope_size = 32;
 inline constexpr std::size_t crc_size = 4;
 inline constexpr std::size_t subscription_policy_size = 8;
 inline constexpr std::size_t in_stream_open_response_size = 12;
 inline constexpr std::size_t in_stream_close_request_size = 4;
 inline constexpr std::size_t in_stream_closed_size = 8;
+inline constexpr std::size_t ping_request_size = 16;
+inline constexpr std::size_t ping_response_size = 32;
 inline constexpr std::size_t credit_grant_size = 8;
 inline constexpr std::size_t batch_header_size = 4;
 inline constexpr std::size_t introspection_summary_size = 24;
@@ -48,6 +50,8 @@ enum class Kind : std::uint8_t
     SessionReset = 13,
     Introspection = 14,
     InStreamClosed = 15,
+    Ping = 16,
+    Pong = 17,
 };
 
 enum class Flags : std::uint8_t
@@ -163,7 +167,7 @@ enum class ErrorCode : std::uint16_t
 {
     const auto value = static_cast<std::uint8_t>(kind);
     return value >= static_cast<std::uint8_t>(Kind::ClientHello) &&
-           value <= static_cast<std::uint8_t>(Kind::InStreamClosed);
+           value <= static_cast<std::uint8_t>(Kind::Pong);
 }
 
 struct Envelope
@@ -255,6 +259,24 @@ struct InStreamClosed
     InStreamCloseReason reason{InStreamCloseReason::Closed};
 
     constexpr bool operator==(const InStreamClosed&) const = default;
+};
+
+struct PingRequest
+{
+    std::uint64_t nonce{};
+    std::uint64_t host_monotonic_ns{};
+
+    constexpr bool operator==(const PingRequest&) const = default;
+};
+
+struct PingResponse
+{
+    std::uint64_t nonce{};
+    std::uint64_t host_monotonic_ns{};
+    std::uint64_t remote_receive_us{};
+    std::uint64_t remote_send_us{};
+
+    constexpr bool operator==(const PingResponse&) const = default;
 };
 
 struct BatchHeader
@@ -570,14 +592,58 @@ decode_in_stream_closed(std::span<const std::byte> input) noexcept
         return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::Decode});
     }
     const auto token = detail::get_u32(input, 0);
-    const auto reason =
-        static_cast<InStreamCloseReason>(std::to_integer<std::uint8_t>(input[4]));
-    if (token == 0 ||
-        static_cast<std::uint8_t>(reason) >
-            static_cast<std::uint8_t>(InStreamCloseReason::ConfigurationFailed)) {
+    const auto reason = static_cast<InStreamCloseReason>(std::to_integer<std::uint8_t>(input[4]));
+    if (token == 0 || static_cast<std::uint8_t>(reason) >
+                          static_cast<std::uint8_t>(InStreamCloseReason::ConfigurationFailed)) {
         return fail<Error>({Status::ProtocolError, Reason::InvalidValue, Operation::Decode});
     }
     return InStreamClosed{.token = token, .reason = reason};
+}
+
+[[nodiscard]] constexpr std::array<std::byte, ping_request_size>
+encode(const PingRequest& request) noexcept
+{
+    std::array<std::byte, ping_request_size> output{};
+    detail::put_u64(output, 0, request.nonce);
+    detail::put_u64(output, 8, request.host_monotonic_ns);
+    return output;
+}
+
+[[nodiscard]] constexpr Result<PingRequest, Error>
+decode_ping_request(std::span<const std::byte> input) noexcept
+{
+    if (input.size() != ping_request_size) {
+        return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::Decode});
+    }
+    return PingRequest{
+        .nonce = detail::get_u64(input, 0),
+        .host_monotonic_ns = detail::get_u64(input, 8),
+    };
+}
+
+[[nodiscard]] constexpr std::array<std::byte, ping_response_size>
+encode(const PingResponse& response) noexcept
+{
+    std::array<std::byte, ping_response_size> output{};
+    detail::put_u64(output, 0, response.nonce);
+    detail::put_u64(output, 8, response.host_monotonic_ns);
+    detail::put_u64(output, 16, response.remote_receive_us);
+    detail::put_u64(output, 24, response.remote_send_us);
+    return output;
+}
+
+[[nodiscard]] constexpr Result<PingResponse, Error>
+decode_ping_response(std::span<const std::byte> input) noexcept
+{
+    if (input.size() != ping_response_size) {
+        return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::Decode});
+    }
+    return PingResponse{
+        .nonce = detail::get_u64(input, 0),
+        .host_monotonic_ns = detail::get_u64(input, 8),
+        .remote_receive_us = detail::get_u64(input, 16),
+        .remote_send_us = detail::get_u64(input, 24),
+    };
 }
 
 [[nodiscard]] constexpr std::array<std::byte, introspection_summary_size>

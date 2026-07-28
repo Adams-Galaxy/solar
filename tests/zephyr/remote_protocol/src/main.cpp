@@ -91,6 +91,7 @@ ZTEST(solar_remote_protocol, test_canonical_cbor_round_trip_and_validation)
 ZTEST(solar_remote_protocol, test_shared_frame_vector_and_corruption)
 {
     solar::remote::protocol::Envelope envelope{
+        .minor = 1,
         .kind = solar::remote::protocol::Kind::Request,
         .flags = solar::remote::protocol::Flags::Final,
         .session_epoch = 0x01020304,

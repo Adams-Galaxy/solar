@@ -20,6 +20,7 @@ from .protocol import (
     KIND_CREDIT,
     KIND_DATA,
     KIND_KEEPALIVE,
+    KIND_PING,
     KIND_INTROSPECTION,
     KIND_IN_STREAM_CLOSED,
     KIND_REQUEST,
@@ -409,6 +410,21 @@ class Client:
             ),
             payload,
         )
+
+    def ping(self, payload: bytes) -> int:
+        if not self.active:
+            raise FrameError("session is not active")
+        request = self._next_request()
+        self._queue(
+            Envelope(
+                kind=KIND_PING,
+                session_epoch=self.session_epoch,
+                frame_sequence=self._next_frame(),
+                request_id=request,
+            ),
+            payload,
+        )
+        return request
 
     def introspect(self, target: int = 0, payload: bytes = b"") -> int:
         if not self.active:

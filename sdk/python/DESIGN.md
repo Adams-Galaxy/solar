@@ -1,12 +1,14 @@
 # Solar Remote Python SDK Design Notes
 
-Date: 2026-07-23
+Date: 2026-07-28
 
-Status: temporary accepted design notes
+Status: superseded boundary notes
 
-Purpose: preserve the agreed Python SDK boundary until detailed design and
-implementation begin. This document is not yet a public API promise and should
-be deleted or replaced by canonical package documentation once the SDK lands.
+The current cross-package design is canonicalized in
+`docs/development-docs/python-host-stack-redesign.md`. In particular, that
+document supersedes the concrete-transport ownership described below:
+`solar_remote` consumes an already-open byte channel, while `solar_station`
+owns serial, TCP, USB discovery, physical closure, and reconnection.
 
 ## 1. Product Boundary
 
@@ -19,8 +21,7 @@ Remote. It owns:
 - request correlation and cancellation;
 - subscriptions, streaming, credits, and backpressure;
 - generated and dynamic client models;
-- USB serial and TCP stream transports; and
-- transport/device discovery primitives.
+- an already-open asynchronous byte-channel boundary.
 
 It does not own:
 
@@ -28,7 +29,8 @@ It does not own:
 - Argon integration;
 - NATS or application routing policy;
 - robot-specific endpoint vocabulary;
-- process supervision;
+- concrete serial/TCP transport and discovery;
+- process and reconnection supervision;
 - console-log presentation; or
 - a host daemon.
 
@@ -42,8 +44,8 @@ wrappers are not part of the initial contract.
 The intended user experience is equivalent to:
 
 ```python
-async with solar_remote.connect(target) as client:
-    value = await client.query("imu.euler")
+async with solar_remote.AsyncSession(channel) as client:
+    value = await client.get("imu.euler")
 
     async for sample in client.stream("imu.euler", frequency=10):
         ...
@@ -60,29 +62,23 @@ observe reconnects, new session epochs, lost subscriptions, and retry decisions.
 
 ## 3. Transport Contract
 
-Protocol code consumes an asynchronous ordered byte stream. A transport exposes
+Protocol code consumes an already-open asynchronous ordered byte stream:
 operations equivalent to:
 
 ```python
-class AsyncTransport(Protocol):
-    async def open(self) -> None: ...
-    async def read(self, maximum: int) -> bytes: ...
-    async def write(self, data: bytes) -> None: ...
-    async def close(self) -> None: ...
+class AsyncByteChannel(Protocol):
+    async def receive(self, maximum: int) -> bytes: ...
+    async def send(self, data: bytes) -> None: ...
 ```
 
-Initial transports are:
-
-- `TcpTransport` using an asyncio TCP stream connection for the containerized
-  native simulator; and
-- `SerialTransport` using pySerial for USB CDC ACM.
+Concrete TCP and threaded pySerial channels are implemented by Station.
 
 The simulator exposes one fixed Remote endpoint at
 `tcp://127.0.0.1:47000`. Supporting multiple simultaneous simulator instances,
 dynamic published ports, or Unix-domain socket forwarding is outside the
 initial scope.
 
-pySerial is a normal required SDK dependency rather than an optional extra. The
+pySerial is a normal required Station dependency. The
 serial implementation does not depend on `pyserial-asyncio`. It bridges blocking
 serial behavior through a small owned worker thread and bounded handoff into
 the asyncio loop. Threading is an implementation detail; callers only see the
@@ -133,7 +129,7 @@ typed endpoint facades, and a baked-in manifest digest. It depends on the
 standard `solar_remote` runtime and contains no separate protocol engine.
 
 A dynamic client loads the same canonical manifest model at runtime and exposes
-generic query, update, action, watch, and stream operations by stable ID or
+generic get, set, call, subscribe, and input operations by stable ID or
 name. Dynamic operation is required for interactive inspection of a firmware
 image whose generated package is not installed.
 

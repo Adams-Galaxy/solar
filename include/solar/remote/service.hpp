@@ -18,6 +18,7 @@
 #include "solar/kernel/interrupt.hpp"
 #include "solar/kernel/message_queue.hpp"
 #include "solar/kernel/stop.hpp"
+#include "solar/kernel/time.hpp"
 #include "solar/remote/frame.hpp"
 #endif
 
@@ -121,6 +122,8 @@ struct ReassemblySlot
     case protocol::Kind::ClientHello:
     case protocol::Kind::ServerHello:
     case protocol::Kind::Keepalive:
+    case protocol::Kind::Ping:
+    case protocol::Kind::Pong:
     case protocol::Kind::SessionReset:
         return OutputLane::Control;
     case protocol::Kind::Credit:
@@ -1325,6 +1328,37 @@ template <typename ArchitectureT> struct Service
             }
             (void)transmit<LinkT, Index>(protocol::Kind::Keepalive, complete.payload);
             break;
+        case protocol::Kind::Ping: {
+            if (State::session.load(std::memory_order_acquire) != SessionState::Active ||
+                complete.envelope.request_id == 0) {
+                State::protocol_errors.fetch_add(1, std::memory_order_relaxed);
+                return;
+            }
+            const auto received =
+                std::chrono::duration_cast<kernel::Microseconds>(kernel::now().time_since_epoch())
+                    .count();
+            const auto request = protocol::decode_ping_request(complete.payload);
+            if (!request) {
+                (void)protocol_error<LinkT, Index>(complete.envelope.request_id, 0,
+                                                   protocol::ErrorCode::DecodeFailure);
+                return;
+            }
+            const auto sending =
+                std::chrono::duration_cast<kernel::Microseconds>(kernel::now().time_since_epoch())
+                    .count();
+            const auto response = protocol::encode(protocol::PingResponse{
+                .nonce = request->nonce,
+                .host_monotonic_ns = request->host_monotonic_ns,
+                .remote_receive_us = static_cast<std::uint64_t>(received),
+                .remote_send_us = static_cast<std::uint64_t>(sending),
+            });
+            const auto transmitted = transmit<LinkT, Index>(
+                protocol::Kind::Pong, response, complete.envelope.request_id);
+            if (transmitted && FacilityType::pong_responded != nullptr) {
+                FacilityType::pong_responded();
+            }
+            break;
+        }
         case protocol::Kind::Introspection:
             if (State::session.load(std::memory_order_acquire) != SessionState::Active) {
                 State::protocol_errors.fetch_add(1, std::memory_order_relaxed);
@@ -1355,6 +1389,7 @@ template <typename ArchitectureT> struct Service
         case protocol::Kind::Unsubscribe:
         case protocol::Kind::Credit:
         case protocol::Kind::Data:
+        case protocol::Kind::Pong:
             if (State::session.load(std::memory_order_acquire) != SessionState::Active ||
                 FacilityType::process_application_frame == nullptr) {
                 State::protocol_errors.fetch_add(1, std::memory_order_relaxed);

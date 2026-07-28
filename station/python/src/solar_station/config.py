@@ -38,9 +38,7 @@ def legacy_database_path() -> Path:
     return user_data_path("robocup-station", ensure_exists=False) / "station.sqlite3"
 
 
-def migrate_legacy_database(
-    destination: Path, *, legacy: Path | None = None
-) -> bool:
+def migrate_legacy_database(destination: Path, *, legacy: Path | None = None) -> bool:
     """Copy the previous project database once using SQLite's backup API."""
     generic = user_data_path("solar-station", ensure_exists=False) / "station.sqlite3"
     if legacy is None and destination != generic:
@@ -66,11 +64,19 @@ class StationConfig:
     manifest_cache: Path | None = None
     usb_vid: int | None = None
     usb_pid: int | None = None
+    bridge_host: str | None = "bridge.local"
+    bridge_status_port: int = 46999
+    bridge_remote_port: int = 47000
+    bridge_console_port: int = 47001
+    discovery_probe_timeout: float = 0.5
     reconnect_initial: float = 0.25
     reconnect_maximum: float = 5.0
     request_timeout: float = 5.0
     maximum_ipc_message: int = 1 << 20
     client_event_queue: int = 256
+    persistence_queue: int = 4096
+    persistence_batch: int = 128
+    persistence_flush_interval: float = 0.05
 
     def __post_init__(self) -> None:
         if self.manifest_cache is None:

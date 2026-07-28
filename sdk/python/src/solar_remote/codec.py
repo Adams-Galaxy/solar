@@ -9,6 +9,7 @@ from typing import Any, Mapping
 import cbor2
 
 from .manifest import Manifest
+from .models import ModelRegistry
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +41,7 @@ class DynamicCodec:
     def __init__(self, manifest: Manifest):
         self.manifest = manifest
         self.schemas = {item["id"]: item for item in manifest.schemas}
+        self.models = ModelRegistry(manifest.require_catalog())
 
     @staticmethod
     def _mapping(value: Any) -> Mapping[str, Any]:
@@ -203,3 +205,7 @@ class DynamicCodec:
                 value = self._enum(item["schema"], value)
             output[item["name"]] = value
         return output
+
+    def decode_model(self, schema_id: int, payload: bytes) -> Any:
+        """Decode into the manifest-scoped dynamic dataclass or enum model."""
+        return self.models.construct(schema_id, self.decode(schema_id, payload))

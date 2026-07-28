@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import itertools
+import time
 from collections.abc import AsyncIterator
 from contextlib import AbstractAsyncContextManager
 from pathlib import Path
@@ -11,7 +12,29 @@ from typing import Any
 
 from .config import default_socket_path
 from .errors import ProtocolError, StationError
+from .models import PingResult, normalize
 from .protocol import IPC_VERSION, read_message, write_message
+from .resources import (
+    ConnectionResource,
+    InputCollection,
+    LogsResource,
+    RecordingsResource,
+    RobotResource,
+    SourceCollection,
+    manifest_runtime,
+)
+
+
+class _EventQueue(asyncio.Queue[dict[str, Any] | BaseException | None]):
+    def __init__(self, maximum: int):
+        super().__init__(maximum)
+        self.loss_count = 0
+
+    def deliver(self, value: dict[str, Any]) -> None:
+        if self.full():
+            self.get_nowait()
+            self.loss_count += 1
+        self.put_nowait(value)
 
 
 class EventSubscription(AbstractAsyncContextManager["EventSubscription"]):
@@ -19,12 +42,24 @@ class EventSubscription(AbstractAsyncContextManager["EventSubscription"]):
         self,
         client: StationClient,
         source: str,
-        queue: asyncio.Queue[dict[str, Any] | BaseException | None],
+        queue: _EventQueue,
     ):
         self.client = client
         self.source = source
         self.queue = queue
         self._closed = False
+
+    @property
+    def loss_count(self) -> int:
+        return self.queue.loss_count
+
+    @property
+    def queue_capacity(self) -> int:
+        return self.queue.maxsize
+
+    @property
+    def queue_policy(self) -> str:
+        return "drop_oldest"
 
     def __aiter__(self) -> AsyncIterator[dict[str, Any]]:
         return self
@@ -68,19 +103,21 @@ class StationClient(AbstractAsyncContextManager["StationClient"]):
         self.server_information: dict[str, Any] | None = None
         self.manifest: dict[str, Any] | None = None
         self.robot_status: dict[str, Any] = {"state": "disconnected"}
-        self.recordings: set[str] = set()
-        self.active_recordings: set[str] = set()
-        self.sources: set[str] = set()
-        self.inputs: dict[int, dict[str, Any]] = {}
+        self.catalog: Any = None
+        self.models: Any = None
+        self.robot = RobotResource(self)
+        self.sources = SourceCollection(self)
+        self.inputs = InputCollection(self)
+        self.logs = LogsResource(self)
+        self.recordings = RecordingsResource(self)
+        self.connection = ConnectionResource(self)
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
         self._reader_task: asyncio.Task[None] | None = None
         self._write_lock = asyncio.Lock()
         self._ids = itertools.count(1)
         self._pending: dict[int, asyncio.Future[Any]] = {}
-        self._subscriptions: dict[
-            str, set[asyncio.Queue[dict[str, Any] | BaseException | None]]
-        ] = {}
+        self._subscriptions: dict[str, set[_EventQueue]] = {}
         self._manifest_subscription: EventSubscription | None = None
         self._manifest_task: asyncio.Task[None] | None = None
         self._closed = True
@@ -88,6 +125,11 @@ class StationClient(AbstractAsyncContextManager["StationClient"]):
     @property
     def connected(self) -> bool:
         return self._writer is not None and not self._writer.is_closing()
+
+    @property
+    def active_recordings(self) -> set[str]:
+        """Names of currently active recordings."""
+        return self.recordings.active
 
     async def __aenter__(self) -> StationClient:
         await self.connect()
@@ -132,6 +174,8 @@ class StationClient(AbstractAsyncContextManager["StationClient"]):
             self._reader_task = asyncio.create_task(
                 self._read_loop(), name=f"station-client-reader:{self.name}"
             )
+            if self.robot_status["state"] == "online":
+                await self.get_manifest()
             for source in tuple(self._subscriptions):
                 await self._exchange({"type": "subscribe", "source": source})
         except BaseException:
@@ -177,8 +221,7 @@ class StationClient(AbstractAsyncContextManager["StationClient"]):
                         raise ProtocolError("malformed Station event")
                     self._observe_event(event)
                     for queue in tuple(self._subscriptions.get(event["source"], ())):
-                        if not queue.full():
-                            queue.put_nowait(event)
+                        queue.deliver(event)
                 elif message_type in ("subscription_state", "server_state"):
                     source = message.get("source", "station.server")
                     event = {
@@ -187,8 +230,7 @@ class StationClient(AbstractAsyncContextManager["StationClient"]):
                         "value": message,
                     }
                     for queue in tuple(self._subscriptions.get(source, ())):
-                        if not queue.full():
-                            queue.put_nowait(event)
+                        queue.deliver(event)
                 else:
                     raise ProtocolError(f"unsupported Station message {message_type!r}")
         except asyncio.CancelledError:
@@ -235,26 +277,27 @@ class StationClient(AbstractAsyncContextManager["StationClient"]):
         )
         if operation == "manifest" and isinstance(result, dict):
             self.manifest = result
+            self.catalog, self.models = manifest_runtime(result)
         elif operation == "status" and isinstance(result, dict):
             robot = result.get("robot")
             if isinstance(robot, dict):
                 self.robot_status.update(robot)
             sources = result.get("sources")
             if isinstance(sources, list):
-                self.sources = _source_names(sources)
+                self.sources.replace(_source_names(sources))
         elif operation == "streams" and isinstance(result, list):
-            self.sources = _source_names(result)
+            self.sources.replace(_source_names(result))
         elif operation == "stream" and isinstance(result, dict):
             endpoint_name = result.get("endpoint_name")
             if isinstance(endpoint_name, str):
-                self.sources.add(endpoint_name)
+                self.sources.configured.add(endpoint_name)
         elif operation == "record_list" and isinstance(result, list):
-            self.recordings = {
+            self.recordings.known = {
                 str(item["name"])
                 for item in result
                 if isinstance(item, dict) and isinstance(item.get("name"), str)
             }
-            self.active_recordings = {
+            self.recordings.active = {
                 str(item["name"])
                 for item in result
                 if isinstance(item, dict)
@@ -264,22 +307,22 @@ class StationClient(AbstractAsyncContextManager["StationClient"]):
         elif operation == "record_start" and isinstance(result, dict):
             name = result.get("name")
             if isinstance(name, str):
-                self.recordings.add(name)
-                self.active_recordings.add(name)
+                self.recordings.known.add(name)
+                self.recordings.active.add(name)
         elif operation == "record_stop" and isinstance(result, dict):
             name = result.get("name")
             if isinstance(name, str):
-                self.active_recordings.discard(name)
+                self.recordings.active.discard(name)
         elif operation == "input.open" and isinstance(result, dict):
             handle = result.get("handle")
             if isinstance(handle, int):
-                self.inputs[handle] = result
+                self.inputs.active[handle] = result
         elif operation == "input.close" and isinstance(result, dict):
             handle = result.get("handle")
             if isinstance(handle, int):
-                self.inputs.pop(handle, None)
+                self.inputs.active.pop(handle, None)
         elif operation == "input.list" and isinstance(result, list):
-            self.inputs = {
+            self.inputs.active = {
                 item["handle"]: item
                 for item in result
                 if isinstance(item, dict) and isinstance(item.get("handle"), int)
@@ -339,7 +382,7 @@ class StationClient(AbstractAsyncContextManager["StationClient"]):
         handle: int,
         value: Any,
         *,
-        timeout: float | None = None,
+        timeout: float | None = None,  # noqa: ASYNC109
     ) -> dict[str, Any]:
         return await self.request(
             "input.send", handle=handle, value=value, timeout=timeout
@@ -351,6 +394,25 @@ class StationClient(AbstractAsyncContextManager["StationClient"]):
     async def list_inputs(self) -> list[dict[str, Any]]:
         return await self.request("input.list")
 
+    async def list_modules(self) -> list[dict[str, Any]]:
+        return await self.request("module.list")
+
+    async def enable_module(self, name: str) -> dict[str, Any]:
+        return await self.request("module.enable", name=name)
+
+    async def disable_module(self, name: str) -> dict[str, Any]:
+        return await self.request("module.disable", name=name)
+
+    async def module_request(
+        self, module: str, method: str, **arguments: Any
+    ) -> Any:
+        return await self.request(
+            "module.request",
+            name=module,
+            method=method,
+            arguments=arguments,
+        )
+
     async def reconnect(
         self, *, timeout: float = 10.0  # noqa: ASYNC109
     ) -> dict[str, Any]:
@@ -360,7 +422,17 @@ class StationClient(AbstractAsyncContextManager["StationClient"]):
             timeout=timeout,
         )
 
-    async def logs(
+    async def ping(self) -> PingResult:
+        started = time.monotonic_ns()
+        result = await self.request("ping")
+        ended = time.monotonic_ns()
+        return PingResult(
+            round_trip_ns=int(result["round_trip_ns"]),
+            remote_processing_ns=int(result["remote_processing_ns"]),
+            station_round_trip_ns=ended - started,
+        )
+
+    async def query_logs(
         self, *, head: int | None = None, tail: int | None = None
     ) -> list[dict[str, Any]]:
         return await self.request("logs", head=head, tail=tail)
@@ -461,13 +533,13 @@ class StationClient(AbstractAsyncContextManager["StationClient"]):
         if state in robot_states:
             self.robot_status["state"] = state
         elif state == "recording_started" and isinstance(value.get("name"), str):
-            self.recordings.add(value["name"])
-            self.active_recordings.add(value["name"])
+            self.recordings.known.add(value["name"])
+            self.recordings.active.add(value["name"])
         elif state == "recording_stopped" and isinstance(value.get("name"), str):
-            self.recordings.add(value["name"])
-            self.active_recordings.discard(value["name"])
+            self.recordings.known.add(value["name"])
+            self.recordings.active.discard(value["name"])
         elif state == "input_closed" and isinstance(value.get("handle"), int):
-            self.inputs.pop(value["handle"], None)
+            self.inputs.active.pop(value["handle"], None)
         for key in ("target", "build_id", "manifest_digest", "reason"):
             if key in value:
                 self.robot_status[key] = value[key]
@@ -480,7 +552,7 @@ class StationClient(AbstractAsyncContextManager["StationClient"]):
         future = asyncio.get_running_loop().create_future()
         self._pending[request_id] = future
         try:
-            await self._send({**message, "id": request_id})
+            await self._send(normalize({**message, "id": request_id}))
             return await asyncio.wait_for(
                 future, self.timeout if wait_seconds is None else wait_seconds
             )
@@ -492,9 +564,7 @@ class StationClient(AbstractAsyncContextManager["StationClient"]):
         self, source: str, *, queue_depth: int = 128
     ) -> EventSubscription:
         await self.ensure_connected()
-        queue: asyncio.Queue[dict[str, Any] | BaseException | None] = asyncio.Queue(
-            queue_depth
-        )
+        queue = _EventQueue(queue_depth)
         queues = self._subscriptions.setdefault(source, set())
         first = not queues
         queues.add(queue)
@@ -516,7 +586,7 @@ class StationClient(AbstractAsyncContextManager["StationClient"]):
     async def unsubscribe(
         self,
         source: str,
-        queue: asyncio.Queue[dict[str, Any] | BaseException | None],
+        queue: _EventQueue,
     ) -> None:
         queues = self._subscriptions.get(source)
         if queues is None:
@@ -560,6 +630,23 @@ class StationClient(AbstractAsyncContextManager["StationClient"]):
                 pass
         self._closed = True
         self.server_information = None
+
+    def _require_catalog(self) -> Any:
+        if self.catalog is None:
+            raise StationError(
+                "manifest_unavailable",
+                "load the active manifest before accessing typed robot resources",
+            )
+        return self.catalog
+
+    def _model_value(self, schema_id: int, value: Any) -> Any:
+        if self.models is None:
+            raise StationError(
+                "manifest_unavailable", "manifest models are unavailable"
+            )
+        if hasattr(value, "__solar_schema_id__"):
+            return value
+        return self.models.construct(schema_id, value)
 
 
 def _source_names(values: list[Any]) -> set[str]:

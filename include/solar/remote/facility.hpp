@@ -44,6 +44,7 @@ template <typename System> [[nodiscard]] std::int64_t process_poll_releases() no
 template <typename System>
 void reset_session(std::uint16_t link, InStreamCloseReason reason) noexcept;
 template <typename System> void open_session(std::uint16_t link) noexcept;
+template <typename System> void pong_responded() noexcept;
 template <typename System>
 [[nodiscard]] protocol::IntrospectionSummary introspection_summary() noexcept;
 template <typename System> [[nodiscard]] protocol::ServerInformation server_information() noexcept;
@@ -109,6 +110,7 @@ template <typename ArchitectureT> struct Facility
     using ProcessPollReleases = std::int64_t (*)() noexcept;
     using ResetSession = void (*)(std::uint16_t, InStreamCloseReason) noexcept;
     using OpenSession = void (*)(std::uint16_t) noexcept;
+    using PongResponded = void (*)() noexcept;
     using IntrospectionSummary = protocol::IntrospectionSummary (*)() noexcept;
     using ServerInformation = protocol::ServerInformation (*)() noexcept;
     using InspectionCollections = Result<std::size_t, Error> (*)(std::span<const std::byte>,
@@ -122,6 +124,7 @@ template <typename ArchitectureT> struct Facility
     inline static ProcessPollReleases process_poll_releases{};
     inline static ResetSession reset_session{};
     inline static OpenSession open_session{};
+    inline static PongResponded pong_responded{};
     inline static IntrospectionSummary introspection_summary{};
     inline static ServerInformation server_information{};
     inline static InspectionCollections manifest_chunk{};
@@ -140,6 +143,7 @@ template <typename ArchitectureT> struct Facility
         process_poll_releases = nullptr;
         reset_session = nullptr;
         open_session = nullptr;
+        pong_responded = nullptr;
         introspection_summary = nullptr;
         server_information = nullptr;
         manifest_chunk = nullptr;
@@ -172,6 +176,7 @@ template <typename ArchitectureT> struct Facility
         process_poll_releases = nullptr;
         reset_session = nullptr;
         open_session = nullptr;
+        pong_responded = nullptr;
         introspection_summary = nullptr;
         server_information = nullptr;
         manifest_chunk = nullptr;
@@ -191,6 +196,7 @@ template <typename ArchitectureT> struct Facility
         process_poll_releases = &detail::process_poll_releases<System>;
         reset_session = &detail::reset_session<System>;
         open_session = &detail::open_session<System>;
+        pong_responded = &detail::pong_responded<System>;
         introspection_summary = &detail::introspection_summary<System>;
         server_information = &detail::server_information<System>;
         manifest_chunk = &detail::manifest_chunk<System>;

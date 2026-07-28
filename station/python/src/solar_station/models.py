@@ -35,6 +35,66 @@ class SourceKind(str, Enum):
     SERVER = "server"
 
 
+@dataclass(frozen=True, slots=True)
+class ConnectionStatus:
+    state: RobotState
+    target: str | None
+    build_id: int | None
+    manifest_digest: bytes | None
+    last_error: str | None
+
+    @property
+    def transport(self) -> str | None:
+        if self.target is None:
+            return None
+        return self.target.partition("://")[0] or None
+
+    @classmethod
+    def from_wire(cls, value: Mapping[str, Any]) -> ConnectionStatus:
+        return cls(
+            state=RobotState(str(value.get("state", "disconnected"))),
+            target=_optional_str(value.get("target")),
+            build_id=_optional_int(value.get("build_id")),
+            manifest_digest=(
+                bytes(value["manifest_digest"])
+                if value.get("manifest_digest") is not None
+                else None
+            ),
+            last_error=_optional_str(value.get("last_error")),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class SourceInformation:
+    endpoint_name: str
+    endpoint_id: int | None
+    kind: SourceKind
+    state: SourceState
+    desired: bool
+    frequency: float | None
+    batch: int
+    loss_count: int
+    last_error: str | None
+
+    @classmethod
+    def from_wire(cls, value: Mapping[str, Any]) -> SourceInformation:
+        return cls(
+            endpoint_name=str(value["endpoint_name"]),
+            endpoint_id=_optional_int(value.get("endpoint_id")),
+            kind=SourceKind(str(value["kind"])),
+            state=SourceState(str(value["state"])),
+            desired=bool(value.get("desired", False)),
+            frequency=(
+                float(value["frequency"])
+                if value.get("frequency") is not None
+                else None
+            ),
+            batch=int(value.get("batch", 1)),
+            loss_count=int(value.get("loss_count", 0)),
+            last_error=_optional_str(value.get("last_error")),
+        )
+
+
 @dataclass(slots=True)
 class SourceConfig:
     key: str
@@ -112,6 +172,38 @@ class StationEvent:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class PingResult:
+    round_trip_ns: int
+    remote_processing_ns: int
+    station_round_trip_ns: int | None = None
+
+    @property
+    def round_trip_ms(self) -> float:
+        return self.round_trip_ns / 1_000_000
+
+    @property
+    def remote_processing_ms(self) -> float:
+        return self.remote_processing_ns / 1_000_000
+
+
+@dataclass(frozen=True, slots=True)
+class RecordingInformation:
+    name: str
+    active: bool
+    started_ns: int
+    ended_ns: int | None
+
+    @classmethod
+    def from_wire(cls, value: Mapping[str, Any]) -> RecordingInformation:
+        return cls(
+            name=str(value["name"]),
+            active=bool(value["active"]),
+            started_ns=int(value["started_ns"]),
+            ended_ns=_optional_int(value.get("ended_ns")),
+        )
+
+
 @dataclass(slots=True)
 class Recording:
     id: int
@@ -146,3 +238,11 @@ def normalize(value: Any) -> Any:
     if hasattr(value, "value") and isinstance(value.value, int):
         return int(value.value)
     return {"$unrepresentable": type(value).__name__, "text": repr(value)}
+
+
+def _optional_int(value: Any) -> int | None:
+    return int(value) if value is not None else None
+
+
+def _optional_str(value: Any) -> str | None:
+    return str(value) if value is not None else None

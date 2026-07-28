@@ -33,7 +33,12 @@ class _Stream:
     async def open(self) -> None:
         pass
 
-    async def send(self, value: object, *, timeout: float | None = None) -> None:
+    async def send(
+        self,
+        value: object,
+        *,
+        timeout: float | None = None,  # noqa: ASYNC109
+    ) -> None:
         self.sent.append(value)
 
     async def aclose(self) -> None:

@@ -7,6 +7,7 @@ from typing import Any
 from uuid import uuid4
 
 import pytest
+from solar_remote import PingResult
 
 from solar_station.config import StationConfig
 from solar_station.server.runtime import StationHost
@@ -187,6 +188,9 @@ class FakeSession:
             raise KeyError(endpoint)
         return self.values[key]
 
+    async def get(self, endpoint: str | int) -> Any:
+        return await self.query(endpoint)
+
     async def update(self, endpoint: str | int, value: Any) -> bytes:
         key = "pid.kp" if endpoint == 10 else str(endpoint)
         if key != "pid.kp":
@@ -194,11 +198,17 @@ class FakeSession:
         self.values[key] = value
         return b""
 
+    async def set(self, endpoint: str | int, value: Any) -> None:
+        await self.update(endpoint, value)
+
     async def action(self, endpoint: str | int, value: Any = None) -> dict[str, Any]:
         if endpoint not in ("control.reset", 20):
             raise KeyError(endpoint)
         self.actions.append(("control.reset", value))
         return {}
+
+    async def call(self, endpoint: str | int, value: Any = None) -> dict[str, Any]:
+        return await self.action(endpoint, value)
 
     async def stream(
         self,
@@ -218,6 +228,15 @@ class FakeSession:
 
     async def topic(self, endpoint: str | int) -> FakeSubscription:
         return await self.stream(endpoint)
+
+    async def ping(self) -> PingResult:
+        return PingResult(
+            nonce=42,
+            round_trip_ns=2_000_000,
+            remote_processing_ns=100_000,
+            remote_receive_us=100,
+            remote_send_us=200,
+        )
 
 
 class FakeSessionFactory:

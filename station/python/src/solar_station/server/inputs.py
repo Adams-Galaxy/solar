@@ -84,7 +84,7 @@ class InputRegistry:
         handle_id: int,
         value: Any,
         *,
-        timeout: float | None,
+        timeout: float | None,  # noqa: ASYNC109
     ) -> dict[str, Any]:
         handle = await self._owned(owner, handle_id)
         try:

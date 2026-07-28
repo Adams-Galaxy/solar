@@ -14,9 +14,11 @@ from ..errors import StationError
 from ..models import normalize
 from .connection import SolarConnectionSupervisor
 from .console import ConsoleConnectionSupervisor
+from .discovery import TransportDiscovery
 from .events import EventHub
-from .ipc import UnixSocketServer
 from .inputs import InputRegistry
+from .ipc import UnixSocketServer
+from .modules import ModuleFactory, ModuleManager
 from .recorder import Recorder
 from .sources import SourceRegistry
 
@@ -29,13 +31,20 @@ class StationHost:
         config: StationConfig,
         *,
         session_factory: Any = None,
+        module_factories: dict[str, ModuleFactory] | None = None,
     ):
         self.config = config
         self.database = StationDatabase(config.database_path)
-        self.recorder = Recorder(self.database)
+        self.recorder = Recorder(
+            self.database,
+            queue_depth=config.persistence_queue,
+            batch_size=config.persistence_batch,
+            flush_interval=config.persistence_flush_interval,
+        )
         self.events = EventHub(self.recorder)
         self.sources = SourceRegistry(self.database, self.events)
         self.inputs = InputRegistry(self.events)
+        self.discovery = TransportDiscovery(config)
         self.connection = SolarConnectionSupervisor(
             config,
             self.database,
@@ -43,9 +52,13 @@ class StationHost:
             self.sources,
             inputs=self.inputs,
             session_factory=session_factory,
+            discovery=self.discovery,
         )
-        self.console = ConsoleConnectionSupervisor(config, self.events, self.connection)
+        self.console = ConsoleConnectionSupervisor(
+            config, self.events, self.connection, self.discovery
+        )
         self.ipc = UnixSocketServer(self)
+        self.modules = ModuleManager(self, module_factories)
         self._stop = asyncio.Event()
         self._started_ns = time.time_ns()
         self._closing = False
@@ -73,6 +86,7 @@ class StationHost:
             self.events.add_sink(self.ipc.broadcast)
             await self.connection.start()
             await self.console.start()
+            await self.modules.start()
             await self.events.publish_server_state("started")
             LOGGER.info("Ready; accepting local clients")
         except BaseException:
@@ -121,12 +135,17 @@ class StationHost:
             "input.close": self._input_close,
             "input.list": self._input_list,
             "reconnect": self._reconnect,
+            "ping": self._ping,
             "logs": self._logs,
             "record_start": self._record_start,
             "record_stop": self._record_stop,
             "record_list": self._record_list,
             "record_show": self._record_show,
             "record_export": self._record_export,
+            "module.list": self._module_list,
+            "module.enable": self._module_enable,
+            "module.disable": self._module_disable,
+            "module.request": self._module_request,
             "shutdown": self._shutdown,
         }
         handler = handlers.get(operation)
@@ -152,6 +171,7 @@ class StationHost:
                 "database": str(self.config.database_path),
                 "clients": len(self.ipc.clients),
                 "live_sequence": self.events.live_sequence,
+                "persistence_dropped": self.recorder.dropped_count,
             },
             "robot": {
                 "state": self.connection.state.value,
@@ -165,7 +185,9 @@ class StationHost:
                 "target": self.console.target,
                 "last_error": self.console.last_error,
             },
+            "discovery": self.discovery.to_wire(),
             "sources": self.sources.list(),
+            "modules": self.modules.list(),
             "active_recordings": [
                 recording.to_wire()
                 for recording in await self.database.recordings()
@@ -188,7 +210,7 @@ class StationHost:
         endpoint = _endpoint_argument(arguments)
         session = self.connection.require_session()
         try:
-            return await session.query(endpoint)
+            return await session.get(endpoint)
         except KeyError as error:
             raise StationError(
                 "unknown_endpoint", f"queryable endpoint {endpoint!r} not found"
@@ -202,7 +224,7 @@ class StationHost:
             raise StationError("invalid_value", "set requires a value")
         session = self.connection.require_session()
         try:
-            await session.update(endpoint, arguments["value"])
+            await session.set(endpoint, arguments["value"])
             return {"endpoint": endpoint, "updated": True}
         except KeyError as error:
             raise StationError(
@@ -215,7 +237,7 @@ class StationHost:
         endpoint = _endpoint_argument(arguments)
         session = self.connection.require_session()
         try:
-            return await session.action(endpoint, arguments.get("value"))
+            return await session.call(endpoint, arguments.get("value"))
         except KeyError as error:
             raise StationError(
                 "unknown_endpoint", f"action endpoint {endpoint!r} not found"
@@ -279,9 +301,17 @@ class StationHost:
         timeout = _optional_float(arguments.get("timeout"), "timeout")
         return await self.connection.reconnect(10.0 if timeout is None else timeout)
 
+    async def _ping(self, _: dict[str, Any]) -> Any:
+        session = self.connection.require_session()
+        try:
+            return await session.ping()
+        except BaseException as error:
+            raise _remote_error("ping", 0, error) from error
+
     async def _logs(self, arguments: dict[str, Any]) -> list[dict[str, Any]]:
         head = arguments.get("head")
         tail = arguments.get("tail")
+        await self.recorder.flush()
         return await self.database.query_events(
             source_key="logs.console",
             first=_optional_integer(head, "head"),
@@ -327,6 +357,25 @@ class StationHost:
         )
         return await self.recorder.export(name, format_name, output)
 
+    async def _module_list(self, _: dict[str, Any]) -> list[dict[str, Any]]:
+        return self.modules.list()
+
+    async def _module_enable(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        return await self.modules.enable(_module_name(arguments))
+
+    async def _module_disable(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        return await self.modules.disable(_module_name(arguments))
+
+    async def _module_request(self, arguments: dict[str, Any]) -> Any:
+        name = _module_name(arguments)
+        method = arguments.get("method")
+        payload = arguments.get("arguments", {})
+        if not isinstance(method, str) or not method:
+            raise StationError("invalid_request", "module method must be text")
+        if not isinstance(payload, dict):
+            raise StationError("invalid_request", "module arguments must be a map")
+        return await self.modules.request(name, method, payload)
+
     async def _shutdown(self, _: dict[str, Any]) -> dict[str, Any]:
         LOGGER.info("Shutdown requested by a client")
         asyncio.get_running_loop().call_later(0.05, self.request_shutdown)
@@ -342,12 +391,14 @@ class StationHost:
         LOGGER.info("Stopping")
         if publish and self.database.is_open:
             await self.events.publish_server_state("stopping")
+        await self.modules.close()
         await self.ipc.close()
         self.events.remove_sink(self.ipc.broadcast)
         await self.console.close()
         await self.connection.close()
         await self.inputs.offline()
         await self.sources.close()
+        await self.recorder.close()
         await self.database.close()
         LOGGER.info("Stopped cleanly")
 
@@ -357,6 +408,13 @@ def _endpoint_argument(arguments: dict[str, Any]) -> int | str:
     if isinstance(endpoint, (str, int)) and not isinstance(endpoint, bool):
         return endpoint
     raise StationError("invalid_request", "endpoint must be a name or stable ID")
+
+
+def _module_name(arguments: dict[str, Any]) -> str:
+    name = arguments.get("name")
+    if not isinstance(name, str) or not name:
+        raise StationError("invalid_request", "module name must be non-empty text")
+    return name
 
 
 def _integer(value: Any, name: str) -> int:

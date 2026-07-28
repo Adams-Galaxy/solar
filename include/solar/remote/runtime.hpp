@@ -16,6 +16,10 @@
 #include "solar/remote/packed.hpp"
 #include "solar/remote/protocol.hpp"
 
+#if defined(CONFIG_SOLAR_LOG)
+#include "solar/log/api.hpp"
+#endif
+
 #if defined(CONFIG_SOLAR_INSPECTION_REMOTE)
 #include "solar/inspection/api.hpp"
 #include "solar/inspection/cbor.hpp"
@@ -30,6 +34,13 @@
 
 namespace solar::remote::detail
 {
+
+template <typename System> void pong_responded() noexcept
+{
+#if defined(CONFIG_SOLAR_LOG)
+    (void)log::info<typename System::RemoteService, log::domain::Transport>("pong responded");
+#endif
+}
 
 template <typename T> struct IsPushOutStream : std::false_type
 {};

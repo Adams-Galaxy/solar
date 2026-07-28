@@ -247,7 +247,7 @@ def main() -> int:
     assert manifest_envelope.target == 4
     assert manifest_payload == struct.pack("<IHH", 128, 256, 0)
     collection_payload = (
-        bytes((1, 1))
+        bytes((1, 2))
         + (1).to_bytes(2, "little")
         + (1).to_bytes(2, "little")
         + bytes((0, 0))

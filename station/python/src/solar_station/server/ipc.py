@@ -110,7 +110,11 @@ class ClientConnection:
             if not isinstance(request_id, int) or not isinstance(source, str):
                 raise ProtocolError("malformed subscription request")
             try:
-                canonical = self.server.runtime.sources.validate_subscription(source)
+                canonical = self.server.runtime.modules.validate_subscription(source)
+                if canonical is None:
+                    canonical = (
+                        self.server.runtime.sources.validate_subscription(source)
+                    )
                 if message_type == "subscribe":
                     self.subscriptions.add(canonical)
                 else:

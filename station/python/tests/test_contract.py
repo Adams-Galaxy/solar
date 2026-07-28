@@ -72,7 +72,7 @@ async def test_auto_discovery_prefers_usb_and_pairs_transports(
         SimpleNamespace(target="serial:///dev/remote", vid=0x16C0, pid=0x0483),
     ]
     monkeypatch.setattr(
-        "solar_remote.discovery.discover_usb",
+        "solar_station.discovery.discover_usb",
         lambda **_: usb_targets,
     )
     assert (
@@ -90,7 +90,7 @@ async def test_auto_discovery_prefers_usb_and_pairs_transports(
         == "serial:///dev/console"
     )
 
-    monkeypatch.setattr("solar_remote.discovery.discover_usb", lambda **_: [])
+    monkeypatch.setattr("solar_station.discovery.discover_usb", lambda **_: [])
 
     async def reachable(_: str, **__: object) -> bool:
         return True
@@ -125,7 +125,7 @@ async def test_auto_discovery_uses_composite_interface_labels(
         ),
     ]
     monkeypatch.setattr(
-        "solar_remote.discovery.discover_usb",
+        "solar_station.discovery.discover_usb",
         lambda **_: usb_targets,
     )
     assert (
@@ -138,6 +138,108 @@ async def test_auto_discovery_uses_composite_interface_labels(
         )
         == "serial:///dev/first"
     )
+
+
+@pytest.mark.asyncio
+async def test_auto_discovery_selects_and_pairs_solar_bridge(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr("solar_station.discovery.discover_usb", lambda **_: [])
+
+    async def bridge_status(*_: object, **__: object) -> discovery.BridgeStatus:
+        return discovery.BridgeStatus(
+            host="robot-bridge.local",
+            reachable=True,
+            mode="active",
+            device="connected",
+            generation=7,
+            serial="TEST-SERIAL",
+            detail="paired",
+        )
+
+    monkeypatch.setattr(discovery, "probe_bridge", bridge_status)
+    config = StationConfig(
+        socket_path=_socket(),
+        database_path=tmp_path / "bridge.sqlite3",
+        bridge_host="robot-bridge.local",
+    )
+    resolver = discovery.TransportDiscovery(config)
+    assert await resolver.resolve_remote() == "tcp://robot-bridge.local:47000"
+    assert (
+        await resolver.resolve_console("tcp://robot-bridge.local:47000")
+        == "tcp://robot-bridge.local:47001"
+    )
+    snapshot = resolver.to_wire()
+    assert snapshot["source"] == "bridge"
+    assert snapshot["bridge"]["available"] is True
+    assert snapshot["bridge"]["generation"] == 7
+    assert snapshot["bridge"]["serial"] == "TEST-SERIAL"
+
+
+@pytest.mark.asyncio
+async def test_bridge_absence_is_preserved_when_no_transport_is_available(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr("solar_station.discovery.discover_usb", lambda **_: [])
+
+    async def bridge_status(*_: object, **__: object) -> discovery.BridgeStatus:
+        return discovery.BridgeStatus(
+            host="bridge.local",
+            reachable=True,
+            mode="active",
+            device="absent",
+            generation=4,
+            detail="matching interfaces are absent",
+        )
+
+    async def unreachable(*_: object, **__: object) -> bool:
+        return False
+
+    monkeypatch.setattr(discovery, "probe_bridge", bridge_status)
+    monkeypatch.setattr(discovery, "tcp_target_reachable", unreachable)
+    resolver = discovery.TransportDiscovery(
+        StationConfig(
+            socket_path=_socket(),
+            database_path=tmp_path / "absent.sqlite3",
+        )
+    )
+    assert await resolver.resolve_remote() is None
+    assert "reachable but its device is absent" in resolver.unavailable_detail()
+    assert resolver.to_wire()["bridge"]["reachable"] is True
+
+
+@pytest.mark.asyncio
+async def test_bridge_status_probe_validates_protocol() -> None:
+    async def serve(_: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        writer.write(
+            json.dumps(
+                {
+                    "protocol": 1,
+                    "mode": "active",
+                    "device": "connected",
+                    "generation": 3,
+                    "serial": "SERIAL",
+                    "detail": "ready",
+                }
+            ).encode()
+            + b"\n"
+        )
+        await writer.drain()
+        writer.close()
+        await writer.wait_closed()
+
+    server = await asyncio.start_server(serve, "127.0.0.1", 0)
+    try:
+        port = server.sockets[0].getsockname()[1]
+        status = await discovery.probe_bridge("127.0.0.1", port=port, wait_seconds=1)
+    finally:
+        server.close()
+        await server.wait_closed()
+    assert status is not None
+    assert status.available
+    assert status.generation == 3
 
 
 @pytest.mark.asyncio
@@ -401,10 +503,7 @@ class MissingSourceManifest(FakeManifest):
 
 
 def _manifest_data_names(client: StationClient) -> set[str]:
-    return {
-        str(item["name"])
-        for item in (client.manifest or {}).get("data", [])
-    }
+    return {str(item["name"]) for item in (client.manifest or {}).get("data", [])}
 
 
 @pytest.mark.asyncio
@@ -553,6 +652,34 @@ async def test_console_tcp_probe_is_not_reported_as_connected(
         assert "Console still unavailable: console connection closed" in messages
         assert not station.console.connected
     finally:
+        await station.close()
+        console_server.close()
+        await console_server.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_idle_console_tcp_is_a_live_connection(tmp_path: Path) -> None:
+    release = asyncio.Event()
+
+    async def idle_peer(
+        _reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
+        await release.wait()
+        writer.close()
+        await writer.wait_closed()
+
+    console_server = await asyncio.start_server(idle_peer, "127.0.0.1", 0)
+    port = console_server.sockets[0].getsockname()[1]
+    station, _ = await _start(
+        _config(tmp_path, console_target=f"tcp://127.0.0.1:{port}")
+    )
+    try:
+        await wait_until(lambda: station.console.connected)
+        await asyncio.sleep(0.3)
+        assert station.console.connected
+        assert station.console.last_error is None
+    finally:
+        release.set()
         await station.close()
         console_server.close()
         await console_server.wait_closed()

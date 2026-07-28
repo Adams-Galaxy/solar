@@ -9,9 +9,11 @@ from pathlib import Path
 from typing import Any
 
 from ..config import StationConfig
+from ..connectors import ConnectedTarget, open_target
 from ..database import StationDatabase
 from ..errors import StationError
 from ..models import RobotState
+from .discovery import TransportDiscovery
 from .events import EventHub
 from .sources import SourceRegistry
 
@@ -28,16 +30,19 @@ class SolarConnectionSupervisor:
         *,
         session_factory: Callable[[str, Path | None, float], Any] | None = None,
         inputs: Any = None,
+        discovery: TransportDiscovery | None = None,
     ):
         self.config = config
         self.database = database
         self.events = events
         self.sources = sources
-        self.session_factory = session_factory or self._default_session_factory
+        self.session_factory = session_factory
         self.inputs = inputs
+        self.discovery = discovery or TransportDiscovery(config)
         self.state = RobotState.DISCONNECTED
         self.target: str | None = None
         self.session: Any = None
+        self.connection: ConnectedTarget | None = None
         self.manifest: Any = None
         self.build_id: int | None = None
         self.session_id: int | None = None
@@ -49,13 +54,49 @@ class SolarConnectionSupervisor:
         self._online_generation = 0
         self._logged_error: str | None = None
 
-    @staticmethod
-    def _default_session_factory(
-        target: str, cache: Path | None, timeout: float
-    ) -> Any:
-        from solar_remote import connect
+    async def _open_session(self, target: str) -> Any:
+        if self.session_factory is not None:
+            session = self.session_factory(
+                target,
+                self.config.manifest_cache,
+                self.config.request_timeout,
+            )
+            await session.open()
+            return session
 
-        return connect(target, cache=cache, timeout=timeout)
+        from solar_remote import AsyncSession
+
+        self.connection = await open_target(target)
+        session = AsyncSession(
+            self.connection.channel,
+            cache=self.config.manifest_cache,
+            timeout=self.config.request_timeout,
+        )
+        try:
+            await session.start()
+        except BaseException:
+            await self.connection.close()
+            self.connection = None
+            raise
+        return session
+
+    async def _stop_session(self) -> None:
+        session, connection = self.session, self.connection
+        self.session = None
+        self.connection = None
+        if session is not None:
+            try:
+                if self.session_factory is None:
+                    await session.stop()
+                else:
+                    await session.close()
+            except BaseException:
+                pass
+        if connection is not None:
+            try:
+                await connection.close()
+            except BaseException:
+                pass
 
     async def start(self) -> None:
         self._task = asyncio.create_task(self._run(), name="station-solar-connection")
@@ -63,8 +104,7 @@ class SolarConnectionSupervisor:
     async def request_reconnect(self) -> None:
         LOGGER.info("Reconnect requested")
         self._reconnect.set()
-        if self.session is not None:
-            await self.session.close()
+        await self._stop_session()
 
     async def reconnect(self, wait_seconds: float) -> dict[str, Any]:
         if wait_seconds <= 0:
@@ -116,16 +156,11 @@ class SolarConnectionSupervisor:
 
     async def _resolve_target(self) -> str:
         if self.config.remote_target != "auto":
+            self.discovery.select_explicit_remote(self.config.remote_target)
             return self.config.remote_target
-        from .discovery import discover_remote_target
-
-        target = await discover_remote_target(
-            vid=self.config.usb_vid, pid=self.config.usb_pid
-        )
+        target = await self.discovery.resolve_remote()
         if target is None:
-            raise StationError(
-                "robot_offline", "no Solar Remote USB device or simulator found"
-            )
+            raise StationError("robot_offline", self.discovery.unavailable_detail())
         return target
 
     async def _run(self) -> None:
@@ -137,11 +172,8 @@ class SolarConnectionSupervisor:
                 await self._set_state(RobotState.CONNECTING)
                 target = await self._resolve_target()
                 self.target = target
-                session = self.session_factory(
-                    target, self.config.manifest_cache, self.config.request_timeout
-                )
+                session = await self._open_session(target)
                 self.session = session
-                await session.open()
                 await self._set_state(RobotState.RESOLVING_MANIFEST, target=target)
                 if session.manifest is None:
                     raise StationError(
@@ -205,12 +237,7 @@ class SolarConnectionSupervisor:
                 if self.inputs is not None:
                     await self.inputs.offline()
                 await self.sources.offline(reason)
-                if self.session is not None:
-                    try:
-                        await self.session.close()
-                    except BaseException:
-                        pass
-                self.session = None
+                await self._stop_session()
                 self.manifest = None
                 self.build_id = None
                 if self.session_id is not None:
@@ -246,11 +273,7 @@ class SolarConnectionSupervisor:
     async def close(self) -> None:
         self._stop.set()
         self._reconnect.set()
-        if self.session is not None:
-            try:
-                await self.session.close()
-            except BaseException:
-                pass
+        await self._stop_session()
         task, self._task = self._task, None
         if task is not None:
             task.cancel()

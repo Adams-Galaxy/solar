@@ -181,6 +181,7 @@ int main()
 {
     using namespace solar::remote;
     protocol::Envelope envelope{
+        .minor = 1,
         .kind = protocol::Kind::Request,
         .flags = protocol::Flags::Final,
         .session_epoch = 0x01020304,
@@ -243,6 +244,19 @@ int main()
     constexpr auto subscription_policy_bytes = protocol::encode(subscription_policy);
     static_assert(protocol::decode_subscription_policy(subscription_policy_bytes) ==
                   subscription_policy);
+    constexpr protocol::PingRequest ping_request{
+        .nonce = 0x0102030405060708ULL,
+        .host_monotonic_ns = 0x1112131415161718ULL,
+    };
+    static_assert(protocol::decode_ping_request(protocol::encode(ping_request)) == ping_request);
+    constexpr protocol::PingResponse ping_response{
+        .nonce = ping_request.nonce,
+        .host_monotonic_ns = ping_request.host_monotonic_ns,
+        .remote_receive_us = 100,
+        .remote_send_us = 104,
+    };
+    static_assert(protocol::decode_ping_response(protocol::encode(ping_response)) ==
+                  ping_response);
     constexpr protocol::InStreamOpenResponse opened{
         .policy = subscription_policy,
         .token = 0x11223344,

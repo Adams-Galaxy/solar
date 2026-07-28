@@ -40,7 +40,7 @@ class StationDatabase:
             ) from error
         self._lock_descriptor = descriptor
         try:
-            connection = sqlite3.connect(self.path)
+            connection = sqlite3.connect(self.path, check_same_thread=False)
             connection.row_factory = sqlite3.Row
             connection.execute("PRAGMA journal_mode=WAL")
             connection.execute("PRAGMA foreign_keys=ON")
@@ -294,6 +294,42 @@ class StationDatabase:
             )
             self.connection.commit()
             return int(cursor.lastrowid)
+
+    async def store_events(
+        self,
+        events: list[tuple[Any, int | None]],
+    ) -> None:
+        """Persist a batch in one transaction without blocking the event loop."""
+        if not events:
+            return
+        rows = [
+            (
+                event.wall_ns,
+                event.monotonic_ns,
+                robot_session_id,
+                event.source_key,
+                event.source_kind,
+                event.endpoint_id,
+                event.schema_id,
+                event.manifest_digest,
+                cbor2.dumps(normalize(event.value), canonical=True),
+            )
+            for event, robot_session_id in events
+        ]
+        async with self._lock:
+            await asyncio.to_thread(self._insert_event_rows, rows)
+
+    def _insert_event_rows(self, rows: list[tuple[Any, ...]]) -> None:
+        self.connection.executemany(
+            """
+            INSERT INTO events(
+                wall_ns, monotonic_ns, robot_session_id, source_key,
+                source_kind, endpoint_id, schema_id, manifest_digest, payload
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            rows,
+        )
+        self.connection.commit()
 
     async def query_events(
         self,
