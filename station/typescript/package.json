@@ -1,0 +1,29 @@
+{
+  "name": "@solar/station",
+  "version": "0.2.0",
+  "description": "Browser TypeScript client for Solar Station",
+  "type": "module",
+  "files": ["dist", "README.md"],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "prepack": "npm run build"
+  },
+  "dependencies": {
+    "cborg": "^4.3.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2",
+    "vitest": "^4.0.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

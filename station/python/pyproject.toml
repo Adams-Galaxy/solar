@@ -12,6 +12,7 @@ dependencies = [
     "platformdirs>=4.0",
     "pyserial>=3.5",
     "solar-remote>=0.1.0",
+    "websockets>=14,<17",
 ]
 
 [project.optional-dependencies]

@@ -19,6 +19,13 @@ _LENGTH = struct.Struct("<I")
 def encode_message(
     message: Mapping[str, Any], maximum: int = DEFAULT_MAXIMUM_MESSAGE
 ) -> bytes:
+    body = encode_body(message, maximum)
+    return _LENGTH.pack(len(body)) + body
+
+
+def encode_body(
+    message: Mapping[str, Any], maximum: int = DEFAULT_MAXIMUM_MESSAGE
+) -> bytes:
     try:
         body = cbor2.dumps(dict(message), canonical=True)
     except (TypeError, ValueError, cbor2.CBOREncodeError) as error:
@@ -27,7 +34,7 @@ def encode_message(
         raise ProtocolError(
             f"IPC message size {len(body)} is outside the limit {maximum}"
         )
-    return _LENGTH.pack(len(body)) + body
+    return body
 
 
 def decode_message(

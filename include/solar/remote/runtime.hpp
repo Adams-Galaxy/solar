@@ -1814,6 +1814,32 @@ void send_in_stream_credit(std::uint16_t credits, std::uint32_t correlation = 0)
         static_cast<std::uint8_t>(protocol::OperationKind::InStream));
 }
 
+template <typename System, typename DataT, typename LinkT, std::uint16_t LinkIndex>
+void restore_in_stream_credit(std::uint32_t token, std::uint32_t generation) noexcept
+{
+    auto& state = in_stream_state<System, DataT>();
+    {
+        auto guard = state.lock.acquire();
+        if (!state.active[LinkIndex] || state.token[LinkIndex] != token ||
+            state.generation[LinkIndex] != generation) {
+            return;
+        }
+    }
+
+    // A sender spends credit before transmitting. Rate rejection does not
+    // consume the corresponding firmware slot, so re-advertise that one
+    // credit without changing the firmware's available-credit count.
+    constexpr auto window = InStreamTraits<DataT>::window;
+    const auto payload = protocol::encode(protocol::CreditGrant{
+        .token = token,
+        .credits = 1,
+        .window = static_cast<std::uint16_t>(window),
+    });
+    (void)System::RemoteService::template transmit<LinkT, LinkIndex>(
+        protocol::Kind::Credit, payload, 0, DataT::descriptor.id.value, protocol::Flags::None,
+        static_cast<std::uint8_t>(protocol::OperationKind::InStream));
+}
+
 template <typename System, typename DataT, typename... LinkTypes, std::size_t... Indices>
 void send_in_stream_credit_on_link(std::uint16_t link, std::uint16_t credits,
                                    TypeList<LinkTypes...>, std::index_sequence<Indices...>) noexcept
@@ -3302,6 +3328,7 @@ void execute_in_stream_frame(const frame::Decoded& decoded) noexcept
         bool rate_violation{};
         bool admitted{};
         std::uint32_t admitted_generation{};
+        std::uint32_t rejected_generation{};
         {
             auto guard = state.lock.acquire();
             const auto token = decoded.envelope.request_id;
@@ -3321,6 +3348,7 @@ void execute_in_stream_frame(const frame::Decoded& decoded) noexcept
             } else if (state.last_admitted[LinkIndex] != 0 && interval != 0 &&
                        now - state.last_admitted[LinkIndex] < interval) {
                 rate_violation = true;
+                rejected_generation = state.generation[LinkIndex];
                 ++state.rejected;
             } else {
                 const auto begin = LinkIndex * state.window;
@@ -3348,6 +3376,10 @@ void execute_in_stream_frame(const frame::Decoded& decoded) noexcept
             }
         }
         if (!admitted) {
+            if (rate_violation) {
+                restore_in_stream_credit<System, DataT, LinkT, LinkIndex>(
+                    decoded.envelope.request_id, rejected_generation);
+            }
             (void)ServiceT::template protocol_error<LinkT, LinkIndex>(
                 0, decoded.envelope.target,
                 rate_violation

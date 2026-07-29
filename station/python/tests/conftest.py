@@ -273,6 +273,7 @@ async def running_server(tmp_path: Path):
     config = StationConfig(
         socket_path=socket_path,
         database_path=tmp_path / "station.sqlite3",
+        websocket_host=None,
         remote_target="fake://robot",
         console_target=None,
         reconnect_initial=0.01,

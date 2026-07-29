@@ -124,6 +124,23 @@ struct RejectingCommands
         solar::remote::ReliableWindow<1>, solar::remote::Inline>>;
 };
 
+struct RateLimitedCommands
+{
+    static constexpr solar::remote::DataDescriptor descriptor{
+        .id = solar::remote::DataId{0xC104},
+        .name = "fixture.commands.rate-limited",
+    };
+    using Value = Setpoint;
+    inline static std::atomic_uint32_t consumed{};
+    static void consume(const Value&)
+    {
+        consumed.fetch_add(1);
+    }
+    using Capabilities = solar::remote::Capabilities<
+        solar::remote::InStream<&RateLimitedCommands::consume, solar::remote::ReliableWindow<2>,
+                                solar::remote::MaxRate<1>, solar::remote::Inline>>;
+};
+
 struct TestLink : solar::remote::testing::InMemoryLink<TestLink, 256, 256>
 {
     static constexpr solar::remote::LinkDescriptor descriptor{
@@ -136,8 +153,8 @@ struct TestLink : solar::remote::testing::InMemoryLink<TestLink, 256, 256>
 struct Root
 {
     static constexpr solar::component::Descriptor descriptor{.name = "fixture.inbound.root"};
-    using RemoteData =
-        solar::remote::ContributeData<Commands, AlternateCommands, RejectingCommands>;
+    using RemoteData = solar::remote::ContributeData<Commands, AlternateCommands, RejectingCommands,
+                                                     RateLimitedCommands>;
     using RemoteLinks = solar::remote::ContributeLinks<TestLink>;
 };
 
@@ -176,6 +193,21 @@ solar::Result<solar::remote::frame::Decoded, solar::remote::Error> receive_frame
             return solar::remote::frame::decode(std::span{host_bytes}.first(*bytes), decoded_bytes);
         }
         k_sleep(K_MSEC(1));
+    }
+    return solar::fail<solar::remote::Error>({.status = solar::Status::Timeout});
+}
+
+solar::Result<solar::remote::frame::Decoded, solar::remote::Error>
+receive_frame(solar::remote::protocol::Kind kind, std::uint16_t target)
+{
+    for (int attempt = 0; attempt < 8; ++attempt) {
+        auto decoded = receive_frame();
+        if (!decoded) {
+            return decoded;
+        }
+        if (decoded->envelope.kind == kind && decoded->envelope.target == target) {
+            return decoded;
+        }
     }
     return solar::fail<solar::remote::Error>({.status = solar::Status::Timeout});
 }
@@ -272,6 +304,23 @@ void inject_alternate(std::uint32_t frame_sequence, std::uint32_t token,
         .session_epoch = 1,
         .frame_sequence = frame_sequence,
         .target = fixture::AlternateCommands::descriptor.id.value,
+        .request_id = token,
+        .fragment_count = 1,
+    };
+    envelope.set_operation(solar::remote::protocol::OperationKind::InStream);
+    inject(envelope, std::span{payload}.first(*encoded));
+}
+
+void inject_rate_limited(std::uint32_t frame_sequence, std::uint32_t token, std::uint32_t value)
+{
+    std::array<std::byte, 32> payload{};
+    auto encoded = solar::remote::cbor::encode(fixture::Setpoint{.sequence = value}, payload);
+    zassert_true(encoded.has_value());
+    solar::remote::protocol::Envelope envelope{
+        .kind = solar::remote::protocol::Kind::Data,
+        .session_epoch = 1,
+        .frame_sequence = frame_sequence,
+        .target = fixture::RateLimitedCommands::descriptor.id.value,
         .request_id = token,
         .fragment_count = 1,
     };
@@ -512,8 +561,66 @@ ZTEST(remote_in_stream, test_credit_window_owns_orders_and_releases_values)
         fixture::AlternateCommands::close_reason.load(),
         static_cast<std::uint8_t>(solar::remote::InStreamCloseReason::Closed));
 
-    replace.frame_sequence = 14;
-    replace.request_id = 5;
+    solar::remote::protocol::Envelope rate_open{
+        .kind = solar::remote::protocol::Kind::Subscribe,
+        .session_epoch = 1,
+        .frame_sequence = 14,
+        .target = fixture::RateLimitedCommands::descriptor.id.value,
+        .request_id = 5,
+        .fragment_count = 1,
+    };
+    rate_open.set_subscription(solar::remote::protocol::SubscriptionKind::DataInStream);
+    inject(rate_open, open_request);
+    auto rate_response = receive_frame(solar::remote::protocol::Kind::Response,
+                                       fixture::RateLimitedCommands::descriptor.id.value);
+    zassert_true(rate_response.has_value());
+    zassert_equal(rate_response->envelope.kind, solar::remote::protocol::Kind::Response);
+    auto rate_opened =
+        solar::remote::protocol::decode_in_stream_open_response(rate_response->payload);
+    zassert_true(rate_opened.has_value());
+    const auto rate_token = rate_opened->token;
+    auto rate_initial_credit = receive_frame(solar::remote::protocol::Kind::Credit,
+                                             fixture::RateLimitedCommands::descriptor.id.value);
+    zassert_true(rate_initial_credit.has_value());
+    auto rate_initial_grant =
+        solar::remote::protocol::decode_credit_grant(rate_initial_credit->payload);
+    zassert_true(rate_initial_grant.has_value());
+    zassert_equal(rate_initial_grant->credits, 2);
+    zassert_equal(rate_initial_grant->token, rate_token);
+    auto& rate_state =
+        solar::remote::detail::in_stream_state<fixture::System, fixture::RateLimitedCommands>();
+    {
+        auto guard = rate_state.lock.acquire();
+        zassert_true(rate_state.active[0]);
+        zassert_equal(rate_state.token[0], rate_token);
+        zassert_equal(rate_state.last_sequence[0], 0);
+        zassert_equal(rate_state.credits[0], 2);
+    }
+
+    inject_rate_limited(15, rate_token, 1);
+    auto rate_returned_credit = receive_frame(solar::remote::protocol::Kind::Credit,
+                                              fixture::RateLimitedCommands::descriptor.id.value);
+    zassert_true(rate_returned_credit.has_value());
+    inject_rate_limited(16, rate_token, 2);
+    auto rate_restored_credit = receive_frame(solar::remote::protocol::Kind::Credit,
+                                              fixture::RateLimitedCommands::descriptor.id.value);
+    zassert_true(rate_restored_credit.has_value());
+    zassert_equal(rate_restored_credit->envelope.kind, solar::remote::protocol::Kind::Credit);
+    auto restored_grant =
+        solar::remote::protocol::decode_credit_grant(rate_restored_credit->payload);
+    zassert_true(restored_grant.has_value());
+    zassert_equal(restored_grant->token, rate_token);
+    zassert_equal(restored_grant->credits, 1);
+    auto rate_rejection = receive_frame(solar::remote::protocol::Kind::Error,
+                                        fixture::RateLimitedCommands::descriptor.id.value);
+    zassert_true(rate_rejection.has_value());
+    zassert_equal(rate_rejection->envelope.kind, solar::remote::protocol::Kind::Error);
+    zassert_equal(solar::remote::protocol::detail::get_u16(rate_rejection->payload, 0),
+                  static_cast<std::uint16_t>(solar::remote::protocol::ErrorCode::RateRejected));
+    zassert_equal(fixture::RateLimitedCommands::consumed.load(), 1);
+
+    replace.frame_sequence = 17;
+    replace.request_id = 6;
     inject(replace, open_request);
     auto reopened_response = receive_frame();
     auto reopened_credit = receive_frame();
@@ -526,7 +633,7 @@ ZTEST(remote_in_stream, test_credit_window_owns_orders_and_releases_values)
     inject(solar::remote::protocol::Envelope{
         .kind = solar::remote::protocol::Kind::SessionReset,
         .session_epoch = 1,
-        .frame_sequence = 15,
+        .frame_sequence = 18,
         .fragment_count = 1,
     });
     auto reset_hello = receive_frame();

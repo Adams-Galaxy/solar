@@ -21,6 +21,7 @@ from .ipc import UnixSocketServer
 from .modules import ModuleFactory, ModuleManager
 from .recorder import Recorder
 from .sources import SourceRegistry
+from .websocket import WebSocketServer
 
 LOGGER = logging.getLogger("solar_station.server")
 
@@ -58,6 +59,7 @@ class StationHost:
             config, self.events, self.connection, self.discovery
         )
         self.ipc = UnixSocketServer(self)
+        self.websocket = WebSocketServer(self)
         self.modules = ModuleManager(self, module_factories)
         self._stop = asyncio.Event()
         self._started_ns = time.time_ns()
@@ -74,8 +76,13 @@ class StationHost:
         if migrate_legacy_database(self.config.database_path):
             LOGGER.info("Migrated legacy database to %s", self.config.database_path)
         LOGGER.info(
-            "Starting (socket=%s, database=%s)",
+            "Starting (socket=%s, websocket=%s, database=%s)",
             self.config.socket_path,
+            (
+                f"ws://{self.config.websocket_host}:{self.config.websocket_port}/station"
+                if self.config.websocket_host is not None
+                else "disabled"
+            ),
             self.config.database_path,
         )
         try:
@@ -83,7 +90,9 @@ class StationHost:
             await self.recorder.initialize()
             await self.sources.initialize()
             await self.ipc.start()
+            await self.websocket.start()
             self.events.add_sink(self.ipc.broadcast)
+            self.events.add_sink(self.websocket.broadcast)
             await self.connection.start()
             await self.console.start()
             await self.modules.start()
@@ -168,8 +177,16 @@ class StationHost:
                 "id": self.events.server_id,
                 "started_ns": self._started_ns,
                 "socket": str(self.config.socket_path),
+                "websocket": (
+                    f"ws://{self.config.websocket_host}:"
+                    f"{self.config.websocket_port}/station"
+                    if self.config.websocket_host is not None
+                    else None
+                ),
                 "database": str(self.config.database_path),
-                "clients": len(self.ipc.clients),
+                "clients": len(self.ipc.clients) + len(self.websocket.clients),
+                "unix_clients": len(self.ipc.clients),
+                "websocket_clients": len(self.websocket.clients),
                 "live_sequence": self.events.live_sequence,
                 "persistence_dropped": self.recorder.dropped_count,
             },
@@ -392,7 +409,9 @@ class StationHost:
         if publish and self.database.is_open:
             await self.events.publish_server_state("stopping")
         await self.modules.close()
+        await self.websocket.close()
         await self.ipc.close()
+        self.events.remove_sink(self.websocket.broadcast)
         self.events.remove_sink(self.ipc.broadcast)
         await self.console.close()
         await self.connection.close()

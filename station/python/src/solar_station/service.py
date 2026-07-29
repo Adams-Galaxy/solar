@@ -72,6 +72,12 @@ def parser() -> argparse.ArgumentParser:
     )
     result.add_argument("--socket", type=Path, default=default_socket_path())
     result.add_argument("--database", type=Path, default=default_database_path())
+    result.add_argument(
+        "--websocket-host",
+        default="0.0.0.0",
+        help="WebSocket bind host, or none to disable",
+    )
+    result.add_argument("--websocket-port", type=int, default=47002)
     result.add_argument("--remote", default="auto", help="Remote target URL or auto")
     result.add_argument(
         "--console", default="auto", help="Console target URL, auto, or none"
@@ -113,9 +119,16 @@ async def async_main(argv: Sequence[str] | None = None) -> int:
         if options.bridge.lower() in ("none", "off", "disabled")
         else options.bridge
     )
+    websocket_host = (
+        None
+        if options.websocket_host.lower() in ("none", "off", "disabled")
+        else options.websocket_host
+    )
     config = StationConfig(
         socket_path=options.socket.expanduser(),
         database_path=options.database.expanduser(),
+        websocket_host=websocket_host,
+        websocket_port=options.websocket_port,
         remote_target=remote,
         console_target=console,
         usb_vid=options.vid,

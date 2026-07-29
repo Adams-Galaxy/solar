@@ -34,6 +34,7 @@ def _config(
     return StationConfig(
         socket_path=socket_path or _socket(),
         database_path=database_path or tmp_path / "station.sqlite3",
+        websocket_host=None,
         remote_target="fake://robot",
         console_target=console_target,
         reconnect_initial=0.01,
@@ -162,6 +163,7 @@ async def test_auto_discovery_selects_and_pairs_solar_bridge(
     config = StationConfig(
         socket_path=_socket(),
         database_path=tmp_path / "bridge.sqlite3",
+        websocket_host=None,
         bridge_host="robot-bridge.local",
     )
     resolver = discovery.TransportDiscovery(config)
@@ -203,6 +205,7 @@ async def test_bridge_absence_is_preserved_when_no_transport_is_available(
         StationConfig(
             socket_path=_socket(),
             database_path=tmp_path / "absent.sqlite3",
+            websocket_host=None,
         )
     )
     assert await resolver.resolve_remote() is None

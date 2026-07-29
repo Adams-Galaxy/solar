@@ -48,6 +48,7 @@ async def test_station_modules_are_shared_and_publish_events(
     config = StationConfig(
         socket_path=Path("/tmp") / f"station-module-{uuid4().hex}.sock",
         database_path=tmp_path / "station.sqlite3",
+        websocket_host=None,
         remote_target="fake://robot",
         console_target=None,
         reconnect_initial=0.01,
@@ -72,9 +73,7 @@ async def test_station_modules_are_shared_and_publish_events(
 
             subscription = await second.subscribe("module.fixture.controls")
             async with subscription:
-                result = await first.module_request(
-                    "fixture.controls", "set", value=42
-                )
+                result = await first.module_request("fixture.controls", "set", value=42)
                 event = await subscription.__anext__()
             assert result == {"value": 42}
             assert event["value"]["event"] == "changed"

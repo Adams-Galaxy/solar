@@ -59,6 +59,8 @@ def migrate_legacy_database(destination: Path, *, legacy: Path | None = None) ->
 class StationConfig:
     socket_path: Path
     database_path: Path
+    websocket_host: str | None = "0.0.0.0"
+    websocket_port: int = 47002
     remote_target: str = "auto"
     console_target: str | None = "auto"
     manifest_cache: Path | None = None

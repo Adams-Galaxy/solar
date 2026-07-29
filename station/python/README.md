@@ -130,9 +130,16 @@ background writer commits batches by size or deadline. Log reads and recording
 boundaries flush admitted events; `status()` reports `persistence_dropped` if
 the writer cannot keep up.
 
-The initial listener is canonical CBOR over a length-prefixed Unix stream.
-The request/event model is transport-neutral so a binary-CBOR WebSocket
-listener can expose the same service contract later.
+Station exposes the same IPC version 1 request/event contract through two
+listeners:
+
+- canonical CBOR over the length-prefixed Unix stream;
+- one canonical CBOR map per binary WebSocket frame at
+  `ws://0.0.0.0:47002/station`.
+
+Use `--websocket-host` and `--websocket-port` to change the network listener,
+or `--websocket-host none` to disable it. The WebSocket listener intentionally
+has no authentication or TLS and should only be exposed on trusted networks.
 
 ## Process API
 
