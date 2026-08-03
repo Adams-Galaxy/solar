@@ -597,6 +597,7 @@ ZTEST(solar_kernel_execution, test_triggered_work_and_poll_lifetime)
     signal.reset();
     zassert_true(work.arm(events).has_value());
     zassert_equal(solar::status_of(events.clear().error()), solar::Status::Busy);
+    zassert_equal(solar::status_of(events.try_wait().error()), solar::Status::Busy);
     zassert_true(work.replace(replacement_events).has_value());
     zassert_equal(result_status(events.clear()), solar::Status::Ok);
     zassert_equal(solar::status_of(replacement_events.clear().error()), solar::Status::Busy);
@@ -630,6 +631,34 @@ ZTEST(solar_kernel_execution, test_triggered_work_and_poll_lifetime)
     const auto empty_submission = invalid.arm(empty);
     zassert_false(empty_submission.has_value());
     zassert_equal(empty_submission.error().reason, kernel::WorkErrorReason::InvalidEvents);
+}
+
+ZTEST(solar_kernel_execution, test_triggered_work_rejects_cross_queue_replacement)
+{
+    kernel::WorkQueue<2048> first_queue;
+    kernel::WorkQueue<2048> second_queue;
+    const kernel::WorkQueueConfiguration configuration{.priority =
+                                                           kernel::Priority::preemptive<1>()};
+    zassert_equal(result_status(first_queue.start(configuration)), solar::Status::Ok);
+    zassert_equal(result_status(second_queue.start(configuration)), solar::Status::Ok);
+
+    kernel::PollSignal signal;
+    kernel::PollSet<1> events;
+    kernel::TriggeredWork work{&triggered_work};
+    zassert_equal(result_status(events.add(signal)), solar::Status::Ok);
+    zassert_true(work.arm(events, first_queue.target()).has_value());
+    const auto replacement = work.replace(events, second_queue.target());
+    zassert_false(replacement.has_value());
+    zassert_equal(replacement.error().reason, kernel::WorkErrorReason::DifferentQueue);
+    zassert_equal(replacement.error().native_error, -EADDRINUSE);
+    zassert_true(work.cancel_sync().has_value());
+
+    zassert_true(first_queue.drain(true).has_value());
+    zassert_equal(result_status(first_queue.stop(kernel::Timeout::after(100ms))),
+                  solar::Status::Ok);
+    zassert_true(second_queue.drain(true).has_value());
+    zassert_equal(result_status(second_queue.stop(kernel::Timeout::after(100ms))),
+                  solar::Status::Ok);
 }
 
 ZTEST(solar_kernel_execution, test_memory_slab_pipe_and_spinlock)

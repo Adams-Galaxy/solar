@@ -118,6 +118,24 @@ size and returns `Status::Invalid` instead of relying on an assertion.
 
 Custom workqueues expose `target()`, a narrow `WorkQueueTarget` capability that
 allows submission without allowing queue reinitialization or lifecycle changes.
+A queue is stopped only through Zephyr's supported drain-and-plug followed by
+`stop()` sequence; Solar does not expose thread abort as a queue lifecycle
+operation. `WorkQueueLifecycle` reports only initialization, a successful
+start, and a successful stop.
+
+`Work` and `DelayableWork` preserve Zephyr's three submission outcomes:
+already queued, newly queued, and requeued after the current handler. Triggered
+work uses `arm()` for its initial event set and `replace()` for Zephyr's
+explicit resubmission behavior. While armed, Solar rejects mutation and direct
+waiting on that `PollSet`; its event storage must still outlive execution or
+cancellation. Replacement is subject to Zephyr's documented race with a
+handler that has begun and reports the native `-EINVAL` as busy.
+
+`PollState` is a native-compatible bitmask rather than a single synthetic
+state. Use `has_state()` when inspecting potentially combined states. Signals,
+semaphores, typed message queues, and pipes are currently supported poll
+sources; cancellation results retain inspectable event state.
+
 A reference or target must never outlive its native object. Direct Zephyr calls
 remain the supported path for kernel facilities that Solar has not wrapped.
 

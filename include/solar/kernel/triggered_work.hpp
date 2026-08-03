@@ -24,7 +24,14 @@ namespace detail
         return {
             .status = Status::Busy, .reason = WorkErrorReason::Busy, .native_error = native_error};
     }
-    return work_error(native_error);
+    if (native_error == -EADDRINUSE) {
+        return {.status = Status::Already,
+                .reason = WorkErrorReason::DifferentQueue,
+                .native_error = native_error};
+    }
+    return {.status = status_from_errno(native_error),
+            .reason = WorkErrorReason::Native,
+            .native_error = native_error};
 }
 
 } // namespace detail

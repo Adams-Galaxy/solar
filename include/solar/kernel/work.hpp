@@ -67,7 +67,7 @@ enum class WorkState : std::uint32_t
 namespace detail
 {
 
-[[nodiscard]] constexpr WorkError work_error(int native_error) noexcept
+[[nodiscard]] constexpr WorkError submission_error(int native_error) noexcept
 {
     switch (native_error) {
     case -EBUSY:
@@ -81,10 +81,6 @@ namespace detail
     case -ENODEV:
         return {.status = solar::Status::NotReady,
                 .reason = WorkErrorReason::QueueNotStarted,
-                .native_error = native_error};
-    case -EADDRINUSE:
-        return {.status = solar::Status::Already,
-                .reason = WorkErrorReason::DifferentQueue,
                 .native_error = native_error};
     default:
         return {.status = status_from_errno(native_error),
@@ -103,7 +99,7 @@ namespace detail
     case 2:
         return WorkSubmission::RequeuedAfterCurrent;
     default:
-        return fail<WorkError>(work_error(result));
+        return fail<WorkError>(submission_error(result));
     }
 }
 
