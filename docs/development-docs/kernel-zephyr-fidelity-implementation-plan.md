@@ -165,8 +165,8 @@ exact Zephyr recursive behavior and may provide `RecursiveMutexRef`.
 | 6 | Work, workqueues, triggered work, and poll | complete |
 | 7 | Diagnostics, fatal handling, and stop tokens | complete |
 | 8 | Intrusive queues, FIFO, LIFO, and kernel stack | complete |
-| 9 | Heap, PMR, and storage statistics | in progress |
-| 10 | Mailbox | not started |
+| 9 | Heap, PMR, and storage statistics | complete |
+| 10 | Mailbox | in progress |
 | 11 | Application and robot migration | not started |
 | 12 | Configuration matrix, documentation, and hardening | not started |
 

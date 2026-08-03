@@ -6,6 +6,7 @@
 #include "solar/kernel/diagnostics.hpp"
 #include "solar/kernel/event_flags.hpp"
 #include "solar/kernel/fatal.hpp"
+#include "solar/kernel/heap.hpp"
 #include "solar/kernel/interrupt.hpp"
 #include "solar/kernel/intrusive_queue.hpp"
 #include "solar/kernel/memory_slab.hpp"

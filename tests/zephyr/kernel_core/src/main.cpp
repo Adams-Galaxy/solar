@@ -3,11 +3,15 @@
 #include <cerrno>
 #include <chrono>
 #include <cstdint>
+#include <cstring>
 #include <limits>
+#include <memory_resource>
 #include <type_traits>
+#include <vector>
 
 #include <zephyr/irq_offload.h>
 #include <zephyr/ztest.h>
+#include <zephyr/ztest_error_hook.h>
 
 #include <solar/kernel.hpp>
 
@@ -182,8 +186,12 @@ struct IntrusiveIsrContext
     kernel::Queue<std::uint32_t>* queue{};
     kernel::IntrusiveNode<std::uint32_t>* node{};
     kernel::Stack<std::uint32_t, 2>* stack{};
+    kernel::Heap<128>* heap{};
     solar::Status queue_status{solar::Status::Error};
     solar::Status stack_status{solar::Status::Error};
+    solar::Status heap_status{solar::Status::Error};
+    solar::Status heap_thread_status{solar::Status::Error};
+    void* heap_memory{};
 };
 
 void exercise_intrusive_isr(const void* argument)
@@ -191,6 +199,11 @@ void exercise_intrusive_isr(const void* argument)
     auto& context = *static_cast<IntrusiveIsrContext*>(const_cast<void*>(argument));
     context.queue_status = result_status(context.queue->append(*context.node));
     context.stack_status = result_status(context.stack->push(42));
+    const auto ordinary = context.heap->try_allocate(8);
+    context.heap_thread_status = ordinary ? solar::Status::Ok : solar::status_of(ordinary.error());
+    const auto allocated = context.heap->try_allocate_isr(8);
+    context.heap_status = allocated ? solar::Status::Ok : solar::status_of(allocated.error());
+    context.heap_memory = allocated ? *allocated : nullptr;
 }
 
 void exercise_isr(const void* argument)
@@ -646,12 +659,84 @@ ZTEST(solar_kernel_core, test_intrusive_queue_fifo_lifo_and_word_stack)
     zassert_equal(*pointer_stack.try_pop(), &pointed_value);
 
     Node isr_node{42};
-    IntrusiveIsrContext isr_context{.queue = &queue, .node = &isr_node, .stack = &stack};
+    kernel::Heap<128> isr_heap;
+    IntrusiveIsrContext isr_context{
+        .queue = &queue, .node = &isr_node, .stack = &stack, .heap = &isr_heap};
     irq_offload(exercise_intrusive_isr, &isr_context);
     zassert_equal(isr_context.queue_status, solar::Status::Ok);
     zassert_equal(isr_context.stack_status, solar::Status::Ok);
+    zassert_equal(isr_context.heap_thread_status, solar::Status::Invalid);
+    zassert_equal(isr_context.heap_status, solar::Status::Ok);
     zassert_equal((*queue.try_get())->value(), 42);
     zassert_equal(*stack.try_pop(), 42);
+    zassert_equal(result_status(isr_heap.free(isr_context.heap_memory)), solar::Status::Ok);
+}
+
+ZTEST(solar_kernel_core, test_fixed_heap_allocation_reallocation_and_pmr)
+{
+    kernel::Heap<1024> heap;
+    const auto memory = heap.try_allocate(32);
+    zassert_true(memory.has_value());
+    zassert_true(heap.owns(*memory));
+    std::memset(*memory, 0x5A, 32);
+
+    const auto resized = heap.reallocate(*memory, 64, kernel::Timeout::no_wait());
+    zassert_true(resized.has_value());
+    zassert_true(heap.owns(*resized));
+    const auto* bytes = static_cast<const std::uint8_t*>(*resized);
+    for (std::size_t index = 0; index < 32; ++index) {
+        zassert_equal(bytes[index], 0x5A);
+    }
+    zassert_equal(result_status(heap.free(*resized)), solar::Status::Ok);
+
+    const auto aligned = heap.aligned_allocate(32, 48, kernel::Timeout::no_wait());
+    zassert_true(aligned.has_value());
+    zassert_equal(reinterpret_cast<std::uintptr_t>(*aligned) % 32, 0);
+    zassert_equal(result_status(heap.free(*aligned)), solar::Status::Ok);
+    zassert_equal(result_status(heap.aligned_allocate(3, 8).error()), solar::Status::Invalid);
+
+    const auto zeroed = heap.allocate_zeroed(8, sizeof(std::uint32_t), kernel::Timeout::no_wait());
+    zassert_true(zeroed.has_value());
+    const auto* values = static_cast<const std::uint32_t*>(*zeroed);
+    for (std::size_t index = 0; index < 8; ++index) {
+        zassert_equal(values[index], 0);
+    }
+    zassert_equal(result_status(heap.free(*zeroed)), solar::Status::Ok);
+
+    kernel::HeapResource resource{heap.ref(), kernel::HeapResourceFailure::Panic};
+    zassert_equal(resource.failure_policy(), kernel::HeapResourceFailure::Panic);
+    std::pmr::vector<std::uint32_t> vector{&resource};
+    vector.reserve(8);
+    vector.push_back(7);
+    vector.push_back(11);
+    zassert_true(heap.owns(vector.data()));
+    zassert_equal(vector[0], 7);
+    zassert_equal(vector[1], 11);
+
+    kernel::Heap<128> small;
+    const auto impossible = small.try_allocate(1024);
+    zassert_false(impossible.has_value());
+    zassert_equal(result_status(impossible.error()), solar::Status::NoMemory);
+    const auto timed_out = small.allocate(1024, kernel::Timeout::after(2ms));
+    zassert_false(timed_out.has_value());
+    zassert_equal(result_status(timed_out.error()), solar::Status::Timeout);
+
+    k_heap native_heap{};
+    alignas(8) std::array<std::byte, 128> native_storage{};
+    k_heap_init(&native_heap, native_storage.data(), native_storage.size());
+    kernel::HeapRef borrowed{native_heap};
+    const auto borrowed_memory = borrowed.try_allocate(16);
+    zassert_true(borrowed_memory.has_value());
+    zassert_equal(result_status(borrowed.free(*borrowed_memory)), solar::Status::Ok);
+}
+
+ZTEST(solar_kernel_core, test_pmr_exhaustion_uses_explicit_panic_policy)
+{
+    kernel::Heap<128> heap;
+    kernel::HeapResource resource{heap.ref(), kernel::HeapResourceFailure::Panic};
+    ztest_set_fault_valid(true);
+    (void)resource.allocate(1024, alignof(std::max_align_t));
+    ztest_test_fail();
 }
 
 ZTEST(solar_kernel_core, test_timer_callback_context_and_sync)

@@ -92,6 +92,18 @@ solar::kernel::ThreadOptions invalid_user_mode{K_USER};
 solar::kernel::Stack<std::int32_t, 2> invalid_stack_value;
 #elif SOLAR_FAIL_CASE == 29
 solar::kernel::Stack<std::uint32_t, 0> invalid_stack_capacity;
+#elif SOLAR_FAIL_CASE == 30
+solar::kernel::Heap<1> invalid_heap_size;
+#elif SOLAR_FAIL_CASE == 31
+solar::kernel::Heap<128, 3> invalid_heap_alignment;
+#elif SOLAR_FAIL_CASE == 32
+void invalid_native_access(solar::kernel::Heap<128>& heap)
+{
+    (void)heap.native_handle();
+}
+#elif SOLAR_FAIL_CASE == 33
+solar::kernel::Heap<128> heap;
+solar::kernel::HeapResource implicit_failure_policy{heap.ref()};
 #else
 #error SOLAR_DIAGNOSTIC_UNKNOWN_KERNEL_FAILURE_CASE
 #endif

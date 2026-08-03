@@ -15,6 +15,7 @@ component, or add lifecycle ownership.
 | Zero-copy node transfer | `Queue<T>`, `Fifo<T>`, `Lifo<T>` |
 | Byte streams | `Pipe<N>` |
 | Fixed-block allocation | `MemorySlab<BlockBytes, Count>` |
+| Bounded dynamic allocation | `Heap<Bytes, Alignment>`, `HeapResource` |
 | Machine-word LIFO values | `Stack<T, N>` |
 | Dedicated execution | `Thread<StackBytes>` |
 | Deferred callbacks | `Work`, `DelayableWork`, `TriggeredWork` |
@@ -71,6 +72,20 @@ offer the narrower ordering-specific spellings.
 unsigned-backed enums, and pointers that round-trip through `stack_data_t`;
 signed or wider values are rejected at compile time. This kernel stack is a
 synchronized LIFO value container and is unrelated to a thread call stack.
+
+`Heap<Bytes, Alignment>` owns a fixed aligned byte region and wraps Zephyr's
+synchronized `k_heap`; heap metadata is stored inside that region, so usable
+payload is intentionally smaller than `Bytes`. `HeapRef` borrows a Solar or
+native heap. Allocation, aligned allocation, zeroed allocation, and
+reallocation provide blocking, deadline, no-wait, and explicit no-wait ISR
+forms. Free is thread-only because Zephyr may ready allocation waiters.
+
+`HeapResource` lets a PMR container allocate only from a selected `HeapRef`.
+Its exhaustion policy is mandatory at construction. Exception-disabled builds
+support `HeapResourceFailure::Panic`; exception-enabled builds may explicitly
+select panic or `Throw`. A dedicated expected-fatal test verifies the panic
+path. This facility is opt-in and does not change Solar's allocation-free
+default.
 
 Zephyr 4.4 reacquires a condition-variable mutex only when the wait succeeds.
 After a timeout or no-wait miss, Solar therefore marks the accompanying

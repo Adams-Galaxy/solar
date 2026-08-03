@@ -318,3 +318,21 @@ ARM QEMU: core/execution 25/25 passed
 Compile-fail: signed stack value and zero-capacity cases 28/29 rejected
 Teensy optimized/LTO: FLASH 301500 B, RAM 198040 B
 ```
+
+### 2026-08-03 — bounded heap and PMR
+
+```text
+Heap: fixed aligned owner and native HeapRef; allocate/aligned/calloc/realloc,
+      free, timeout/deadline/no-wait, and explicit ISR no-wait surfaces
+Behavior: alignment, zeroing, realloc preservation, exhaustion, finite timeout,
+          borrowed native heap, and ISR context rejection/success covered
+PMR: vector backing storage proven to reside in the selected heap; failure
+     policy mandatory at construction; exception-disabled exhaustion reaches
+     the expected Zephyr panic path in a dedicated fatal-hook test
+Storage statistics: message-queue capacity/used/free and memory-slab
+                    current/maximum/reset coverage retained from Phase 5
+Native: kernel core 11/11 passed
+ARM QEMU: kernel core 11/11 passed
+Compile-fail: heap size/alignment, owner native access, and omitted PMR policy
+              cases 30-33 rejected
+```

@@ -1,5 +1,6 @@
 tests:
   solar.kernel.core:
+    ignore_faults: true
     platform_allow:
       - native_sim/native/64
       - qemu_cortex_m3
