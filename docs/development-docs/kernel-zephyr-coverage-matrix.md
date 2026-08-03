@@ -262,3 +262,23 @@ Fixture repair: ARM exposed insufficient Ztest stack for locally owned thread
 Known limitation: native_sim forces a timer and cannot represent a no-clock
                   runtime; no-clock compile coverage remains a Phase 12 matrix gate
 ```
+
+### 2026-08-03 — work, workqueues, triggered work, and poll
+
+```text
+Work: 0/1/2 submission outcomes remain AlreadyQueued/Queued/RequeuedAfterCurrent;
+      submission and triggered-work error maps are operation-specific
+Workqueues: unsupported backing-thread abort removed; drain, plug, unplug, stop,
+            and the Zephyr 4.4 stopped-queue restart transition pass
+Triggered work: explicit arm/replace API; same-queue replacement, timeout,
+                cancellation, cross-queue -EADDRINUSE, and event-array lifetime
+                locking covered
+Poll: native state bits preserved as a bitmask; pipe source added alongside
+      signal, semaphore, and message queue; direct wait/mutation rejected while
+      a triggered work item owns the set
+Native: core/execution 22/22 passed; focused execution 15/15 passed
+ARM QEMU: core 8/8 and execution 15/15 passed
+Teensy optimized/LTO: FLASH 301396 B, RAM 198040 B
+Deferred dependency: queue/FIFO poll sources and live -EINTR cancellation test
+                     land with the Phase 8 intrusive queue owners
+```
