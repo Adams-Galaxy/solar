@@ -6,3 +6,4 @@ find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(solar_kernel_fatal_bridge LANGUAGES CXX)
 
 target_sources(app PRIVATE src/main.cpp)
+zephyr_compile_definitions(SOLAR_FATAL_BRIDGE_TEST_RECOVERY)

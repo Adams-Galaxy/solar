@@ -79,5 +79,13 @@ void latch_requested_panic(Status status) noexcept
 extern "C" void k_sys_fatal_error_handler(unsigned int reason, const arch_esf*)
 {
     solar::kernel::detail::latch_fatal(reason);
+#if defined(SOLAR_FATAL_BRIDGE_TEST_RECOVERY)
+    // Zephyr permits an application fatal handler to return from a kernel
+    // oops, aborting only the faulting thread. Production builds never define
+    // this controlled-test hook.
+    if (reason == K_ERR_KERNEL_OOPS) {
+        return;
+    }
+#endif
     k_fatal_halt(reason);
 }
