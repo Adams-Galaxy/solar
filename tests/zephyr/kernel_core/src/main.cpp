@@ -73,6 +73,9 @@ static_assert(sizeof(kernel::Mutex) >= sizeof(k_mutex) + sizeof(std::atomic<k_ti
 static_assert(sizeof(kernel::MessageQueue<std::uint32_t, 2>) >=
               sizeof(k_msgq) + 2 * sizeof(std::uint32_t));
 static_assert(sizeof(kernel::PollSet<3>) >= 3 * sizeof(k_poll_event));
+static_assert(kernel::detail::poll_signal_outcome(-EAGAIN)->delivery ==
+              kernel::PollSignalDelivery::LatchedAfterTimeout);
+static_assert(kernel::detail::poll_signal_outcome(-EAGAIN)->native == -EAGAIN);
 static_assert(sizeof(kernel::Timer) >= sizeof(k_timer) + 2 * sizeof(kernel::Timer::Callback));
 #if CONFIG_NUM_COOP_PRIORITIES > 0
 static_assert(kernel::Priority::cooperative<0>().native_handle() == K_PRIO_COOP(0));
@@ -325,7 +328,9 @@ ZTEST(solar_kernel_core, test_borrowed_native_objects)
     kernel::PollSignalRef signal{native_signal};
     kernel::PollSet<1> poll;
     zassert_equal(result_status(poll.add(signal)), solar::Status::Ok);
-    zassert_equal(result_status(signal.raise(7)), solar::Status::Ok);
+    const auto raised = signal.raise(7);
+    zassert_equal(result_status(raised), solar::Status::Ok);
+    zassert_true(raised->waiter_notified());
     const auto waited = poll.try_wait();
     zassert_true(waited.has_value());
     zassert_equal(waited->ready, 1);
@@ -442,7 +447,9 @@ ZTEST(solar_kernel_core, test_poll_signal_semaphore_and_message_queue)
     zassert_equal(poll.event(1)->state, kernel::PollState::SemaphoreAvailable);
     zassert_equal(result_status(semaphore.take()), solar::Status::Ok);
 
-    zassert_equal(result_status(signal.raise(77)), solar::Status::Ok);
+    const auto raised = signal.raise(77);
+    zassert_equal(result_status(raised), solar::Status::Ok);
+    zassert_equal(raised->delivery, kernel::PollSignalDelivery::Delivered);
     const auto signal_ready = poll.wait(kernel::Timeout::after(20ms));
     zassert_true(signal_ready.has_value());
     zassert_equal(poll.event(0)->state, kernel::PollState::Signaled);

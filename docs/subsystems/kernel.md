@@ -34,6 +34,12 @@ Blocking operations return `Result<T>`. A no-wait miss is normally
 `Status::Timeout`. Check each primitive's typed error where it carries richer
 native detail.
 
+`PollSignal::raise()` returns `PollSignalOutcome`. Zephyr can latch the signal
+and its value while returning `-EAGAIN` because a waiting poll timeout is
+already expiring; Solar reports that as the successful
+`LatchedAfterTimeout` outcome and preserves `-EAGAIN` instead of pretending the
+signal was lost.
+
 Zephyr 4.4 reacquires a condition-variable mutex only when the wait succeeds.
 After a timeout or no-wait miss, Solar therefore marks the accompanying
 `UniqueLock` as not owning the mutex; call `lock()` again before accessing the

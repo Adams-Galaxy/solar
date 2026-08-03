@@ -22,15 +22,49 @@ inline constexpr bool poll_available = IS_ENABLED(CONFIG_POLL);
 
 #if defined(CONFIG_POLL)
 
+enum class PollSignalDelivery : std::uint8_t
+{
+    Delivered,
+    LatchedAfterTimeout,
+};
+
+struct PollSignalOutcome
+{
+    PollSignalDelivery delivery{PollSignalDelivery::Delivered};
+    int native{};
+
+    [[nodiscard]] constexpr bool waiter_notified() const noexcept
+    {
+        return delivery == PollSignalDelivery::Delivered;
+    }
+};
+
+namespace detail
+{
+
+[[nodiscard]] constexpr Result<PollSignalOutcome> poll_signal_outcome(int result) noexcept
+{
+    if (result == 0) {
+        return PollSignalOutcome{.delivery = PollSignalDelivery::Delivered, .native = 0};
+    }
+    if (result == -EAGAIN) {
+        return PollSignalOutcome{.delivery = PollSignalDelivery::LatchedAfterTimeout,
+                                 .native = result};
+    }
+    return fail<Error>(error_from_errno(result));
+}
+
+} // namespace detail
+
 /** Non-owning access to an initialized Zephyr poll signal. */
 class PollSignalRef
 {
   public:
     explicit constexpr PollSignalRef(k_poll_signal& signal) noexcept : signal_(&signal) {}
 
-    [[nodiscard]] Result<void> raise(int value = 0) const noexcept
+    [[nodiscard]] Result<PollSignalOutcome> raise(int value = 0) const noexcept
     {
-        return detail::map_native(k_poll_signal_raise(signal_, value));
+        return detail::poll_signal_outcome(k_poll_signal_raise(signal_, value));
     }
 
     void reset() const noexcept
@@ -71,7 +105,7 @@ class PollSignal
     PollSignal(PollSignal&&) = delete;
     PollSignal& operator=(PollSignal&&) = delete;
 
-    [[nodiscard]] Result<void> raise(int value = 0) noexcept
+    [[nodiscard]] Result<PollSignalOutcome> raise(int value = 0) noexcept
     {
         return ref().raise(value);
     }
