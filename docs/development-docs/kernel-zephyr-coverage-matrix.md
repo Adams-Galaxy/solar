@@ -244,3 +244,21 @@ Native: default kernel core/execution and deadline/per-thread-slice variants pas
 Known limitations: user mode, essential threads, CPU affinity, and callable
                    adapters remain explicitly deferred
 ```
+
+### 2026-08-03 — existing primitive repairs
+
+```text
+Events: atomic masked set added
+Message queues: native size/capacity/used/free attributes exposed
+Memory slabs: current/max usage and maximum reset exposed under Zephyr tracing;
+              outstanding block lifetime requirement documented
+Timers: K_FOREVER start preserved as Zephyr's successful no-op
+Time: positive sub-tick durations round up; integral overflow saturates on
+      both 64-bit native simulation and 32-bit Cortex-M toolchains
+Native: default core/execution 22/22; slab-statistics variant 14/14
+ARM QEMU: core 8/8 and execution 14/14 passed
+Fixture repair: ARM exposed insufficient Ztest stack for locally owned thread
+                stacks; execution fixture now provisions 16 KiB
+Known limitation: native_sim forces a timer and cannot represent a no-clock
+                  runtime; no-clock compile coverage remains a Phase 12 matrix gate
+```

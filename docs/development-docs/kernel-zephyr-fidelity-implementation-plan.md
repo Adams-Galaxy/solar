@@ -161,8 +161,8 @@ exact Zephyr recursive behavior and may provide `RecursiveMutexRef`.
 | 2 | Ownership, references, and native interoperation | complete |
 | 3 | Context and error contracts | complete |
 | 4 | Threads and scheduler controls | complete |
-| 5 | Synchronization, communication, time, and memory repairs | not started |
-| 6 | Work, workqueues, triggered work, and poll | not started |
+| 5 | Synchronization, communication, time, and memory repairs | complete |
+| 6 | Work, workqueues, triggered work, and poll | in progress |
 | 7 | Diagnostics, fatal handling, and stop tokens | not started |
 | 8 | Intrusive queues, FIFO, LIFO, and kernel stack | not started |
 | 9 | Heap, PMR, and storage statistics | not started |

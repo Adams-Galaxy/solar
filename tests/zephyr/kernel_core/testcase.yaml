@@ -2,6 +2,7 @@ tests:
   solar.kernel.core:
     platform_allow:
       - native_sim/native/64
+      - qemu_cortex_m3
     tags:
       - solar
       - kernel

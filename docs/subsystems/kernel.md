@@ -8,12 +8,12 @@ component, or add lifecycle ownership.
 
 | Need | Primitive |
 | --- | --- |
-| Mutual exclusion | `Mutex`, `RecursiveMutex`, `Spinlock`, `CriticalSection` |
+| Mutual exclusion | `Mutex`, `RecursiveMutex`, `SpinLock`, `InterruptLock` |
 | Counted signalling | `Semaphore` |
 | Bit-set signalling | `EventFlags` |
 | Fixed typed messages | `MessageQueue<T, N>` |
 | Byte streams | `Pipe<N>` |
-| Fixed-block allocation | `MemorySlab<T, N>` |
+| Fixed-block allocation | `MemorySlab<BlockBytes, Count>` |
 | Dedicated execution | `Thread<StackBytes>` |
 | Deferred callbacks | `Work`, `DelayableWork`, `TriggeredWork` |
 | Timed notification | `Timer` |
@@ -28,6 +28,9 @@ focused execution records.
 `kernel::Timeout` represents no-wait, finite durations, and forever.
 `kernel::Deadline` converts one absolute budget into the remaining timeout for
 several operations, preventing each wait from receiving the full budget.
+Positive durations round up to the next tick, and conversions that exceed the
+native tick range saturate instead of overflowing. Clock-dependent APIs are
+only present when Zephyr provides `CONFIG_SYS_CLOCK_EXISTS`.
 
 Blocking operations return `Result<T>`. A no-wait miss is normally
 `Status::WouldBlock`, `Empty`, or `NoSpace`; a finite wait expiry is
@@ -57,6 +60,16 @@ Zephyr 4.4 reacquires a condition-variable mutex only when the wait succeeds.
 After a timeout or no-wait miss, Solar therefore marks the accompanying
 `UniqueLock` as not owning the mutex; call `lock()` again before accessing the
 protected state.
+
+`EventFlags::set_masked()` performs Zephyr's atomic masked replacement.
+`MessageQueue::attributes()` reports the configured message size, capacity,
+used count, and free count. `MemorySlab::statistics()` reports current and
+maximum allocation when the corresponding Zephyr tracing option is enabled;
+maximum usage can then be reset explicitly. An allocated `MemorySlabBlock`
+must be released before the slab it refers to is destroyed.
+
+Starting a `Timer` with `Timeout::forever()` preserves Zephyr's documented
+no-op behavior. It is a successful call that does not schedule an expiry.
 
 ## Interrupt context
 

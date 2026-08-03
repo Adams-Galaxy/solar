@@ -96,7 +96,8 @@ template <typename Rep, typename Period>
     constexpr Tick maximum = std::numeric_limits<Tick>::max();
 
     if constexpr (std::integral<Rep>) {
-        using Wide = unsigned __int128;
+#if defined(__SIZEOF_INT128__)
+        using Wide = __uint128_t;
         const auto count = static_cast<Wide>(duration.count());
         const auto denominator = static_cast<Wide>(Period::den);
         const auto factor =
@@ -108,6 +109,20 @@ template <typename Rep, typename Period>
         const auto numerator = count * factor;
         const auto ticks = (numerator + denominator - 1U) / denominator;
         return ticks > static_cast<Wide>(maximum) ? maximum : static_cast<Tick>(ticks);
+#else
+        // 32-bit Zephyr targets do not necessarily provide a 128-bit integer
+        // mode. Their long double still has enough range to detect saturation;
+        // ordinary embedded durations remain integral-exact at this scale.
+        const long double ticks = static_cast<long double>(duration.count()) *
+                                  static_cast<long double>(Period::num) *
+                                  static_cast<long double>(CONFIG_SYS_CLOCK_TICKS_PER_SEC) /
+                                  static_cast<long double>(Period::den);
+        if (ticks >= static_cast<long double>(maximum)) {
+            return maximum;
+        }
+        const auto truncated = static_cast<Tick>(ticks);
+        return static_cast<long double>(truncated) == ticks ? truncated : truncated + 1;
+#endif
     } else {
         const long double ticks = static_cast<long double>(duration.count()) *
                                   static_cast<long double>(Period::num) *
