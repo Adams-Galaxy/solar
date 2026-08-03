@@ -7,7 +7,7 @@ It works with Zephyr's Kconfig, devicetree, kernel, drivers, workqueues, and
 build system. Solar adds typed application composition, lifecycle, execution,
 data facilities, Remote host integration, health, and supervision.
 
-Current version: `0.1.0`
+Current version: `0.2.0`
 
 ## First Build
 
@@ -19,6 +19,13 @@ CONFIG_STD_CPP23=y
 CONFIG_REQUIRES_FULL_LIBCPP=y
 CONFIG_SOLAR=y
 ```
+
+A normal application includes `<solar/application.hpp>`, declares its
+platform/devices/services, and boots `solar::System<Application>`. When a
+`solar.project.yaml` and identity lock are present, Solar's default Zephyr
+integration automatically generates the typed contract, Python client,
+explanation, and verified shipment. Standalone facilities and explicit
+`Own`/`Compose` remain available when finer control is useful.
 
 Build the canonical first application in an initialized Zephyr workspace:
 

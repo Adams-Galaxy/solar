@@ -81,7 +81,7 @@ def build_wheel(ir: dict, output: Path) -> Path:
     """Build the tiny pure-Python generated wheel without host build tooling."""
     distribution = ir["application"]["name"].replace("-", "_") + "_solar_client"
     package = ir["application"]["python_package"]
-    version = "0.1.0"
+    version = "0.2.0"
     wheel = output / "wheel" / f"{distribution}-{version}-py3-none-any.whl"
     wheel.parent.mkdir(exist_ok=True)
     dist_info = f"{distribution}-{version}.dist-info"

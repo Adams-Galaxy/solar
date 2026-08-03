@@ -1,10 +1,20 @@
 #include <zephyr/sys/printk.h>
 
-#include <solar/system.hpp>
+#include <solar/application.hpp>
 
 namespace app
 {
 struct Application;
+
+struct Contract
+{
+    using Data = solar::TypeList<>;
+    using Actions = solar::TypeList<>;
+    using OutputStreams = solar::TypeList<>;
+    using InputStreams = solar::TypeList<>;
+    using Events = solar::TypeList<>;
+    using Metrics = solar::TypeList<>;
+};
 
 /** Small explicitly owned module; it can also be used without System. */
 struct Platform
@@ -43,8 +53,13 @@ struct Platform
     inline static bool running{};
 };
 
-using Composition = solar::Compose<solar::Own<Platform>>;
-using System = solar::system::System<Application, Composition>;
+struct Application
+{
+    using Contract = app::Contract;
+    using Devices = solar::Devices<Platform>;
+};
+
+using System = solar::System<Application>;
 } // namespace app
 
 int main()

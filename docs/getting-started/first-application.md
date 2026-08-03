@@ -1,9 +1,12 @@
 # First Application
 
-Solar modules are ordinary owned C++ types. They may expose `initialize`,
-`start`, `stop`, and `deinitialize`, plus a `TypeList` of dependencies. Small
-applications can call a module directly. Larger applications can ask the
-optional static composer to order the same modules.
+The normal Solar application names its contract, devices, services, platform,
+and policy, then boots `solar::System<Application>`. Solar expands that type to
+the same statically owned module graph exposed by the advanced composition API.
+
+Modules remain ordinary C++ types with `initialize`, `start`, `stop`, and
+`deinitialize`. A conventional device with `init`, `start`, `stop`, and
+`deinit` is adapted automatically when placed in `solar::Devices<...>`.
 
 ```{literalinclude} ../../examples/first-application/src/main.cpp
 :language: cpp
@@ -11,7 +14,9 @@ optional static composer to order the same modules.
 
 `app::System` is a type, not a runtime context object. `System::boot()` walks
 the compile-time dependency graph; `System::shutdown()` reverses it. There is
-no global binding and no second relaxed mode.
+no global binding and no second relaxed mode. Advanced firmware can inspect
+`solar::application::composition_t<Application>` or write the equivalent
+`solar::Compose<...>` explicitly.
 
 Build and run the maintained example:
 

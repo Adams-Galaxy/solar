@@ -1,5 +1,5 @@
 PROJECT_NAME           = Solar
-PROJECT_NUMBER         = 0.1.0
+PROJECT_NUMBER         = 0.2.0
 OUTPUT_DIRECTORY       = @SOLAR_DOXYGEN_DIR@
 INPUT                  = @SOLAR_ROOT@/include/solar
 RECURSIVE              = YES
@@ -8,9 +8,11 @@ EXCLUDE_PATTERNS       = */runtime.hpp */storage.hpp */service_runtime.hpp
 EXCLUDE_SYMBOLS        = solar::detail::* solar::*::detail::*
 
 GENERATE_HTML          = NO
+GENERATE_LATEX         = NO
 GENERATE_XML           = YES
 XML_OUTPUT             = xml
 XML_PROGRAMLISTING     = NO
+HAVE_DOT               = NO
 
 EXTRACT_ALL            = YES
 EXTRACT_PRIVATE        = NO
@@ -63,4 +65,3 @@ BUILTIN_STL_SUPPORT    = YES
 FULL_PATH_NAMES        = YES
 STRIP_FROM_PATH        = @SOLAR_ROOT@
 STRIP_FROM_INC_PATH    = @SOLAR_ROOT@/include
-CLANG_ASSISTED_PARSING = NO

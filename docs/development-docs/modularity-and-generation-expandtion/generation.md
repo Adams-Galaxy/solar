@@ -178,10 +178,13 @@ The generator may produce:
 - capacity summaries and compile-time checks; and
 - manifest records consumed by the firmware build.
 
-The generated project contribution supplies schemas, module configuration, and
-metadata. It does not silently assume lifecycle ownership. Handwritten
-`Own<...>` remains the readable composition point at which a System adopts the
-generated application modules.
+The generated project contribution supplies schemas, requirements, module
+configuration, metadata, and high-level Application traits. It does not infer
+behavior ownership. Services claim endpoints through explicit generated
+binding tables; devices and services enter lifecycle ownership through the
+handwritten Application specification. The Application compiler may synthesize
+the corresponding low-level `Own<...>` composition, which remains available as
+the advanced, inspectable form.
 
 Generated headers live in the build output and are included through a stable
 path, following the existing generated hardware-header model:
@@ -193,6 +196,14 @@ path, following the existing generated hardware-header model:
 The build must make these headers available to clangd and other IDE tooling.
 Solar should also provide an explicit generation command for refreshing IDE
 artifacts before a complete firmware link.
+
+For Zephyr applications, default-on CMake/Kconfig integration discovers the
+conventional project manifest, invokes this same generator, attaches the output
+directory and dependency to the application target, and makes the generated
+contract available through `<solar/application.hpp>`. This is automatic build
+availability, not a compiler-wide forced include. Standalone module users with
+no project manifest are unaffected. See
+[High-level applications and Kconfig integration](application-ergonomics-and-kconfig.md).
 
 Generated code must be readable enough to inspect while debugging. It is build
 output and must be marked as generated rather than hand-edited.

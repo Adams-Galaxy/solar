@@ -2,8 +2,8 @@
 
 Date: 2026-08-03
 
-Status: production implementation active; phases 0-7 verified, standalone
-module migration active
+Status: production expansion complete; high-level application ergonomics and
+automatic Zephyr integration accepted as the next design direction
 
 ## Purpose
 
@@ -28,6 +28,11 @@ to pass a context object through every service.
   deletion gates, drift guards, and the current progress state.
 - [Module ownership convention](module-ownership.md) defines direct objects,
   typed static facades, bounded capacity, and generic System ownership.
+- [High-level applications and Kconfig integration](application-ergonomics-and-kconfig.md)
+  defines the progressive-disclosure Application API, generated endpoint
+  bindings, platform boundary, and default-on Zephyr build integration.
+- [Application ergonomics implementation record](application-implementation-plan.md)
+  tracks migration evidence and acceptance gates for that design.
 - [Locked architectural decisions](architecture.md) defines standalone modules,
   application ownership, static composition, contributions, and the eventual
   removal of strict and relaxed binding.
@@ -59,10 +64,10 @@ updating the relevant design document and the plan before code diverges.
 
 The object/static facade convention, `Own`/`Connect` composition vocabulary,
 contribution roles, versioned IDL, generated Python namespace, effective
-shipment verification, and genuine wire-level streams are now production
-shapes. The active gate is completing the remaining standalone modules and
-their explicit adapters. Hardware migration and legacy deletion remain gated
-behind that.
+shipment verification, and genuine wire-level streams are production shapes.
+The completed implementation plan records their evidence. The next accepted
+direction is an Application compiler over that machinery; exact spelling is
+gated by the robot-based prototype in the ergonomics document.
 
 The exact-interface default, compatible-additive opt-in, and separate exact-build
 policy are now accepted. Any remaining spelling decision must preserve the

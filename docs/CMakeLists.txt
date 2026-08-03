@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(solar_documentation VERSION 0.1.0 LANGUAGES NONE)
+project(solar_documentation VERSION 0.2.0 LANGUAGES NONE)
 
 find_program(SPHINX_BUILD sphinx-build REQUIRED)
 find_program(DOXYGEN_EXECUTABLE doxygen REQUIRED)

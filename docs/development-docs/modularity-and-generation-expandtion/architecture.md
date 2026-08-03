@@ -339,6 +339,20 @@ Kconfig controls whether implementations are available and sets hard platform
 limits. The project manifest and C++ composition decide which modules belong to
 an application.
 
+## 10. High-Level Application Compilation
+
+Normal applications will use a progressive-disclosure layer centered on
+`solar::System<Application>`. The Application type declares platform, devices,
+services, and deliberate policy overrides. Generated traits supply the authored
+contract, while an Application compiler synthesizes the same `Own`, `Connect`,
+`Compose`, and `Dispatch` model described above.
+
+Kconfig and CMake may automatically discover and generate the conventional
+application artifacts, but they do not infer service ownership or form a second
+composition language. The full accepted boundary, target API, override model,
+and prototype gates are defined in
+[High-level applications and Kconfig integration](application-ergonomics-and-kconfig.md).
+
 ## 10. Non-Goals
 
 This expansion will not:
