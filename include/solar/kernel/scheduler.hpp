@@ -14,6 +14,22 @@ namespace solar::kernel
     return k_can_yield();
 }
 
+/** True when the current context is a preemptible thread. ISR returns false. */
+[[nodiscard]] inline bool current_is_preemptible() noexcept
+{
+    return k_is_preempt_thread() != 0;
+}
+
+/** Re-evaluate the scheduler without applying yield's equal-priority rule. */
+[[nodiscard]] inline Result<void> reschedule() noexcept
+{
+    if (k_is_in_isr()) {
+        return fail<Error>({.status = Status::Invalid});
+    }
+    k_reschedule();
+    return {};
+}
+
 class SchedulerLock
 {
   public:

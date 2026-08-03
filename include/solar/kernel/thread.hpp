@@ -12,6 +12,7 @@
 #include "solar/kernel/error.hpp"
 #include "solar/kernel/interrupt.hpp"
 #include "solar/kernel/priority.hpp"
+#include "solar/kernel/time.hpp"
 
 namespace solar::kernel
 {
@@ -29,6 +30,74 @@ class ThreadRef
     {
         return thread_;
     }
+
+    [[nodiscard]] Result<Priority> priority() const noexcept
+    {
+        return Priority::from_native(k_thread_priority_get(thread_));
+    }
+
+    void set_priority(Priority priority) const noexcept
+    {
+        k_thread_priority_set(thread_, priority.native_handle());
+    }
+
+    void wakeup() const noexcept
+    {
+        k_wakeup(thread_);
+    }
+
+    void suspend() const noexcept
+    {
+        k_thread_suspend(thread_);
+    }
+
+    void resume() const noexcept
+    {
+        k_thread_resume(thread_);
+    }
+
+    void abort() const noexcept
+    {
+        k_thread_abort(thread_);
+    }
+
+    [[nodiscard]] Result<void> join(Timeout timeout = Timeout::forever()) const noexcept
+    {
+        if (in_isr()) {
+            return fail<Error>({.status = Status::Invalid});
+        }
+        return detail::map_wait(k_thread_join(thread_, timeout.native_handle()), timeout,
+                                Status::WouldBlock);
+    }
+
+    [[nodiscard]] Result<void> join(const Deadline& deadline) const noexcept
+    {
+        return join(deadline.remaining());
+    }
+
+    [[nodiscard]] Result<bool> exited() const noexcept
+    {
+        const int result = k_thread_join(thread_, K_NO_WAIT);
+        if (result == 0) {
+            return true;
+        }
+        if (result == -EBUSY) {
+            return false;
+        }
+        return fail<Error>(error_from_errno(result));
+    }
+
+#if defined(CONFIG_SYS_CLOCK_EXISTS)
+    [[nodiscard]] TimePoint wake_deadline() const noexcept
+    {
+        return TimePoint{TickDuration{k_thread_timeout_expires_ticks(thread_)}};
+    }
+
+    [[nodiscard]] TickDuration wake_remaining() const noexcept
+    {
+        return TickDuration{k_thread_timeout_remaining_ticks(thread_)};
+    }
+#endif
 
   private:
     k_thread* thread_;
@@ -127,7 +196,7 @@ template <std::size_t StackBytes> class Thread
         if (!active()) {
             return fail<Error>({.status = Status::NotReady});
         }
-        k_thread_suspend(id);
+        ThreadRef{*id}.suspend();
         state_.store(ThreadExecutionState::Suspended, std::memory_order_release);
         return {};
     }
@@ -139,7 +208,7 @@ template <std::size_t StackBytes> class Thread
             return fail<Error>({.status = Status::NotReady});
         }
         state_.store(ThreadExecutionState::Scheduled, std::memory_order_release);
-        k_thread_resume(id);
+        ThreadRef{*id}.resume();
         return {};
     }
 
@@ -155,8 +224,7 @@ template <std::size_t StackBytes> class Thread
             return fail<Error>({.status = Status::Invalid});
         }
 
-        const int result = k_thread_join(&thread_, timeout.native_handle());
-        const auto status = detail::map_wait(result, timeout, Status::WouldBlock);
+        const auto status = ThreadRef{thread_}.join(timeout);
         if (status && state() != ThreadExecutionState::Aborted) {
             state_.store(ThreadExecutionState::Exited, std::memory_order_release);
         }
@@ -177,14 +245,7 @@ template <std::size_t StackBytes> class Thread
             return false;
         }
 
-        const int result = k_thread_join(const_cast<k_thread*>(&thread_), K_NO_WAIT);
-        if (result == 0) {
-            return true;
-        }
-        if (result == -EBUSY) {
-            return false;
-        }
-        return fail<Error>(error_from_errno(result));
+        return ThreadRef{const_cast<k_thread&>(thread_)}.exited();
     }
 
     [[nodiscard]] Result<void> abort() noexcept
@@ -204,7 +265,7 @@ template <std::size_t StackBytes> class Thread
             return fail<Error>(already_exited.error());
         }
 
-        k_thread_abort(id);
+        ThreadRef{*id}.abort();
         state_.store(ThreadExecutionState::Aborted, std::memory_order_release);
         return {};
     }

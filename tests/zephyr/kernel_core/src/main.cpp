@@ -253,7 +253,16 @@ ZTEST(solar_kernel_core, test_priority_scheduler_and_current_thread)
     zassert_not_null(kernel::this_thread::id());
     zassert_equal(kernel::this_thread::ref()->id(), kernel::this_thread::id());
     zassert_equal(result_status(kernel::this_thread::yield()), solar::Status::Ok);
+    zassert_equal(result_status(kernel::reschedule()), solar::Status::Ok);
+    zassert_equal(kernel::current_is_preemptible(), k_is_preempt_thread() != 0);
     zassert_equal(result_status(kernel::this_thread::busy_wait_for(10us)), solar::Status::Ok);
+
+    const auto current_ref = kernel::this_thread::ref();
+    zassert_true(current_ref.has_value());
+    zassert_equal(current_ref->priority()->native_handle(), original->native_handle());
+#if defined(CONFIG_SYS_CLOCK_EXISTS)
+    zassert_true(current_ref->wake_remaining().count() >= 0);
+#endif
 
     auto scheduler_lock = kernel::SchedulerLock::acquire();
     zassert_true(scheduler_lock.has_value());
