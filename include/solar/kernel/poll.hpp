@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -11,6 +12,7 @@
 #include "solar/kernel/error.hpp"
 #include "solar/kernel/interrupt.hpp"
 #include "solar/kernel/message_queue.hpp"
+#include "solar/kernel/pipe.hpp"
 #include "solar/kernel/semaphore.hpp"
 
 namespace solar::kernel
@@ -126,15 +128,27 @@ class PollSignal
     k_poll_signal signal_{};
 };
 
-enum class PollState : std::uint8_t
+enum class PollState : std::uint32_t
 {
-    NotReady,
-    Signaled,
-    SemaphoreAvailable,
-    MessageAvailable,
-    Cancelled,
-    Unknown,
+    NotReady = K_POLL_STATE_NOT_READY,
+    Signaled = K_POLL_STATE_SIGNALED,
+    SemaphoreAvailable = K_POLL_STATE_SEM_AVAILABLE,
+    DataAvailable = K_POLL_STATE_DATA_AVAILABLE,
+    MessageAvailable = K_POLL_STATE_MSGQ_DATA_AVAILABLE,
+    PipeDataAvailable = K_POLL_STATE_PIPE_DATA_AVAILABLE,
+    Cancelled = K_POLL_STATE_CANCELLED,
 };
+
+[[nodiscard]] constexpr PollState operator|(PollState left, PollState right) noexcept
+{
+    return static_cast<PollState>(static_cast<std::uint32_t>(left) |
+                                  static_cast<std::uint32_t>(right));
+}
+
+[[nodiscard]] constexpr bool has_state(PollState value, PollState flag) noexcept
+{
+    return (static_cast<std::uint32_t>(value) & static_cast<std::uint32_t>(flag)) != 0;
+}
 
 struct PollEvent
 {
@@ -196,10 +210,24 @@ template <std::size_t Capacity> class PollSet
         return add_native(K_POLL_TYPE_MSGQ_DATA_AVAILABLE, queue.native_queue(), tag);
     }
 
+    template <std::size_t Bytes>
+    [[nodiscard]] Result<void> add(Pipe<Bytes>& pipe, std::uint8_t tag = 0) noexcept
+    {
+        return add(pipe.ref(), tag);
+    }
+
+    [[nodiscard]] Result<void> add(PipeRef pipe, std::uint8_t tag = 0) noexcept
+    {
+        return add_native(K_POLL_TYPE_PIPE_DATA_AVAILABLE, pipe.native_pipe(), tag);
+    }
+
     [[nodiscard]] Result<PollResult> wait(Timeout timeout = Timeout::forever()) noexcept
     {
         if (in_isr()) {
             return fail<Error>({.status = Status::Invalid});
+        }
+        if (claimed()) {
+            return fail<Error>({.status = Status::Busy});
         }
         if (count_ == 0) {
             return fail<solar::Error>({.status = solar::Status::Invalid});
@@ -239,9 +267,13 @@ template <std::size_t Capacity> class PollSet
         return count_;
     }
 
-    void clear() noexcept
+    [[nodiscard]] Result<void> clear() noexcept
     {
+        if (claimed()) {
+            return fail<Error>({.status = Status::Busy});
+        }
         count_ = 0;
+        return {};
     }
 
   private:
@@ -255,6 +287,9 @@ template <std::size_t Capacity> class PollSet
     [[nodiscard]] Result<void> add_native(std::uint32_t type, void* object,
                                           std::uint8_t tag) noexcept
     {
+        if (claimed()) {
+            return fail<Error>({.status = Status::Busy});
+        }
         if (object == nullptr) {
             return fail<Error>({.status = Status::Invalid});
         }
@@ -284,28 +319,36 @@ template <std::size_t Capacity> class PollSet
         return ready;
     }
 
-    [[nodiscard]] static PollState state_of(std::uint32_t state) noexcept
+    [[nodiscard]] static constexpr PollState state_of(std::uint32_t state) noexcept
     {
-        if ((state & K_POLL_STATE_CANCELLED) != 0) {
-            return PollState::Cancelled;
-        }
-        if ((state & K_POLL_STATE_SIGNALED) != 0) {
-            return PollState::Signaled;
-        }
-        if ((state & K_POLL_STATE_SEM_AVAILABLE) != 0) {
-            return PollState::SemaphoreAvailable;
-        }
-        if ((state & K_POLL_STATE_MSGQ_DATA_AVAILABLE) != 0) {
-            return PollState::MessageAvailable;
-        }
-        if (state == K_POLL_STATE_NOT_READY) {
-            return PollState::NotReady;
-        }
-        return PollState::Unknown;
+        return static_cast<PollState>(state);
+    }
+
+    [[nodiscard]] bool claim(const void* owner) noexcept
+    {
+        const void* expected = nullptr;
+        return claimant_.compare_exchange_strong(expected, owner, std::memory_order_acq_rel);
+    }
+
+    void release(const void* owner) noexcept
+    {
+        const void* expected = owner;
+        (void)claimant_.compare_exchange_strong(expected, nullptr, std::memory_order_acq_rel);
+    }
+
+    [[nodiscard]] bool claimed_by(const void* owner) const noexcept
+    {
+        return claimant_.load(std::memory_order_acquire) == owner;
+    }
+
+    [[nodiscard]] bool claimed() const noexcept
+    {
+        return claimant_.load(std::memory_order_acquire) != nullptr;
     }
 
     std::array<k_poll_event, Capacity> events_{};
     std::size_t count_{};
+    std::atomic<const void*> claimant_{nullptr};
 };
 
 #else

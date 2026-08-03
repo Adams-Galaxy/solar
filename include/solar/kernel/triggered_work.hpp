@@ -41,8 +41,7 @@ class TriggeredWork
 
     ~TriggeredWork()
     {
-        __ASSERT_NO_MSG(!claimed_.load(std::memory_order_acquire) &&
-                        !k_work_is_pending(&work_.work));
+        __ASSERT_NO_MSG(!armed() && !k_work_is_pending(&work_.work));
     }
 
     TriggeredWork(const TriggeredWork&) = delete;
@@ -51,42 +50,56 @@ class TriggeredWork
     TriggeredWork& operator=(TriggeredWork&&) = delete;
 
     template <std::size_t Capacity>
-    [[nodiscard]] Result<void, WorkError> submit(PollSet<Capacity>& events,
-                                                 Timeout timeout = Timeout::forever()) noexcept
+    [[nodiscard]] Result<void, WorkError> arm(PollSet<Capacity>& events,
+                                              Timeout timeout = Timeout::forever()) noexcept
     {
-        if (const auto claimed = claim(events); !claimed) {
+        if (const auto claimed = claim_initial(events); !claimed) {
             return claimed;
         }
         const int result =
             k_work_poll_submit(&work_, events.native_events(), static_cast<int>(events.size()),
                                timeout.native_handle());
         if (result != 0) {
-            claimed_.store(false, std::memory_order_release);
+            release_events();
         }
         return submit_result(result);
     }
 
     template <std::size_t Capacity>
-    [[nodiscard]] Result<void, WorkError> submit(PollSet<Capacity>& events, WorkQueueTarget target,
-                                                 Timeout timeout = Timeout::forever()) noexcept
+    [[nodiscard]] Result<void, WorkError> arm(PollSet<Capacity>& events, WorkQueueTarget target,
+                                              Timeout timeout = Timeout::forever()) noexcept
     {
-        if (const auto claimed = claim(events); !claimed) {
+        if (const auto claimed = claim_initial(events); !claimed) {
             return claimed;
         }
         const int result =
             k_work_poll_submit_to_queue(target.native_queue(), &work_, events.native_events(),
                                         static_cast<int>(events.size()), timeout.native_handle());
         if (result != 0) {
-            claimed_.store(false, std::memory_order_release);
+            release_events();
         }
         return submit_result(result);
+    }
+
+    template <std::size_t Capacity>
+    [[nodiscard]] Result<void, WorkError> replace(PollSet<Capacity>& events,
+                                                  Timeout timeout = Timeout::forever()) noexcept
+    {
+        return replace_on(events, system_work_queue, timeout);
+    }
+
+    template <std::size_t Capacity>
+    [[nodiscard]] Result<void, WorkError> replace(PollSet<Capacity>& events, WorkQueueTarget target,
+                                                  Timeout timeout = Timeout::forever()) noexcept
+    {
+        return replace_on(events, target, timeout);
     }
 
     [[nodiscard]] Result<void> cancel_trigger() noexcept
     {
         const int result = k_work_poll_cancel(&work_);
         if (result == 0) {
-            claimed_.store(false, std::memory_order_release);
+            release_events();
         }
         if (result == -EINVAL) {
             return fail<Error>({.status = Status::Busy, .native = result});
@@ -110,7 +123,7 @@ class TriggeredWork
 
         k_work_sync sync{};
         const bool cancelled = k_work_cancel_sync(&work_.work, &sync);
-        claimed_.store(false, std::memory_order_release);
+        release_events();
         return trigger_result == 0 || cancelled;
     }
 
@@ -122,7 +135,7 @@ class TriggeredWork
         if (running_on_current_thread()) {
             return fail<WorkError>(detail::work_deadlock());
         }
-        if (claimed_.load(std::memory_order_acquire) && k_work_busy_get(&work_.work) == 0) {
+        if (armed() && k_work_busy_get(&work_.work) == 0) {
             return fail<WorkError>(detail::triggered_work_error(-EBUSY));
         }
         k_work_sync sync{};
@@ -132,7 +145,7 @@ class TriggeredWork
     [[nodiscard]] WorkState state() const noexcept
     {
         auto state = static_cast<WorkState>(k_work_busy_get(&work_.work));
-        if (claimed_.load(std::memory_order_acquire)) {
+        if (armed()) {
             state = state | WorkState::Triggered;
         }
         return state;
@@ -140,7 +153,7 @@ class TriggeredWork
 
     [[nodiscard]] bool pending() const noexcept
     {
-        return claimed_.load(std::memory_order_acquire) || k_work_is_pending(&work_.work);
+        return armed() || k_work_is_pending(&work_.work);
     }
 
     [[nodiscard]] bool running_on_current_thread() const noexcept
@@ -149,8 +162,13 @@ class TriggeredWork
     }
 
   private:
+    [[nodiscard]] bool armed() const noexcept
+    {
+        return claimed_.load(std::memory_order_acquire);
+    }
+
     template <std::size_t Capacity>
-    [[nodiscard]] Result<void, WorkError> claim(const PollSet<Capacity>& events) noexcept
+    [[nodiscard]] Result<void, WorkError> claim_initial(PollSet<Capacity>& events) noexcept
     {
         if (events.size() == 0) {
             return fail<WorkError>(detail::invalid_work_events());
@@ -159,7 +177,77 @@ class TriggeredWork
         if (!claimed_.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
             return fail<WorkError>(detail::triggered_work_error(-EBUSY));
         }
+        if (!events.claim(this)) {
+            claimed_.store(false, std::memory_order_release);
+            return fail<WorkError>(detail::triggered_work_error(-EBUSY));
+        }
+        events.reset_states();
+        const auto key = k_spin_lock(&state_lock_);
+        bind_events_locked(events);
+        k_spin_unlock(&state_lock_, key);
         return {};
+    }
+
+    template <std::size_t Capacity>
+    [[nodiscard]] Result<void, WorkError>
+    replace_on(PollSet<Capacity>& events, WorkQueueTarget target, Timeout timeout) noexcept
+    {
+        const auto key = k_spin_lock(&state_lock_);
+        if (!armed()) {
+            k_spin_unlock(&state_lock_, key);
+            return fail<WorkError>(
+                {.status = Status::NotReady, .reason = WorkErrorReason::Busy, .native_error = 0});
+        }
+
+        const bool same_events = events_ == &events;
+        if (!same_events && !events.claim(this)) {
+            k_spin_unlock(&state_lock_, key);
+            return fail<WorkError>(detail::triggered_work_error(-EBUSY));
+        }
+        events.reset_states();
+
+        const int result =
+            k_work_poll_submit_to_queue(target.native_queue(), &work_, events.native_events(),
+                                        static_cast<int>(events.size()), timeout.native_handle());
+        if (result != 0) {
+            if (!same_events) {
+                events.release(this);
+            }
+            k_spin_unlock(&state_lock_, key);
+            return fail<WorkError>(detail::triggered_work_error(result));
+        }
+
+        if (!same_events) {
+            unbind_events_locked();
+            bind_events_locked(events);
+        }
+        k_spin_unlock(&state_lock_, key);
+        return {};
+    }
+
+    void release_events() noexcept
+    {
+        const auto key = k_spin_lock(&state_lock_);
+        unbind_events_locked();
+        claimed_.store(false, std::memory_order_release);
+        k_spin_unlock(&state_lock_, key);
+    }
+
+    void unbind_events_locked() noexcept
+    {
+        if (events_ != nullptr && release_events_ != nullptr) {
+            release_events_(events_, this);
+        }
+        events_ = nullptr;
+        release_events_ = nullptr;
+    }
+
+    template <std::size_t Capacity> void bind_events_locked(PollSet<Capacity>& events) noexcept
+    {
+        events_ = &events;
+        release_events_ = [](void* set, const void* owner) noexcept {
+            static_cast<PollSet<Capacity>*>(set)->release(owner);
+        };
     }
 
     [[nodiscard]] static Result<void, WorkError> submit_result(int result) noexcept
@@ -179,13 +267,16 @@ class TriggeredWork
             self.handler_(self);
         }
         self.handler_thread_.store(nullptr, std::memory_order_release);
-        self.claimed_.store(false, std::memory_order_release);
+        self.release_events();
     }
 
     k_work_poll work_{};
     Handler handler_{};
     std::atomic<k_tid_t> handler_thread_{nullptr};
     std::atomic_bool claimed_{false};
+    k_spinlock state_lock_{};
+    void* events_{};
+    void (*release_events_)(void*, const void*) noexcept {};
 };
 
 #else

@@ -511,12 +511,14 @@ ZTEST(solar_kernel_core, test_poll_signal_semaphore_and_message_queue)
     kernel::PollSignal signal;
     kernel::Semaphore semaphore;
     kernel::MessageQueue<std::uint32_t, 1> queue;
-    kernel::PollSet<3> poll;
+    kernel::Pipe<8> pipe;
+    kernel::PollSet<4> poll;
 
     zassert_equal(result_status(poll.add(signal, 1)), solar::Status::Ok);
     zassert_equal(result_status(poll.add(semaphore, 2)), solar::Status::Ok);
     zassert_equal(result_status(poll.add(queue, 3)), solar::Status::Ok);
-    zassert_equal(result_status(poll.add(signal, 4)), solar::Status::Full);
+    zassert_equal(result_status(poll.add(pipe, 4)), solar::Status::Ok);
+    zassert_equal(result_status(poll.add(signal, 5)), solar::Status::Full);
     zassert_equal(result_status(poll.try_wait().error()), solar::Status::WouldBlock);
 
     semaphore.give();
@@ -541,9 +543,22 @@ ZTEST(solar_kernel_core, test_poll_signal_semaphore_and_message_queue)
     zassert_equal(poll.event(2)->state, kernel::PollState::MessageAvailable);
     zassert_equal(*queue.try_receive(), 5);
 
+    const std::array pipe_value{std::byte{0x5A}};
+    zassert_equal(*pipe.try_write(pipe_value), 1);
+    const auto pipe_ready = poll.wait(kernel::Timeout::after(20ms));
+    zassert_true(pipe_ready.has_value());
+    zassert_equal(poll.event(3)->state, kernel::PollState::PipeDataAvailable);
+    std::array<std::byte, 1> pipe_output{};
+    zassert_equal(*pipe.try_read(pipe_output), 1);
+
+    constexpr auto combined = kernel::PollState::Signaled | kernel::PollState::SemaphoreAvailable;
+    static_assert(kernel::has_state(combined, kernel::PollState::Signaled));
+    static_assert(kernel::has_state(combined, kernel::PollState::SemaphoreAvailable));
+
     zassert_equal(result_status(poll.wait(kernel::Timeout::after(2ms)).error()),
                   solar::Status::Timeout);
-    zassert_equal(result_status(poll.event(9).error()), solar::Status::NotFound);
+    volatile std::size_t invalid_index = 9;
+    zassert_equal(result_status(poll.event(invalid_index).error()), solar::Status::NotFound);
 }
 
 ZTEST(solar_kernel_core, test_timer_callback_context_and_sync)

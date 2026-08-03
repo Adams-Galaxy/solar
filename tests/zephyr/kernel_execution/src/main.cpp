@@ -562,6 +562,12 @@ ZTEST(solar_kernel_execution, test_owned_workqueue_drain_plug_unplug_and_stop)
     zassert_true(queue.drain(true).has_value());
     zassert_equal(result_status(queue.stop(kernel::Timeout::after(100ms))), solar::Status::Ok);
     zassert_false(queue.started());
+    zassert_equal(queue.lifecycle(), kernel::WorkQueueLifecycle::Stopped);
+    zassert_equal(result_status(queue.start(
+                      {.priority = kernel::Priority::preemptive<1>(), .name = "solar-work-q"})),
+                  solar::Status::Ok);
+    zassert_true(queue.drain(true).has_value());
+    zassert_equal(result_status(queue.stop(kernel::Timeout::after(100ms))), solar::Status::Ok);
 }
 
 ZTEST(solar_kernel_execution, test_triggered_work_and_poll_lifetime)
@@ -571,10 +577,10 @@ ZTEST(solar_kernel_execution, test_triggered_work_and_poll_lifetime)
     kernel::PollSet<1> events;
     kernel::TriggeredWork work{&triggered_work};
     zassert_equal(result_status(events.add(signal)), solar::Status::Ok);
-    zassert_true(work.submit(events).has_value());
+    zassert_true(work.arm(events).has_value());
     zassert_true(work.pending());
     zassert_true(kernel::has_state(work.state(), kernel::WorkState::Triggered));
-    const auto duplicate = work.submit(events);
+    const auto duplicate = work.arm(events);
     zassert_false(duplicate.has_value());
     zassert_equal(duplicate.error().status, solar::Status::Busy);
     const auto armed_flush = work.flush();
@@ -585,17 +591,43 @@ ZTEST(solar_kernel_execution, test_triggered_work_and_poll_lifetime)
                   solar::Status::Ok);
     zassert_true(work.flush().has_value());
 
+    kernel::PollSignal replacement_signal;
+    kernel::PollSet<1> replacement_events;
+    zassert_equal(result_status(replacement_events.add(replacement_signal)), solar::Status::Ok);
     signal.reset();
+    zassert_true(work.arm(events).has_value());
+    zassert_equal(solar::status_of(events.clear().error()), solar::Status::Busy);
+    zassert_true(work.replace(replacement_events).has_value());
+    zassert_equal(result_status(events.clear()), solar::Status::Ok);
+    zassert_equal(solar::status_of(replacement_events.clear().error()), solar::Status::Busy);
+    zassert_equal(result_status(replacement_signal.raise()), solar::Status::Ok);
+    zassert_equal(result_status(triggered_done.take(kernel::Timeout::after(100ms))),
+                  solar::Status::Ok);
+    zassert_true(work.flush().has_value());
+    zassert_equal(result_status(replacement_events.clear()), solar::Status::Ok);
+
+    zassert_equal(result_status(events.add(signal)), solar::Status::Ok);
     kernel::TriggeredWork cancelled{&triggered_work};
-    zassert_true(cancelled.submit(events).has_value());
+    zassert_true(cancelled.arm(events).has_value());
     zassert_true(cancelled.pending());
     zassert_equal(result_status(cancelled.cancel_trigger()), solar::Status::Ok);
     zassert_false(cancelled.pending());
     zassert_true(cancelled.cancel_sync().has_value());
 
+    triggered_done.reset();
+    kernel::PollSignal timeout_signal;
+    kernel::PollSet<1> timeout_events;
+    zassert_equal(result_status(timeout_events.add(timeout_signal)), solar::Status::Ok);
+    kernel::TriggeredWork timed{&triggered_work};
+    zassert_true(timed.arm(timeout_events, kernel::Timeout::after(2ms)).has_value());
+    zassert_equal(result_status(triggered_done.take(kernel::Timeout::after(100ms))),
+                  solar::Status::Ok);
+    zassert_true(timed.flush().has_value());
+    zassert_equal(result_status(timeout_events.clear()), solar::Status::Ok);
+
     kernel::PollSet<1> empty;
     kernel::TriggeredWork invalid{&triggered_work};
-    const auto empty_submission = invalid.submit(empty);
+    const auto empty_submission = invalid.arm(empty);
     zassert_false(empty_submission.has_value());
     zassert_equal(empty_submission.error().reason, kernel::WorkErrorReason::InvalidEvents);
 }

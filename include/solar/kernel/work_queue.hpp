@@ -28,6 +28,13 @@ struct WorkQueueConfiguration
     Milliseconds work_timeout{};
 };
 
+enum class WorkQueueLifecycle : std::uint8_t
+{
+    Initialized,
+    Started,
+    Stopped,
+};
+
 template <std::size_t StackBytes> class WorkQueue
 {
     static_assert(StackBytes > 0,
@@ -79,7 +86,7 @@ template <std::size_t StackBytes> class WorkQueue
         };
         k_work_queue_start(&queue_, stack_, K_KERNEL_STACK_SIZEOF(stack_),
                            configuration.priority.native_handle(), &native);
-        started_.store(true, std::memory_order_release);
+        lifecycle_.store(WorkQueueLifecycle::Started, std::memory_order_release);
         return {};
     }
 
@@ -122,13 +129,13 @@ template <std::size_t StackBytes> class WorkQueue
         }
         const int result = k_work_queue_stop(&queue_, timeout.native_handle());
         if (result == 0) {
-            started_.store(false, std::memory_order_release);
+            lifecycle_.store(WorkQueueLifecycle::Stopped, std::memory_order_release);
             return {};
         }
         if (result == -ETIMEDOUT) {
             return fail<Error>({.status = Status::Timeout, .native = result});
         }
-        return result == 0 ? Result<void>{} : Result<void>{fail<Error>(error_from_errno(result))};
+        return fail<Error>(error_from_errno(result));
     }
 
     [[nodiscard]] Result<void> stop(const Deadline& deadline) noexcept
@@ -136,26 +143,14 @@ template <std::size_t StackBytes> class WorkQueue
         return stop(deadline.remaining());
     }
 
-    [[nodiscard]] Result<void> abort() noexcept
-    {
-        if (in_isr()) {
-            return fail<Error>({.status = Status::Invalid});
-        }
-        if (!started()) {
-            return fail<Error>({.status = Status::Already});
-        }
-        const auto id = thread_id();
-        if (id == nullptr || id == k_current_get()) {
-            return fail<Error>({.status = Status::Invalid});
-        }
-        k_thread_abort(id);
-        started_.store(false, std::memory_order_release);
-        return {};
-    }
-
     [[nodiscard]] bool started() const noexcept
     {
-        return started_.load(std::memory_order_acquire);
+        return lifecycle() == WorkQueueLifecycle::Started;
+    }
+
+    [[nodiscard]] WorkQueueLifecycle lifecycle() const noexcept
+    {
+        return lifecycle_.load(std::memory_order_acquire);
     }
 
     [[nodiscard]] WorkQueueTarget target() noexcept
@@ -176,7 +171,7 @@ template <std::size_t StackBytes> class WorkQueue
   private:
     k_work_q queue_{};
     K_KERNEL_STACK_MEMBER(stack_, StackBytes);
-    std::atomic_bool started_{false};
+    std::atomic<WorkQueueLifecycle> lifecycle_{WorkQueueLifecycle::Initialized};
 };
 
 } // namespace solar::kernel

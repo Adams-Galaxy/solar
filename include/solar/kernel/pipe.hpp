@@ -73,6 +73,11 @@ class PipeRef
         k_pipe_close(pipe_);
     }
 
+    [[nodiscard]] constexpr k_pipe* native_pipe() const noexcept
+    {
+        return pipe_;
+    }
+
   private:
     [[nodiscard]] static Result<std::size_t> transfer_result(int result, Timeout timeout) noexcept
     {
