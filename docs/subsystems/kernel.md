@@ -12,8 +12,10 @@ component, or add lifecycle ownership.
 | Counted signalling | `Semaphore` |
 | Bit-set signalling | `EventFlags` |
 | Fixed typed messages | `MessageQueue<T, N>` |
+| Zero-copy node transfer | `Queue<T>`, `Fifo<T>`, `Lifo<T>` |
 | Byte streams | `Pipe<N>` |
 | Fixed-block allocation | `MemorySlab<BlockBytes, Count>` |
+| Machine-word LIFO values | `Stack<T, N>` |
 | Dedicated execution | `Thread<StackBytes>` |
 | Deferred callbacks | `Work`, `DelayableWork`, `TriggeredWork` |
 | Timed notification | `Timer` |
@@ -56,6 +58,20 @@ and reports the operation-level outcome; it does not invent a cause that the
 kernel did not supply. Event waits return a zero bitmask for an unsatisfied
 wait, so there is no native errno to retain.
 
+Intrusive queues transfer `IntrusiveNode<T>` objects without copying or
+allocating. The node declares Zephyr's reserved link word as its actual first
+member; it does not rely on C++ base-class layout. A linked node is borrowed by
+exactly one queue and must outlive that queue membership. Solar rejects
+simultaneous membership, clears membership on get/remove, and asserts if a node
+or queue is destroyed while still linked. `Queue` provides prepend, append,
+insertion, removal, unique append, and atomic list append; `Fifo` and `Lifo`
+offer the narrower ordering-specific spellings.
+
+`Stack<T, N>` wraps Zephyr's machine-word stack. It accepts unsigned integers,
+unsigned-backed enums, and pointers that round-trip through `stack_data_t`;
+signed or wider values are rejected at compile time. This kernel stack is a
+synchronized LIFO value container and is unrelated to a thread call stack.
+
 Zephyr 4.4 reacquires a condition-variable mutex only when the wait succeeds.
 After a timeout or no-wait miss, Solar therefore marks the accompanying
 `UniqueLock` as not owning the mutex; call `lock()` again before accessing the
@@ -78,6 +94,9 @@ such as `Semaphore::give()`, `EventFlags::post()`, `Timer::stop()`, and
 `Work::submit()`. Wait-capable methods are always thread-only, including their
 `try_` forms. Where Zephyr permits the same operation from ISR only with
 `K_NO_WAIT`, Solar exposes a structurally non-blocking `try_*_isr()` method.
+Intrusive queue insertion/cancellation and kernel-stack push use their ordinary
+ISR-safe names; their no-wait consumers use `try_get_isr()` and
+`try_pop_isr()`.
 Synchronous cancel, join, poll, condition waits, pipe transfers, mutex locking,
 and timer start belong in thread context and return `Status::Invalid` from ISR
 before calling Zephyr.

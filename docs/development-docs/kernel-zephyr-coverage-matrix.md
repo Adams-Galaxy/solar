@@ -300,3 +300,21 @@ Native: execution 15/15 and disabled diagnostics 1/1 passed
 ARM QEMU: execution 15/15 passed; 32-bit target rejected a non-lock-free
           64-bit generation during development, so the final counter is uint32_t
 ```
+
+### 2026-08-03 — intrusive queues and kernel word stack
+
+```text
+Node layout: explicit first-word Zephyr link, standard-layout assertion, typed
+             value, atomic queue identity, and linked-destruction assertion
+Queue: append/prepend/insert/remove/unique append/atomic list append, peek,
+       blocking/no-wait/ISR get, cancellation, borrowing, and node reuse
+FIFO/LIFO: first-in-first-out and last-in-first-out typed surfaces verified
+Poll: queue/FIFO/LIFO source support added; live k_queue_cancel_wait produces
+      successful interrupted PollResult with inspectable Cancelled state
+Stack: fixed owner/reference over k_stack; unsigned integer, enum, and pointer
+       round-trip constraint; blocking/no-wait/ISR pop and ISR-safe push
+Native: core/execution 25/25 passed
+ARM QEMU: core/execution 25/25 passed
+Compile-fail: signed stack value and zero-capacity cases 28/29 rejected
+Teensy optimized/LTO: FLASH 301500 B, RAM 198040 B
+```
