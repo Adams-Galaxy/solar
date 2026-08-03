@@ -1,6 +1,8 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
+#include <limits>
 
 #include <zephyr/kernel.h>
 #include <zephyr/sys/__assert.h>
@@ -29,6 +31,7 @@ struct StopState
     }
 
     std::atomic_bool requested{false};
+    std::atomic_uint32_t generation{1};
     k_mutex mutex{};
     k_condvar condition{};
 };
@@ -47,7 +50,9 @@ class StopToken
 
     [[nodiscard]] bool stop_requested() const noexcept
     {
-        return state_ != nullptr && state_->requested.load(std::memory_order_acquire);
+        return state_ != nullptr &&
+               (state_->generation.load(std::memory_order_acquire) != generation_ ||
+                state_->requested.load(std::memory_order_acquire));
     }
 
     [[nodiscard]] Result<void> wait(Timeout timeout = Timeout::forever()) const noexcept
@@ -101,11 +106,14 @@ class StopToken
     }
 
   private:
-    explicit StopToken(detail::StopState& state) noexcept : state_(&state) {}
+    explicit StopToken(detail::StopState& state) noexcept
+        : state_(&state), generation_(state.generation.load(std::memory_order_acquire))
+    {}
 
     friend class StopSource;
 
     detail::StopState* state_{};
+    std::uint32_t generation_{};
 };
 
 class StopSource
@@ -154,7 +162,7 @@ class StopSource
         return true;
     }
 
-    /** Re-arm a stopped source after every user of its previous token exited. */
+    /** Begin a fresh generation; every token from an older generation stays stopped. */
     [[nodiscard]] Result<void> reset() noexcept
     {
         if (in_isr()) {
@@ -164,8 +172,18 @@ class StopSource
         if (lock_result != 0) {
             return fail<Error>(error_from_errno(lock_result));
         }
+        const auto generation = state_.generation.load(std::memory_order_relaxed);
+        if (generation == std::numeric_limits<std::uint32_t>::max()) {
+            (void)k_mutex_unlock(&state_.mutex);
+            return fail<Error>({.status = Status::NoSpace});
+        }
+        state_.generation.store(generation + 1, std::memory_order_release);
         state_.requested.store(false, std::memory_order_release);
+        const int woken = k_condvar_broadcast(&state_.condition);
         const int unlock_result = k_mutex_unlock(&state_.mutex);
+        if (woken < 0) {
+            return fail<Error>(error_from_errno(woken));
+        }
         return unlock_result == 0 ? Result<void>{}
                                   : Result<void>{fail<Error>(error_from_errno(unlock_result))};
     }

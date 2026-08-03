@@ -397,6 +397,27 @@ ZTEST(solar_kernel_execution, test_stop_token_and_condition_variable)
     zassert_equal(stop_context.result.load(std::memory_order_acquire), solar::Status::Ok);
     zassert_true(stop_context.token.stop_requested());
     zassert_false(*source.request_stop());
+    const auto stopped_generation = source.token();
+    zassert_equal(result_status(source.reset()), solar::Status::Ok);
+    const auto fresh_generation = source.token();
+    zassert_true(stopped_generation.stop_requested());
+    zassert_false(fresh_generation.stop_requested());
+
+    kernel::StopSource reset_source;
+    StopContext reset_context{reset_source.token()};
+    kernel::Thread<2048> reset_waiter;
+    zassert_equal(
+        result_status(reset_waiter.launch(&stop_waiter, &reset_context,
+                                          {.priority = kernel::Priority::preemptive<1>()})),
+        solar::Status::Ok);
+    zassert_equal(result_status(reset_context.entered.take(kernel::Timeout::after(100ms))),
+                  solar::Status::Ok);
+    zassert_equal(result_status(reset_source.reset()), solar::Status::Ok);
+    zassert_equal(result_status(reset_waiter.join(kernel::Timeout::after(100ms))),
+                  solar::Status::Ok);
+    zassert_equal(reset_context.result.load(std::memory_order_acquire), solar::Status::Ok);
+    zassert_true(reset_context.token.stop_requested());
+    zassert_false(reset_source.token().stop_requested());
 
     ConditionContext condition_context;
     kernel::Thread<2048> condition_thread;
@@ -730,6 +751,7 @@ ZTEST(solar_kernel_execution, test_thread_diagnostics_and_enumeration)
     zassert_true(thread_ref.has_value());
     zassert_equal(result_status(kernel::set_stack_warning_margin(thread_ref->id(), 16)),
                   solar::Status::Ok);
+    zassert_equal(kernel::thread_diagnostics(thread)->stack_warning_margin.value_or(0), 16);
     const auto safety = kernel::check_stack_safety(thread_ref->id(), true);
     zassert_true(safety.has_value());
     zassert_true(safety->unused > 0);

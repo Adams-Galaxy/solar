@@ -25,8 +25,8 @@ inline constexpr bool runtime_stack_safety_available =
 
 struct StackUsage
 {
-    std::size_t size{};
-    std::size_t used{};
+    std::optional<std::size_t> size{};
+    std::optional<std::size_t> used{};
     std::size_t unused{};
 };
 
@@ -98,8 +98,11 @@ stack_usage(ThreadId thread, std::optional<std::size_t> configured_size = std::n
     if (result != 0) {
         return fail<Error>(error_from_errno(result));
     }
-    const auto size = configured_size.value_or(thread->stack_info.size);
-    return StackUsage{.size = size, .used = size >= unused ? size - unused : 0, .unused = unused};
+    StackUsage usage{.size = configured_size, .unused = unused};
+    if (configured_size.has_value()) {
+        usage.used = *configured_size >= unused ? *configured_size - unused : 0;
+    }
+    return usage;
 #else
     (void)thread;
     (void)configured_size;
@@ -154,6 +157,18 @@ stack_usage(ThreadId thread, std::optional<std::size_t> configured_size = std::n
 #endif
 }
 
+namespace detail
+{
+
+#if defined(CONFIG_THREAD_RUNTIME_STACK_SAFETY) && defined(CONFIG_INIT_STACKS) &&                  \
+    defined(CONFIG_THREAD_STACK_INFO)
+[[nodiscard]] Result<void> set_stack_warning_margin_native(ThreadId thread,
+                                                           std::size_t margin) noexcept;
+[[nodiscard]] std::size_t stack_warning_margin_native(ThreadId thread) noexcept;
+#endif
+
+} // namespace detail
+
 [[nodiscard]] inline Result<void> set_stack_warning_margin(ThreadId thread,
                                                            std::size_t margin) noexcept
 {
@@ -162,13 +177,7 @@ stack_usage(ThreadId thread, std::optional<std::size_t> configured_size = std::n
     if (thread == nullptr) {
         return fail<Error>({.status = Status::Invalid});
     }
-    // Zephyr 4.4's public syscall names do not match the implementation names.
-    // Keep the compatibility workaround local to this native wrapper.
-    if (margin > thread->stack_info.size) {
-        return fail<Error>({.status = Status::Invalid});
-    }
-    thread->stack_info.usage.unused_threshold = margin;
-    return {};
+    return detail::set_stack_warning_margin_native(thread, margin);
 #else
     (void)thread;
     (void)margin;
@@ -242,7 +251,7 @@ thread_diagnostics(ThreadId thread,
         diagnostics.stack_used = usage->used;
         diagnostics.stack_unused = usage->unused;
 #if defined(CONFIG_THREAD_RUNTIME_STACK_SAFETY)
-        diagnostics.stack_warning_margin = thread->stack_info.usage.unused_threshold;
+        diagnostics.stack_warning_margin = detail::stack_warning_margin_native(thread);
 #endif
     }
 
