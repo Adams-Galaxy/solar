@@ -131,6 +131,97 @@ struct QueuePollContext
     std::atomic_bool cancelled{false};
 };
 
+struct MailboxReceiveContext
+{
+    kernel::Mailbox* mailbox{};
+    kernel::Semaphore entered;
+    std::uint32_t payload{};
+    kernel::MailboxReceipt receipt{};
+    std::atomic<solar::Status> status{solar::Status::Error};
+};
+
+void mailbox_receiver(void* argument) noexcept
+{
+    auto& context = *static_cast<MailboxReceiveContext*>(argument);
+    context.entered.give();
+    const auto result = context.mailbox->receive(context.payload, {.reply_info = 0x55aa},
+                                                 kernel::Timeout::after(100ms));
+    context.status.store(result ? solar::Status::Ok : solar::status_of(result.error()),
+                         std::memory_order_release);
+    if (result) {
+        context.receipt = *result;
+    }
+}
+
+struct MailboxSendContext
+{
+    kernel::Mailbox* mailbox{};
+    kernel::Semaphore entered;
+    std::array<std::byte, 8> payload{};
+    kernel::MailboxSendOptions options{};
+    kernel::MailboxSendReceipt receipt{};
+    std::atomic<solar::Status> status{solar::Status::Error};
+    std::atomic_bool finished{false};
+};
+
+void mailbox_sender(void* argument) noexcept
+{
+    auto& context = *static_cast<MailboxSendContext*>(argument);
+    context.entered.give();
+    const auto result = context.mailbox->send(std::span<const std::byte>{context.payload},
+                                              context.options, kernel::Timeout::after(100ms));
+    context.status.store(result ? solar::Status::Ok : solar::status_of(result.error()),
+                         std::memory_order_release);
+    if (result) {
+        context.receipt = *result;
+    }
+    context.finished.store(true, std::memory_order_release);
+}
+
+struct MailboxMetadataSendContext
+{
+    kernel::Mailbox* mailbox{};
+    kernel::Semaphore entered;
+    kernel::MailboxSendReceipt receipt{};
+    std::atomic<solar::Status> status{solar::Status::Error};
+};
+
+struct NativeMailboxSendContext
+{
+    k_mbox* mailbox{};
+    kernel::Semaphore entered;
+    std::uint32_t payload{0xcafebabe};
+    std::atomic_bool finished{false};
+    std::atomic_int result{-1};
+};
+
+void native_mailbox_sender(void* argument) noexcept
+{
+    auto& context = *static_cast<NativeMailboxSendContext*>(argument);
+    k_mbox_msg message{.size = sizeof(context.payload),
+                       .info = 12,
+                       .tx_data = &context.payload,
+                       .rx_source_thread = nullptr,
+                       .tx_target_thread = static_cast<k_tid_t>(K_ANY)};
+    context.entered.give();
+    context.result.store(k_mbox_put(context.mailbox, &message, K_MSEC(100)),
+                         std::memory_order_release);
+    context.finished.store(true, std::memory_order_release);
+}
+
+void mailbox_metadata_sender(void* argument) noexcept
+{
+    auto& context = *static_cast<MailboxMetadataSendContext*>(argument);
+    context.entered.give();
+    const auto result = context.mailbox->send(kernel::MailboxSendOptions{.info = 77},
+                                              kernel::Timeout::after(100ms));
+    context.status.store(result ? solar::Status::Ok : solar::status_of(result.error()),
+                         std::memory_order_release);
+    if (result) {
+        context.receipt = *result;
+    }
+}
+
 void queue_poll_waiter(void* argument) noexcept
 {
     auto& context = *static_cast<QueuePollContext*>(argument);
@@ -550,6 +641,154 @@ ZTEST(solar_kernel_execution, test_intrusive_queue_poll_cancellation_preserves_e
     zassert_equal(context.status.load(std::memory_order_acquire), solar::Status::Ok);
     zassert_true(context.interrupted.load(std::memory_order_acquire));
     zassert_true(context.cancelled.load(std::memory_order_acquire));
+}
+
+ZTEST(solar_kernel_execution, test_mailbox_targeted_and_wildcard_rendezvous)
+{
+    kernel::Mailbox mailbox;
+    MailboxReceiveContext context{.mailbox = &mailbox};
+    kernel::Thread<2048> receiver;
+    zassert_equal(result_status(receiver.launch(
+                      mailbox_receiver, &context,
+                      {.priority = kernel::Priority::preemptive<1>(), .name = "mailbox-rx"})),
+                  solar::Status::Ok);
+    zassert_equal(result_status(context.entered.take(kernel::Timeout::after(100ms))),
+                  solar::Status::Ok);
+    const auto receiver_ref = receiver.ref();
+    zassert_true(receiver_ref.has_value());
+
+    constexpr std::uint32_t outgoing = 0x12345678;
+    const auto sent = mailbox.send(outgoing, {.info = 0xa5, .target = receiver_ref->id()},
+                                   kernel::Deadline::after(100ms));
+    zassert_true(sent.has_value());
+    zassert_equal(sent->reply_info, 0x55aa);
+    zassert_equal(sent->accepted_size, sizeof(outgoing));
+    zassert_equal(sent->receiver, receiver_ref->id());
+    zassert_equal(result_status(receiver.join(kernel::Timeout::after(100ms))), solar::Status::Ok);
+    zassert_equal(context.status.load(std::memory_order_acquire), solar::Status::Ok);
+    zassert_equal(context.payload, outgoing);
+    zassert_equal(context.receipt.info, 0xa5);
+    zassert_equal(context.receipt.size, sizeof(outgoing));
+    zassert_not_null(context.receipt.peer);
+
+    std::uint32_t unused{};
+    zassert_equal(solar::status_of(mailbox.receive(unused, {}, kernel::Timeout::no_wait()).error()),
+                  solar::Status::WouldBlock);
+    zassert_equal(solar::status_of(mailbox.send(outgoing, {}, kernel::Timeout::no_wait()).error()),
+                  solar::Status::WouldBlock);
+}
+
+ZTEST(solar_kernel_execution, test_mailbox_deferred_copy_truncation_and_source_match)
+{
+    kernel::Mailbox mailbox;
+    MailboxSendContext context{.mailbox = &mailbox,
+                               .payload = {std::byte{1}, std::byte{2}, std::byte{3}, std::byte{4},
+                                           std::byte{5}, std::byte{6}, std::byte{7}, std::byte{8}},
+                               .options = {.info = 19}};
+    kernel::Thread<2048> sender;
+    zassert_equal(result_status(sender.launch(
+                      mailbox_sender, &context,
+                      {.priority = kernel::Priority::preemptive<1>(), .name = "mailbox-tx"})),
+                  solar::Status::Ok);
+    zassert_equal(result_status(context.entered.take(kernel::Timeout::after(100ms))),
+                  solar::Status::Ok);
+    const auto sender_ref = sender.ref();
+    zassert_true(sender_ref.has_value());
+
+    kernel::DeferredMailboxReceive deferred;
+    const auto received =
+        mailbox.receive_deferred(deferred, 4, {.reply_info = 31, .source = sender_ref->id()},
+                                 kernel::Deadline::after(100ms));
+    zassert_true(received.has_value());
+    zassert_equal(received->info, 19);
+    zassert_equal(received->size, 4);
+    zassert_equal(received->peer, sender_ref->id());
+    zassert_true(deferred.pending());
+    zassert_false(context.finished.load(std::memory_order_acquire));
+
+    std::array<std::byte, 3> short_buffer{};
+    zassert_equal(solar::status_of(deferred.retrieve(short_buffer).error()),
+                  solar::Status::NoBuffer);
+    zassert_true(deferred.pending());
+    std::array<std::byte, 4> copied{};
+    zassert_true(deferred.retrieve(copied).has_value());
+    zassert_mem_equal(copied.data(), context.payload.data(), copied.size());
+    zassert_false(deferred.pending());
+    zassert_equal(result_status(sender.join(kernel::Timeout::after(100ms))), solar::Status::Ok);
+    zassert_true(context.finished.load(std::memory_order_acquire));
+    zassert_equal(context.status.load(std::memory_order_acquire), solar::Status::Ok);
+    zassert_equal(context.receipt.reply_info, 31);
+    zassert_equal(context.receipt.accepted_size, 4);
+}
+
+ZTEST(solar_kernel_execution, test_mailbox_metadata_only_and_async_completion)
+{
+    kernel::Mailbox mailbox;
+    MailboxMetadataSendContext metadata_context{.mailbox = &mailbox};
+    kernel::Thread<2048> sender;
+    zassert_equal(result_status(sender.launch(
+                      mailbox_metadata_sender, &metadata_context,
+                      {.priority = kernel::Priority::preemptive<1>(), .name = "mailbox-meta"})),
+                  solar::Status::Ok);
+    zassert_equal(result_status(metadata_context.entered.take(kernel::Timeout::after(100ms))),
+                  solar::Status::Ok);
+    kernel::DeferredMailboxReceive metadata;
+    const auto received =
+        mailbox.receive_deferred(metadata, 0, {.reply_info = 88}, kernel::Timeout::after(100ms));
+    zassert_true(received.has_value());
+    zassert_equal(received->info, 77);
+    zassert_equal(received->size, 0);
+    zassert_false(metadata.pending());
+    zassert_equal(result_status(sender.join(kernel::Timeout::after(100ms))), solar::Status::Ok);
+    zassert_equal(metadata_context.status.load(std::memory_order_acquire), solar::Status::Ok);
+    zassert_equal(metadata_context.receipt.reply_info, 88);
+
+#if CONFIG_NUM_MBOX_ASYNC_MSGS > 0
+    kernel::AsyncMailboxSend<std::uint32_t> async{42, {.info = 91}};
+    zassert_equal(result_status(mailbox.send_async(async)), solar::Status::Ok);
+    zassert_true(async.in_flight());
+    zassert_equal(solar::status_of(async.payload().error()), solar::Status::Busy);
+    zassert_equal(result_status(async.reset(7)), solar::Status::Busy);
+    std::uint32_t payload{};
+    const auto async_received =
+        mailbox.receive(payload, {.reply_info = 92}, kernel::Timeout::after(100ms));
+    zassert_true(async_received.has_value());
+    zassert_equal(payload, 42);
+    zassert_equal(async_received->info, 91);
+    zassert_equal(result_status(async.wait(kernel::Deadline::after(100ms))), solar::Status::Ok);
+    zassert_false(async.in_flight());
+    zassert_equal(*async.payload(), 42);
+#endif
+}
+
+ZTEST(solar_kernel_execution, test_mailbox_deferred_rendezvous_matches_native_zephyr)
+{
+    k_mbox native;
+    k_mbox_init(&native);
+    NativeMailboxSendContext context{.mailbox = &native};
+    kernel::Thread<2048> sender;
+    zassert_equal(result_status(sender.launch(
+                      native_mailbox_sender, &context,
+                      {.priority = kernel::Priority::preemptive<1>(), .name = "native-mbox"})),
+                  solar::Status::Ok);
+    zassert_equal(result_status(context.entered.take(kernel::Timeout::after(100ms))),
+                  solar::Status::Ok);
+
+    k_mbox_msg received{.size = sizeof(std::uint32_t),
+                        .info = 34,
+                        .tx_data = nullptr,
+                        .rx_source_thread = static_cast<k_tid_t>(K_ANY),
+                        .tx_target_thread = nullptr};
+    zassert_equal(k_mbox_get(&native, &received, nullptr, K_MSEC(100)), 0);
+    zassert_equal(received.info, 12);
+    zassert_equal(received.size, sizeof(std::uint32_t));
+    zassert_false(context.finished.load(std::memory_order_acquire));
+    std::uint32_t payload{};
+    k_mbox_data_get(&received, &payload);
+    zassert_equal(payload, context.payload);
+    zassert_equal(result_status(sender.join(kernel::Timeout::after(100ms))), solar::Status::Ok);
+    zassert_equal(context.result.load(std::memory_order_acquire), 0);
+    zassert_true(context.finished.load(std::memory_order_acquire));
 }
 
 ZTEST(solar_kernel_execution, test_system_work_submission_and_self_deadlock_detection)

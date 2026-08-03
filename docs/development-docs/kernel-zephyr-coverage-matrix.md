@@ -113,7 +113,7 @@ from either context without changing their contract.
 | Intrusive queue/FIFO/LIFO | absent | Phase 8 typed zero-copy wrappers |
 | Kernel word stack | absent | Phase 8 constrained typed wrapper |
 | Heap | absent | Phase 9 fixed-storage owner/reference and optional PMR adapter |
-| Mailbox | absent | Phase 10 typed rendezvous wrapper |
+| Mailbox | `Mailbox` / `MailboxRef` | Targeted typed rendezvous, metadata, deferred copy, and lifetime-safe async owner |
 | Userspace/object permissions/memory domains | absent | deferred; direct Zephyr API |
 | Dynamic thread stacks | absent | deferred; direct Zephyr API |
 | SMP affinity, CPU masks, and IPI work | absent | deferred; direct Zephyr API |
@@ -335,4 +335,23 @@ Native: kernel core 11/11 passed
 ARM QEMU: kernel core 11/11 passed
 Compile-fail: heap size/alignment, owner native access, and omitted PMR policy
               cases 30-33 rejected
+```
+
+### 2026-08-03 — typed mailbox rendezvous
+
+```text
+Mailbox: stable owner plus MailboxRef; sender/receiver targeting, application
+         metadata, negotiated size, timeout/deadline, and metadata-only traffic
+Deferred copy: non-moving receive descriptor keeps the native sender blocked
+               until explicit retrieve/discard; short destination is rejected
+               without releasing the sender
+Async send: owner holds trivially-copyable payload and completion semaphore;
+            payload replacement, access, movement, and destruction are blocked
+            until receiver completion
+Native equivalence: direct k_mbox_put/get/data_get fixture proves the same
+                    deferred rendezvous and sender release transition
+Native and ARM QEMU: kernel core/execution 62/62 passed
+Configuration: synchronous mailbox remains available with
+               CONFIG_NUM_MBOX_ASYNC_MSGS=0; async type is omitted
+Compile-fail: non-trivial async payload case 34 produces the focused diagnostic
 ```

@@ -11,6 +11,7 @@ using NativeTimepoint = k_timepoint_t;
 using NativeMutex = k_mutex;
 using NativeSemaphore = k_sem;
 using NativeMessageQueue = k_msgq;
+using NativeMailbox = k_mbox;
 using NativeEventFlags = k_event;
 using NativeTimer = k_timer;
 using NativePollEvent = k_poll_event;

@@ -9,6 +9,7 @@
 #include "solar/kernel/heap.hpp"
 #include "solar/kernel/interrupt.hpp"
 #include "solar/kernel/intrusive_queue.hpp"
+#include "solar/kernel/mailbox.hpp"
 #include "solar/kernel/memory_slab.hpp"
 #include "solar/kernel/message_queue.hpp"
 #include "solar/kernel/mutex.hpp"

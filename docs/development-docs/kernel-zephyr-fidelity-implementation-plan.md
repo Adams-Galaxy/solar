@@ -2,7 +2,7 @@
 
 Date: 2026-08-03
 
-Status: accepted direction; implementation not started
+Status: implementation in progress; phases 0-10 complete
 
 Companion problem statement:
 [`kernel-zephyr-fidelity.md`](kernel-zephyr-fidelity.md)
@@ -166,8 +166,8 @@ exact Zephyr recursive behavior and may provide `RecursiveMutexRef`.
 | 7 | Diagnostics, fatal handling, and stop tokens | complete |
 | 8 | Intrusive queues, FIFO, LIFO, and kernel stack | complete |
 | 9 | Heap, PMR, and storage statistics | complete |
-| 10 | Mailbox | in progress |
-| 11 | Application and robot migration | not started |
+| 10 | Mailbox | complete |
+| 11 | Application and robot migration | in progress |
 | 12 | Configuration matrix, documentation, and hardening | not started |
 
 Only one semantic foundation phase may be active at a time. Tests and

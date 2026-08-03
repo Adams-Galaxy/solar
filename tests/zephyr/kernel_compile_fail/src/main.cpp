@@ -104,6 +104,8 @@ void invalid_native_access(solar::kernel::Heap<128>& heap)
 #elif SOLAR_FAIL_CASE == 33
 solar::kernel::Heap<128> heap;
 solar::kernel::HeapResource implicit_failure_policy{heap.ref()};
+#elif SOLAR_FAIL_CASE == 34
+solar::kernel::AsyncMailboxSend<std::string> invalid_async_message{"not byte-safe"};
 #else
 #error SOLAR_DIAGNOSTIC_UNKNOWN_KERNEL_FAILURE_CASE
 #endif

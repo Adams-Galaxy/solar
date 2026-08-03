@@ -12,6 +12,7 @@ component, or add lifecycle ownership.
 | Counted signalling | `Semaphore` |
 | Bit-set signalling | `EventFlags` |
 | Fixed typed messages | `MessageQueue<T, N>` |
+| Targeted rendezvous and deferred copy | `Mailbox` |
 | Zero-copy node transfer | `Queue<T>`, `Fifo<T>`, `Lifo<T>` |
 | Byte streams | `Pipe<N>` |
 | Fixed-block allocation | `MemorySlab<BlockBytes, Count>` |
@@ -87,6 +88,23 @@ select panic or `Throw`. A dedicated expected-fatal test verifies the panic
 path. This facility is opt-in and does not change Solar's allocation-free
 default.
 
+`Mailbox` preserves Zephyr's targeted rendezvous model. A synchronous sender
+finishes only after the receiver has copied or discarded the negotiated
+payload. Immediate `receive()` copies into caller storage.
+`receive_deferred()` uses a non-moving `DeferredMailboxReceive`; its
+`retrieve()` or `discard()` operation completes the rendezvous, and destroying
+it while data is pending is a programmer error. Receipts retain the application
+information value, negotiated byte count, and matched peer. A smaller receive
+capacity intentionally truncates the transfer exactly as Zephyr does, and the
+sender receipt reports the accepted size.
+
+When `CONFIG_NUM_MBOX_ASYNC_MSGS` is non-zero, `AsyncMailboxSend<T>` owns both
+its trivially-copyable payload and completion semaphore. The payload cannot be
+read, replaced, moved, or destroyed while in flight; `wait()` proves that the
+receiver has finished with it. With no async descriptors configured, only the
+synchronous mailbox surface is present. Unlike `MessageQueue`, mailbox data is
+not copied into persistent queue storage while waiting for a receiver.
+
 Zephyr 4.4 reacquires a condition-variable mutex only when the wait succeeds.
 After a timeout or no-wait miss, Solar therefore marks the accompanying
 `UniqueLock` as not owning the mutex; call `lock()` again before accessing the
@@ -115,6 +133,8 @@ ISR-safe names; their no-wait consumers use `try_get_isr()` and
 Synchronous cancel, join, poll, condition waits, pipe transfers, mutex locking,
 and timer start belong in thread context and return `Status::Invalid` from ISR
 before calling Zephyr.
+Mailbox send, receive, deferred retrieval, and asynchronous submission are also
+thread-only; Zephyr does not define mailbox operations as ISR-safe.
 
 The `this_thread` operations that can inspect or reschedule the current thread
 return `Result`, including priority access, priority changes, sleep, and yield.
@@ -162,7 +182,7 @@ Owning wrappers use stable native storage and do not expose mutable handles when
 a native call could invalidate their lifecycle or callback state. Use
 `owner.ref()` to borrow transparent primitives such as semaphores, recursive
 mutexes, condition variables, events, message queues, pipes, memory slabs,
-timers, spinlocks, poll signals, and initialized threads.
+timers, spinlocks, poll signals, mailboxes, and initialized threads.
 The matching `FooRef` can also borrow a Zephyr-owned object without taking over
 its initialization or lifetime. Typed native queues use
 `MessageQueueRef<T>::borrow(queue)`, which validates Zephyr's configured item
