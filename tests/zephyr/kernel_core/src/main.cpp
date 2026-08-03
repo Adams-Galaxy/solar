@@ -159,6 +159,9 @@ struct IsrContext
     solar::Status pipe_status{solar::Status::Error};
     solar::Status poll_status{solar::Status::Error};
     solar::Status timer_start_status{solar::Status::Error};
+    solar::Status sleep_status{solar::Status::Error};
+    solar::Status yield_status{solar::Status::Error};
+    solar::Status priority_status{solar::Status::Error};
     solar::Status mutex_status{solar::Status::Error};
 };
 
@@ -182,6 +185,10 @@ void exercise_isr(const void* argument)
     context.pipe_status = result_status(context.pipe->try_write(byte).error());
     context.poll_status = result_status(context.poll->try_wait().error());
     context.timer_start_status = result_status(context.timer->start(kernel::Timeout::no_wait()));
+    context.sleep_status =
+        result_status(kernel::this_thread::sleep_for(kernel::Timeout::no_wait()));
+    context.yield_status = result_status(kernel::this_thread::yield());
+    context.priority_status = result_status(kernel::this_thread::priority());
     context.mutex_status = result_status(context.mutex->try_lock());
 }
 
@@ -228,12 +235,13 @@ ZTEST(solar_kernel_core, test_priority_scheduler_and_current_thread)
     zassert_false(kernel::Priority::from_native(K_LOWEST_APPLICATION_THREAD_PRIO + 1).has_value());
 
     const auto original = kernel::this_thread::priority();
-    kernel::this_thread::set_priority(*preemptive);
-    zassert_equal(kernel::this_thread::priority().native_handle(), preemptive->native_handle());
-    kernel::this_thread::set_priority(original);
+    zassert_true(original.has_value());
+    zassert_equal(result_status(kernel::this_thread::set_priority(*preemptive)), solar::Status::Ok);
+    zassert_equal(kernel::this_thread::priority()->native_handle(), preemptive->native_handle());
+    zassert_equal(result_status(kernel::this_thread::set_priority(*original)), solar::Status::Ok);
 
     zassert_not_null(kernel::this_thread::id());
-    zassert_equal(kernel::this_thread::ref().id(), kernel::this_thread::id());
+    zassert_equal(kernel::this_thread::ref()->id(), kernel::this_thread::id());
     zassert_equal(result_status(kernel::this_thread::yield()), solar::Status::Ok);
     zassert_equal(result_status(kernel::this_thread::busy_wait_for(10us)), solar::Status::Ok);
 
@@ -544,6 +552,9 @@ ZTEST(solar_kernel_core, test_isr_specific_operations)
     zassert_equal(result_status(context.pipe_status), solar::Status::Invalid);
     zassert_equal(result_status(context.poll_status), solar::Status::Invalid);
     zassert_equal(result_status(context.timer_start_status), solar::Status::Invalid);
+    zassert_equal(result_status(context.sleep_status), solar::Status::Invalid);
+    zassert_equal(result_status(context.yield_status), solar::Status::Invalid);
+    zassert_equal(result_status(context.priority_status), solar::Status::Invalid);
     zassert_equal(result_status(context.mutex_status), solar::Status::Invalid);
     zassert_equal(*queue.try_receive(), 42);
     zassert_equal(result_status(events.try_wait_any_isr(0x1).error()), solar::Status::WouldBlock);

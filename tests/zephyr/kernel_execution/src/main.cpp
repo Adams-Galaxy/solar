@@ -59,7 +59,7 @@ void controlled_thread(void* argument) noexcept
 
 void record_priority(void* argument) noexcept
 {
-    static_cast<std::atomic_int*>(argument)->store(kernel::this_thread::priority().native_handle(),
+    static_cast<std::atomic_int*>(argument)->store(kernel::this_thread::priority()->native_handle(),
                                                    std::memory_order_release);
 }
 

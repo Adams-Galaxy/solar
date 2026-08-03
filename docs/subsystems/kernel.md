@@ -61,6 +61,11 @@ Synchronous cancel, join, poll, condition waits, pipe transfers, mutex locking,
 and timer start belong in thread context and return `Status::Invalid` from ISR
 before calling Zephyr.
 
+The `this_thread` operations that can inspect or reschedule the current thread
+return `Result`, including priority access, priority changes, sleep, and yield.
+This prevents interrupt context from being mistaken for an ordinary current
+thread. `busy_wait_for()` remains directly ISR-safe, matching Zephyr.
+
 ## Native interoperation
 
 Owning wrappers use stable native storage and do not expose mutable handles when

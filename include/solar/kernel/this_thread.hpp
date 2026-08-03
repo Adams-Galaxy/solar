@@ -8,6 +8,7 @@
 
 #include "solar/core/status.hpp"
 #include "solar/kernel/deadline.hpp"
+#include "solar/kernel/interrupt.hpp"
 #include "solar/kernel/native.hpp"
 #include "solar/kernel/priority.hpp"
 #include "solar/kernel/thread.hpp"
@@ -20,33 +21,47 @@ namespace solar::kernel::this_thread
     return k_current_get();
 }
 
-[[nodiscard]] inline ThreadRef ref() noexcept
+[[nodiscard]] inline Result<ThreadRef> ref() noexcept
 {
+    if (in_isr()) {
+        return fail<Error>({.status = Status::Invalid});
+    }
     return ThreadRef{*k_current_get()};
 }
 
-[[nodiscard]] inline Priority priority() noexcept
+[[nodiscard]] inline Result<Priority> priority() noexcept
 {
-    return *Priority::from_native(k_thread_priority_get(k_current_get()));
+    if (in_isr()) {
+        return fail<Error>({.status = Status::Invalid});
+    }
+    return Priority::from_native(k_thread_priority_get(k_current_get()));
 }
 
-inline void set_priority(Priority priority) noexcept
+[[nodiscard]] inline Result<void> set_priority(Priority priority) noexcept
 {
+    if (in_isr()) {
+        return fail<Error>({.status = Status::Invalid});
+    }
     k_thread_priority_set(k_current_get(), priority.native_handle());
+    return {};
 }
 
-[[nodiscard]] inline Milliseconds sleep_for(Timeout timeout) noexcept
+[[nodiscard]] inline Result<Milliseconds> sleep_for(Timeout timeout) noexcept
 {
+    if (in_isr()) {
+        return fail<Error>({.status = Status::Invalid});
+    }
     return Milliseconds{k_sleep(timeout.native_handle())};
 }
 
 template <typename Rep, typename Period>
-[[nodiscard]] inline Milliseconds sleep_for(std::chrono::duration<Rep, Period> duration) noexcept
+[[nodiscard]] inline Result<Milliseconds>
+sleep_for(std::chrono::duration<Rep, Period> duration) noexcept
 {
     return sleep_for(Timeout::after(duration));
 }
 
-[[nodiscard]] inline Milliseconds sleep_until(const Deadline& deadline) noexcept
+[[nodiscard]] inline Result<Milliseconds> sleep_until(const Deadline& deadline) noexcept
 {
     return sleep_for(deadline.remaining());
 }
@@ -54,7 +69,7 @@ template <typename Rep, typename Period>
 [[nodiscard]] inline Result<void> yield() noexcept
 {
     if (!k_can_yield()) {
-        return fail<Error>({.status = Status::NotReady});
+        return fail<Error>({.status = in_isr() ? Status::Invalid : Status::NotReady});
     }
     k_yield();
     return {};
