@@ -78,6 +78,8 @@ using Specification = solar::application::Specification<Application>;
 using DeviceModule = solar::AsModule<ConventionalDevice>;
 using Runner =
     solar::execution::ServiceRunner<Application, Service, 4096, solar::PreemptivePriority<3>>;
+static_assert(Runner::stack_size == 4096);
+static_assert(std::is_same_v<typename Runner::Priority, solar::PreemptivePriority<3>>);
 using Expected = solar::Compose<solar::Contract<Contract>, solar::Own<DeviceModule, Runner>,
                                 solar::Components<Service>>;
 static_assert(std::is_same_v<solar::application::Composition<Application>, Expected>);

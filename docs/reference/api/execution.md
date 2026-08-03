@@ -4,7 +4,8 @@ Include `<solar/execution.hpp>`.
 
 ```cpp
 template <std::size_t Capacity> class TaskQueue;
-template <typename Service, std::size_t StackBytes, int Priority>
+template <typename Application, typename Service, std::size_t StackBytes,
+          typename PriorityPolicy, typename Dependencies = TypeList<>>
 class ServiceRunner;
 ```
 

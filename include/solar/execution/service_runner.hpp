@@ -20,6 +20,16 @@
 namespace solar::execution
 {
 
+#if defined(__ZEPHYR__)
+struct ServiceScheduling
+{
+    std::size_t stack_size{};
+    kernel::PriorityClass priority_class{};
+    std::uint32_t priority_level{};
+    int native_priority{};
+};
+#endif
+
 /**
  * Owns the execution lifecycle for one static service with `run(StopToken)`.
  *
@@ -32,12 +42,32 @@ struct ServiceRunner
 {
     static_assert(StackBytes > 0);
     using Dependencies = DependenciesT;
+    using Priority = PriorityPolicy;
+    static constexpr std::size_t stack_size = StackBytes;
     static constexpr std::string_view name = [] {
         if constexpr (requires { Service::name; }) {
             return std::string_view{Service::name};
         }
         return std::string_view{};
     }();
+
+#if defined(__ZEPHYR__)
+    /** Exact Zephyr scheduling value selected by the Application run policy. */
+    [[nodiscard]] static consteval kernel::Priority scheduled_priority() noexcept
+    {
+        return PriorityPolicy::resolve();
+    }
+
+    /** Fully resolved scheduling policy used by build-time application inspection. */
+    [[nodiscard]] static consteval ServiceScheduling scheduling() noexcept
+    {
+        constexpr auto priority = scheduled_priority();
+        return {.stack_size = StackBytes,
+                .priority_class = priority.category(),
+                .priority_level = priority.level(),
+                .native_priority = priority.native_handle()};
+    }
+#endif
 
     [[nodiscard]] static Result<void> initialize() noexcept
     {
@@ -55,7 +85,7 @@ struct ServiceRunner
         }
         auto prepared = thread_.prepare(
             &entry, nullptr,
-            kernel::ThreadConfiguration{.priority = configured_priority(), .name = nullptr});
+            kernel::ThreadConfiguration{.priority = scheduled_priority(), .name = nullptr});
         if (!prepared) {
             if constexpr (requires {
                               { Service::deinitialize() } -> std::same_as<Result<void>>;
@@ -109,11 +139,6 @@ struct ServiceRunner
 
   private:
 #if defined(__ZEPHYR__)
-    [[nodiscard]] static consteval kernel::Priority configured_priority()
-    {
-        return PriorityPolicy::resolve();
-    }
-
     static void entry(void*) noexcept
     {
         const auto result = Service::run(stop_source_.token());

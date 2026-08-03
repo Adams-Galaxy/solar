@@ -2059,7 +2059,9 @@ def generate_application_explanation(ir: dict[str, Any]) -> tuple[dict[str, Any]
         },
         "note": (
             "C++ service owners, platform links, device adapters, and runner policies are "
-            "available through solar::application::Specification<Application>."
+            "available through solar::application::Specification<Application>; each runner's "
+            "scheduling() reports its resolved stack size, priority class, level, and native "
+            "Zephyr value after C++ compilation."
         ),
     }
     lines = [
@@ -2067,6 +2069,10 @@ def generate_application_explanation(ir: dict[str, Any]) -> tuple[dict[str, Any]
         f"C++ identity: {ir['application']['namespace']}::{ir['application']['cpp_type']}",
         f"Parameters: {application['synthesized']['parameters']}",
         f"Remote: {application['synthesized']['remote']}",
+        (
+            "C++ scheduling: Specification<Application>::ServiceRunners; "
+            "Runner::scheduling() gives stack/class/level/native value"
+        ),
         "Endpoints:",
     ]
     for domain, entries in application["endpoints"].items():

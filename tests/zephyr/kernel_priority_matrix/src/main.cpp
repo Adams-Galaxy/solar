@@ -5,6 +5,33 @@
 
 namespace kernel = solar::kernel;
 
+namespace
+{
+struct Application;
+struct Service
+{};
+#if CONFIG_NUM_PREEMPT_PRIORITIES > 0
+using PreemptiveRunner =
+    solar::execution::ServiceRunner<Application, Service, 2048, solar::PreemptivePriority<0>>;
+static_assert(PreemptiveRunner::stack_size == 2048);
+static_assert(PreemptiveRunner::scheduled_priority().native_handle() == K_PRIO_PREEMPT(0));
+static_assert(PreemptiveRunner::scheduled_priority().is_preemptive());
+static_assert(PreemptiveRunner::scheduled_priority().level() == 0);
+static_assert(PreemptiveRunner::scheduling().priority_class == kernel::PriorityClass::Preemptive);
+static_assert(PreemptiveRunner::scheduling().native_priority == K_PRIO_PREEMPT(0));
+#endif
+#if CONFIG_NUM_COOP_PRIORITIES > 0
+using CooperativeRunner =
+    solar::execution::ServiceRunner<Application, Service, 3072, solar::CooperativePriority<0>>;
+static_assert(CooperativeRunner::stack_size == 3072);
+static_assert(CooperativeRunner::scheduled_priority().native_handle() == K_PRIO_COOP(0));
+static_assert(CooperativeRunner::scheduled_priority().is_cooperative());
+static_assert(CooperativeRunner::scheduled_priority().level() == 0);
+static_assert(CooperativeRunner::scheduling().priority_class == kernel::PriorityClass::Cooperative);
+static_assert(CooperativeRunner::scheduling().native_priority == K_PRIO_COOP(0));
+#endif
+} // namespace
+
 static_assert(!std::is_default_constructible_v<kernel::Priority>);
 static_assert(kernel::Priority::native<K_HIGHEST_APPLICATION_THREAD_PRIO>().native_handle() ==
               K_HIGHEST_APPLICATION_THREAD_PRIO);

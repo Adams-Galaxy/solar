@@ -355,3 +355,25 @@ Configuration: synchronous mailbox remains available with
                CONFIG_NUM_MBOX_ASYNC_MSGS=0; async type is omitted
 Compile-fail: non-trivial async payload case 34 produces the focused diagnostic
 ```
+
+### 2026-08-03 — Application and robot priority migration
+
+```text
+Application: Cockpit intentionally runs preemptive level 2 with a 3072-byte
+             requested stack through Run<Cockpit, Stack<3072>,
+             PreemptivePriority<2>>
+Inspection: every ServiceRunner exposes its policy type, requested stack,
+            resolved Priority, and scheduling() record containing exact class,
+            zero-based level, and signed native Zephyr value
+Simulator: raw k_thread/K_PRIO_PREEMPT(5)/k_sem transport machinery replaced
+           by Thread<4096>, Priority::preemptive<5>(), and BinarySemaphore
+Search audit: no in-tree semantic priority ladder remains; remaining K_PRIO_*
+              uses are native equivalence assertions only
+Host: 68/68 passed
+Priority matrix: five native configurations built, covering cooperative-only,
+                 preemptive-only, reduced mixed, default mixed, and Meta-IRQ
+Simulator: application build and generated Python Cockpit data/input-stream
+           exercise passed over TCP, including safe/manual transitions
+Wire digest: 4a72e86b57cd03e8b7d133efe90a0b61f15ef379aaeb59c2d04bd44205dafad1
+Teensy optimized/LTO: FLASH 301500 B, RAM 198040 B (unchanged from Phase 8/9)
+```
