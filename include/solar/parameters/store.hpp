@@ -1,12 +1,12 @@
 #pragma once
 
-#include <atomic>
 #include <concepts>
 #include <cstdint>
 #include <tuple>
 #include <type_traits>
 #include <utility>
 
+#include "solar/core/spin_mutex.hpp"
 #include "solar/core/status.hpp"
 #include "solar/core/type_list.hpp"
 
@@ -76,44 +76,6 @@ template <StoreDeclaration... Declarations> struct ParameterSnapshot
 
 namespace store_detail
 {
-
-class SpinMutex
-{
-  public:
-    void lock() noexcept
-    {
-        while (locked_.test_and_set(std::memory_order_acquire)) {
-        }
-    }
-
-    void unlock() noexcept
-    {
-        locked_.clear(std::memory_order_release);
-    }
-
-  private:
-    std::atomic_flag locked_ = ATOMIC_FLAG_INIT;
-};
-
-class Guard
-{
-  public:
-    explicit Guard(SpinMutex& mutex) noexcept : mutex_(mutex)
-    {
-        mutex_.lock();
-    }
-
-    ~Guard()
-    {
-        mutex_.unlock();
-    }
-
-    Guard(const Guard&) = delete;
-    Guard& operator=(const Guard&) = delete;
-
-  private:
-    SpinMutex& mutex_;
-};
 
 template <StoreDeclaration Declaration> struct Slot
 {
@@ -188,7 +150,7 @@ template <SchemaType SchemaT> class Store
 
     [[nodiscard]] Result<void> initialize() noexcept
     {
-        store_detail::Guard lock{mutex_};
+        SpinGuard lock{mutex_};
         Storage::for_each(slots_, []<typename SlotT>(SlotT& slot) {
             using Declaration = typename SlotT::DeclarationType;
             slot.value = Declaration::default_value;
@@ -202,7 +164,7 @@ template <SchemaType SchemaT> class Store
 
     [[nodiscard]] Result<void> start() noexcept
     {
-        store_detail::Guard lock{mutex_};
+        SpinGuard lock{mutex_};
         if (!initialized_) {
             return fail<solar::Error>({.status = Status::NotReady});
         }
@@ -215,7 +177,7 @@ template <SchemaType SchemaT> class Store
 
     [[nodiscard]] Result<void> stop() noexcept
     {
-        store_detail::Guard lock{mutex_};
+        SpinGuard lock{mutex_};
         if (!initialized_) {
             return fail<solar::Error>({.status = Status::NotReady});
         }
@@ -225,7 +187,7 @@ template <SchemaType SchemaT> class Store
 
     [[nodiscard]] Result<void> deinitialize() noexcept
     {
-        store_detail::Guard lock{mutex_};
+        SpinGuard lock{mutex_};
         active_ = false;
         initialized_ = false;
         return {};
@@ -235,7 +197,7 @@ template <SchemaType SchemaT> class Store
     [[nodiscard]] Result<typename Declaration::Value> get() const noexcept
     {
         require_member<Declaration>();
-        store_detail::Guard lock{mutex_};
+        SpinGuard lock{mutex_};
         if (!initialized_) {
             return fail<solar::Error>({.status = Status::NotReady});
         }
@@ -253,7 +215,7 @@ template <SchemaType SchemaT> class Store
             return fail<solar::Error>({.status = Status::Invalid});
         }
 
-        store_detail::Guard lock{mutex_};
+        SpinGuard lock{mutex_};
         if (!initialized_) {
             return fail<solar::Error>({.status = Status::NotReady});
         }
@@ -290,7 +252,7 @@ template <SchemaType SchemaT> class Store
             return fail<solar::Error>({.status = Status::Invalid});
         }
 
-        store_detail::Guard lock{mutex_};
+        SpinGuard lock{mutex_};
         if (!initialized_) {
             return fail<solar::Error>({.status = Status::NotReady});
         }
@@ -305,7 +267,7 @@ template <SchemaType SchemaT> class Store
     {
         static_assert(unique_types_v<TypeList<Declarations...>>);
         (require_member<Declarations>(), ...);
-        store_detail::Guard lock{mutex_};
+        SpinGuard lock{mutex_};
         if (!initialized_) {
             return fail<solar::Error>({.status = Status::NotReady});
         }
@@ -321,7 +283,7 @@ template <SchemaType SchemaT> class Store
     template <typename Visitor>
     [[nodiscard]] Result<void> visit(std::uint32_t id, Visitor&& visitor) const
     {
-        store_detail::Guard lock{mutex_};
+        SpinGuard lock{mutex_};
         if (!initialized_) {
             return fail<solar::Error>({.status = Status::NotReady});
         }
@@ -344,7 +306,7 @@ template <SchemaType SchemaT> class Store
     [[nodiscard]] Result<std::uint64_t> revision() const noexcept
     {
         require_member<Declaration>();
-        store_detail::Guard lock{mutex_};
+        SpinGuard lock{mutex_};
         if (!initialized_) {
             return fail<solar::Error>({.status = Status::NotReady});
         }
@@ -353,13 +315,13 @@ template <SchemaType SchemaT> class Store
 
     [[nodiscard]] bool initialized() const noexcept
     {
-        store_detail::Guard lock{mutex_};
+        SpinGuard lock{mutex_};
         return initialized_;
     }
 
     [[nodiscard]] bool active() const noexcept
     {
-        store_detail::Guard lock{mutex_};
+        SpinGuard lock{mutex_};
         return active_;
     }
 
@@ -391,7 +353,7 @@ template <SchemaType SchemaT> class Store
         ++target.revision;
     }
 
-    mutable store_detail::SpinMutex mutex_{};
+    mutable SpinMutex mutex_{};
     typename Storage::Slots slots_{};
     std::uint64_t transaction_revision_{};
     bool initialized_{};

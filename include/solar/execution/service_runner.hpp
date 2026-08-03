@@ -5,6 +5,7 @@
 #include <concepts>
 #include <cstddef>
 #include <string_view>
+#include <type_traits>
 
 #include "solar/core/status.hpp"
 #include "solar/core/type_list.hpp"
@@ -24,7 +25,7 @@ namespace solar::execution
  * Service behavior stays an ordinary application type; the Zephyr thread,
  * cancellation source, join deadline, and error propagation live here.
  */
-template <typename Application, typename Service, std::size_t StackBytes, int PriorityValue,
+template <typename Application, typename Service, std::size_t StackBytes, auto PriorityValue,
           typename DependenciesT = TypeList<>>
 struct ServiceRunner
 {
@@ -51,11 +52,9 @@ struct ServiceRunner
         if (auto result = stop_source_.reset(); !result) {
             return result;
         }
-        auto prepared =
-            thread_.prepare(&entry, nullptr,
-                            kernel::ThreadConfiguration{
-                                .priority = kernel::Priority::template preemptive<PriorityValue>(),
-                                .name = nullptr});
+        auto prepared = thread_.prepare(
+            &entry, nullptr,
+            kernel::ThreadConfiguration{.priority = configured_priority(), .name = nullptr});
         if (!prepared) {
             if constexpr (requires {
                               { Service::deinitialize() } -> std::same_as<Result<void>>;
@@ -109,6 +108,17 @@ struct ServiceRunner
 
   private:
 #if defined(__ZEPHYR__)
+    [[nodiscard]] static consteval kernel::Priority configured_priority()
+    {
+        using Value = std::remove_cv_t<decltype(PriorityValue)>;
+        if constexpr (std::is_same_v<Value, kernel::PriorityLevel>) {
+            return kernel::Priority::template semantic<PriorityValue>();
+        } else {
+            return kernel::Priority::template preemptive<static_cast<std::uint32_t>(
+                PriorityValue)>();
+        }
+    }
+
     static void entry(void*) noexcept
     {
         const auto result = Service::run(stop_source_.token());

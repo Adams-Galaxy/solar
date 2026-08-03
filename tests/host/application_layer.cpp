@@ -73,13 +73,14 @@ struct Application
     using Services = solar::Services<solar::Run<Service, solar::Stack<4096>, solar::Priority<3>>>;
 };
 
-using Specification = solar::application::specification_t<Application>;
+using Specification = solar::application::Specification<Application>;
 using DeviceModule = solar::AsModule<ConventionalDevice>;
 using Runner = solar::execution::ServiceRunner<Application, Service, 4096, 3>;
 using Expected = solar::Compose<solar::Contract<Contract>, solar::Own<DeviceModule, Runner>,
                                 solar::Components<Service>>;
+static_assert(std::is_same_v<solar::application::Composition<Application>, Expected>);
+static_assert(std::is_void_v<solar::application::Parameters<Application>>);
 static_assert(std::is_same_v<solar::application::composition_t<Application>, Expected>);
-static_assert(std::is_void_v<solar::application::parameters_t<Application>>);
 
 } // namespace fixture
 

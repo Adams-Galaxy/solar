@@ -15,7 +15,7 @@ Modules remain ordinary C++ types with `initialize`, `start`, `stop`, and
 `app::System` is a type, not a runtime context object. `System::boot()` walks
 the compile-time dependency graph; `System::shutdown()` reverses it. There is
 no global binding and no second relaxed mode. Advanced firmware can inspect
-`solar::application::composition_t<Application>` or write the equivalent
+`solar::application::Composition<Application>` or write the equivalent
 `solar::Compose<...>` explicitly.
 
 Build and run the maintained example:

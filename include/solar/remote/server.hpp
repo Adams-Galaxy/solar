@@ -2,13 +2,13 @@
 
 #include <algorithm>
 #include <array>
-#include <atomic>
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <utility>
 
+#include "solar/core/spin_mutex.hpp"
 #include "solar/core/status.hpp"
 #include "solar/core/type_list.hpp"
 
@@ -37,46 +37,6 @@ struct Request
     constexpr bool operator==(const Request&) const = default;
 };
 
-namespace server_detail
-{
-
-class SpinMutex
-{
-  public:
-    void lock() noexcept
-    {
-        while (locked_.test_and_set(std::memory_order_acquire)) {
-        }
-    }
-    void unlock() noexcept
-    {
-        locked_.clear(std::memory_order_release);
-    }
-
-  private:
-    std::atomic_flag locked_ = ATOMIC_FLAG_INIT;
-};
-
-class Guard
-{
-  public:
-    explicit Guard(SpinMutex& mutex) : mutex_(mutex)
-    {
-        mutex_.lock();
-    }
-    ~Guard()
-    {
-        mutex_.unlock();
-    }
-    Guard(const Guard&) = delete;
-    Guard& operator=(const Guard&) = delete;
-
-  private:
-    SpinMutex& mutex_;
-};
-
-} // namespace server_detail
-
 /**
  * Independently owned, bounded Remote endpoint server.
  *
@@ -99,7 +59,7 @@ template <typename Contract, ServerConfig Config = ServerConfig{}> class Server
 
     [[nodiscard]] Result<void> initialize() noexcept
     {
-        server_detail::Guard lock{mutex_};
+        SpinGuard lock{mutex_};
         sessions_.fill({});
         subscriptions_.fill({});
         requests_.fill({});
@@ -111,7 +71,7 @@ template <typename Contract, ServerConfig Config = ServerConfig{}> class Server
 
     [[nodiscard]] Result<void> start() noexcept
     {
-        server_detail::Guard lock{mutex_};
+        SpinGuard lock{mutex_};
         if (!initialized_) {
             return fail<solar::Error>({.status = Status::NotReady});
         }
@@ -124,7 +84,7 @@ template <typename Contract, ServerConfig Config = ServerConfig{}> class Server
 
     [[nodiscard]] Result<void> stop() noexcept
     {
-        server_detail::Guard lock{mutex_};
+        SpinGuard lock{mutex_};
         active_ = false;
         sessions_.fill({});
         subscriptions_.fill({});
@@ -134,7 +94,7 @@ template <typename Contract, ServerConfig Config = ServerConfig{}> class Server
 
     [[nodiscard]] Result<void> deinitialize() noexcept
     {
-        server_detail::Guard lock{mutex_};
+        SpinGuard lock{mutex_};
         active_ = false;
         initialized_ = false;
         sessions_.fill({});
@@ -145,7 +105,7 @@ template <typename Contract, ServerConfig Config = ServerConfig{}> class Server
 
     [[nodiscard]] Result<Session> open_session() noexcept
     {
-        server_detail::Guard lock{mutex_};
+        SpinGuard lock{mutex_};
         if (!active_) {
             return fail<solar::Error>({.status = Status::NotReady});
         }
@@ -163,7 +123,7 @@ template <typename Contract, ServerConfig Config = ServerConfig{}> class Server
 
     [[nodiscard]] Result<void> close_session(Session session) noexcept
     {
-        server_detail::Guard lock{mutex_};
+        SpinGuard lock{mutex_};
         auto* slot = find_session(session);
         if (slot == nullptr) {
             return fail<solar::Error>({.status = Status::NotFound});
@@ -184,7 +144,7 @@ template <typename Contract, ServerConfig Config = ServerConfig{}> class Server
     [[nodiscard]] Result<Request> begin_request(Session session, std::uint32_t correlation,
                                                 std::size_t payload_bytes) noexcept
     {
-        server_detail::Guard lock{mutex_};
+        SpinGuard lock{mutex_};
         if (!active_ || find_session(session) == nullptr)
             return fail<solar::Error>({.status = Status::NotFound});
         if (payload_bytes > Config.maximum_payload_bytes)
@@ -203,7 +163,7 @@ template <typename Contract, ServerConfig Config = ServerConfig{}> class Server
 
     [[nodiscard]] Result<void> complete_request(Request token) noexcept
     {
-        server_detail::Guard lock{mutex_};
+        SpinGuard lock{mutex_};
         for (auto& request : requests_) {
             if (request.active && request.session == token.session.value &&
                 request.correlation == token.correlation) {
@@ -261,7 +221,7 @@ template <typename Contract, ServerConfig Config = ServerConfig{}> class Server
 
     template <typename Stream> [[nodiscard]] Result<void> unsubscribe(Session session) noexcept
     {
-        server_detail::Guard lock{mutex_};
+        SpinGuard lock{mutex_};
         for (auto& slot : subscriptions_) {
             if (slot.active && slot.session == session.value && slot.endpoint == Stream::id) {
                 slot.active = false;
@@ -285,7 +245,7 @@ template <typename Contract, ServerConfig Config = ServerConfig{}> class Server
     [[nodiscard]] Result<void> grant(Session session, std::uint16_t credits) noexcept
     {
         static_assert(Stream::input);
-        server_detail::Guard lock{mutex_};
+        SpinGuard lock{mutex_};
         for (auto& slot : subscriptions_) {
             if (slot.active && slot.input && slot.session == session.value &&
                 slot.endpoint == Stream::id) {
@@ -307,7 +267,7 @@ template <typename Contract, ServerConfig Config = ServerConfig{}> class Server
         std::array<Session, Config.maximum_sessions> recipients{};
         std::size_t count{};
         {
-            server_detail::Guard lock{mutex_};
+            SpinGuard lock{mutex_};
             if (!active_) {
                 return fail<solar::Error>({.status = Status::NotReady});
             }
@@ -343,7 +303,7 @@ template <typename Contract, ServerConfig Config = ServerConfig{}> class Server
 
     [[nodiscard]] std::size_t session_count() const noexcept
     {
-        server_detail::Guard lock{mutex_};
+        SpinGuard lock{mutex_};
         std::size_t count{};
         for (const auto& session : sessions_) {
             count += session.active ? 1U : 0U;
@@ -389,7 +349,7 @@ template <typename Contract, ServerConfig Config = ServerConfig{}> class Server
 
     [[nodiscard]] bool valid_session(Session session) noexcept
     {
-        server_detail::Guard lock{mutex_};
+        SpinGuard lock{mutex_};
         return active_ && find_session(session) != nullptr;
     }
 
@@ -403,7 +363,7 @@ template <typename Contract, ServerConfig Config = ServerConfig{}> class Server
             if (maximum_rate_hz > Stream::maximum_rate_hz)
                 return fail<solar::Error>({.status = Status::Invalid});
         }
-        server_detail::Guard lock{mutex_};
+        SpinGuard lock{mutex_};
         if (!active_ || find_session(session) == nullptr) {
             return fail<solar::Error>({.status = Status::NotFound});
         }
@@ -436,7 +396,7 @@ template <typename Contract, ServerConfig Config = ServerConfig{}> class Server
 
     template <typename Stream> [[nodiscard]] bool take_credit(Session session) noexcept
     {
-        server_detail::Guard lock{mutex_};
+        SpinGuard lock{mutex_};
         for (auto& slot : subscriptions_) {
             if (slot.active && slot.session == session.value && slot.endpoint == Stream::id &&
                 slot.input) {
@@ -449,7 +409,7 @@ template <typename Contract, ServerConfig Config = ServerConfig{}> class Server
         return false;
     }
 
-    mutable server_detail::SpinMutex mutex_{};
+    mutable SpinMutex mutex_{};
     std::array<SessionSlot, Config.maximum_sessions> sessions_{};
     std::array<SubscriptionSlot, Config.maximum_subscriptions> subscriptions_{};
     std::array<RequestSlot, Config.maximum_inflight_requests> requests_{};

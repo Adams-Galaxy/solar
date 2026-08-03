@@ -2029,7 +2029,7 @@ def generate_application_translation_unit(ir: dict[str, Any]) -> str:
             "namespace",
             "{",
             "using SolarApplicationRuntime =",
-            f"    solar::application::specification_t<{namespace}::{cpp_type}>::RemoteRuntime;",
+            f"    solar::application::RemoteRuntime<{namespace}::{cpp_type}>;",
             "static_assert(!std::is_void_v<SolarApplicationRuntime>);",
             "SOLAR_REMOTE_EMIT_MANIFEST(typename SolarApplicationRuntime::Context);",
             "}",
@@ -2059,7 +2059,7 @@ def generate_application_explanation(ir: dict[str, Any]) -> tuple[dict[str, Any]
         },
         "note": (
             "C++ service owners, platform links, device adapters, and runner policies are "
-            "available through solar::application::specification_t<Application>."
+            "available through solar::application::Specification<Application>."
         ),
     }
     lines = [

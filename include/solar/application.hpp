@@ -6,6 +6,7 @@
 #include "solar/application/fwd.hpp"
 #include "solar/core/type_list.hpp"
 #include "solar/execution/service_runner.hpp"
+#include "solar/kernel/priority_level.hpp"
 #include "solar/module.hpp"
 #include "solar/parameters/store.hpp"
 #include "solar/system/composer.hpp"
@@ -25,6 +26,9 @@
 namespace solar
 {
 
+/** Semantic service priority levels for the high-level Application API. */
+using PriorityLevel = kernel::PriorityLevel;
+
 template <typename... Entries> struct Devices
 {
     using EntriesType = TypeList<Entries...>;
@@ -35,9 +39,22 @@ template <std::size_t Bytes> struct Stack
     static constexpr std::size_t value = Bytes;
 };
 
-template <int Value> struct Priority
+template <auto Value> struct Priority
 {
-    static constexpr int value = Value;
+    using ValueType = std::remove_cv_t<decltype(Value)>;
+    static constexpr bool valid = [] {
+        if constexpr (std::is_same_v<ValueType, kernel::PriorityLevel>) {
+            return true;
+        } else if constexpr (std::is_integral_v<ValueType> && !std::is_same_v<ValueType, bool>) {
+            return Value >= 0;
+        } else {
+            return false;
+        }
+    }();
+    static_assert(valid,
+                  "SOLAR_APPLICATION_INVALID_SERVICE_PRIORITY: use a non-negative native level "
+                  "or solar::kernel::PriorityLevel");
+    static constexpr auto value = Value;
 };
 
 template <typename... Policies> struct Configure
@@ -214,8 +231,18 @@ template <std::size_t Bytes> struct IsStack<Stack<Bytes>> : std::true_type
 {};
 template <typename Policy> struct IsPriority : std::false_type
 {};
-template <int Value> struct IsPriority<Priority<Value>> : std::true_type
+template <auto Value> struct IsPriority<Priority<Value>> : std::true_type
 {};
+
+template <typename... Policies> struct PriorityPolicyOf
+{
+    using type = Priority<default_service_priority>;
+};
+template <typename Policy, typename... Policies> struct PriorityPolicyOf<Policy, Policies...>
+{
+    using type = std::conditional_t<IsPriority<Policy>::value, Policy,
+                                    typename PriorityPolicyOf<Policies...>::type>;
+};
 
 template <typename Policies> struct RunPolicy;
 template <typename... Policies> struct RunPolicy<TypeList<Policies...>>
@@ -236,15 +263,8 @@ template <typename... Policies> struct RunPolicy<TypeList<Policies...>>
          ...);
         return value;
     }();
-    static constexpr int priority = [] {
-        int value = default_service_priority;
-        (([&] {
-             if constexpr (IsPriority<Policies>::value)
-                 value = Policies::value;
-         }()),
-         ...);
-        return value;
-    }();
+    using PriorityPolicy = typename PriorityPolicyOf<Policies...>::type;
+    static constexpr auto priority = PriorityPolicy::value;
 };
 
 template <typename Service, typename = void> struct ServiceDependencies
@@ -471,11 +491,19 @@ template <typename Application> struct Specification
     using Composition = Compose<solar::Contract<Contract>, Owned, Components>;
 };
 
+/** Canonical public views of a normalized high-level application. */
+template <typename Application>
+using Composition = typename Specification<Application>::Composition;
+template <typename Application>
+using Parameters = typename Specification<Application>::ParameterStore;
+template <typename Application> using Logger = typename Specification<Application>::Logger;
+template <typename Application>
+using RemoteRuntime = typename Specification<Application>::RemoteRuntime;
+
+// Conventional metaprogramming spellings remain available to advanced code.
 template <typename Application> using specification_t = Specification<Application>;
-template <typename Application>
-using composition_t = typename specification_t<Application>::Composition;
-template <typename Application>
-using parameters_t = typename specification_t<Application>::ParameterStore;
+template <typename Application> using composition_t = Composition<Application>;
+template <typename Application> using parameters_t = Parameters<Application>;
 
 } // namespace application
 
@@ -490,7 +518,7 @@ template <typename Application> struct For
         FormatString<std::type_identity_t<Arguments>...> format,                                   \
         Arguments&&... arguments) noexcept                                                         \
     {                                                                                              \
-        using Backend = typename application::specification_t<Application>::Logger;                \
+        using Backend = application::Logger<Application>;                                          \
         return Backend::template NAME<Source, Domain>(format,                                      \
                                                       std::forward<Arguments>(arguments)...);      \
     }
@@ -507,7 +535,7 @@ template <typename Application> struct For
 
 /** Canonical single static System for a high-level Solar application. */
 template <typename Application>
-struct System : system::System<Application, application::composition_t<Application>>
+struct System : system::System<Application, application::Composition<Application>>
 {};
 
 } // namespace solar

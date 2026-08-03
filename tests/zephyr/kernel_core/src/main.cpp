@@ -16,6 +16,12 @@ static_assert(
     std::is_same_v<decltype(kernel::MessageQueue<std::uint32_t, 4>::capacity), const std::size_t>);
 static_assert(kernel::MessageQueue<std::uint32_t, 4>::capacity == 4);
 static_assert(kernel::Priority::preemptive<0>().native_handle() == K_PRIO_PREEMPT(0));
+static_assert(kernel::Priority::semantic<kernel::PriorityLevel::Realtime>().native_handle() ==
+              K_PRIO_PREEMPT(0));
+static_assert(kernel::Priority::semantic<kernel::PriorityLevel::Background>().native_handle() ==
+              K_PRIO_PREEMPT(CONFIG_NUM_PREEMPT_PRIORITIES - 1));
+static_assert(kernel::Priority::semantic<kernel::PriorityLevel::High>().native_handle() <
+              kernel::Priority::semantic<kernel::PriorityLevel::Normal>().native_handle());
 static_assert(!std::is_copy_constructible_v<kernel::Mutex>);
 static_assert(!std::is_move_constructible_v<kernel::Mutex>);
 static_assert(!std::is_copy_constructible_v<kernel::RecursiveMutex>);

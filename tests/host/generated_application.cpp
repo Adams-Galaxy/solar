@@ -49,7 +49,7 @@ struct Application
     using Services = solar::Services<Cockpit>;
 };
 
-static_assert(std::is_same_v<parameters, solar::application::parameters_t<Application>>);
+static_assert(std::is_same_v<parameters, solar::application::Parameters<Application>>);
 
 template <typename Parameters> struct ReusableGainReader
 {
@@ -67,9 +67,9 @@ using runner = solar::execution::ServiceRunner<Application, Cockpit, 2048, 2>;
 using explicit_composition =
     solar::Compose<solar::Contract<generated::Contract>, solar::Own<parameters, runner>,
                    solar::Components<Cockpit>>;
-static_assert(std::is_same_v<typename solar::application::specification_t<Application>::Contract,
+static_assert(std::is_same_v<typename solar::application::Specification<Application>::Contract,
                              generated::Contract>);
-static_assert(std::is_same_v<solar::application::composition_t<Application>, explicit_composition>);
+static_assert(std::is_same_v<solar::application::Composition<Application>, explicit_composition>);
 
 } // namespace fixture_app
 
