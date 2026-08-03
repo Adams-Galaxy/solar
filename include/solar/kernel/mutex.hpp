@@ -65,7 +65,9 @@ class Mutex
   public:
     Mutex() noexcept
     {
-        __ASSERT_NO_MSG(k_mutex_init(&mutex_) == 0);
+        const int result = k_mutex_init(&mutex_);
+        __ASSERT_NO_MSG(result == 0);
+        (void)result;
     }
 
     Mutex(const Mutex&) = delete;
@@ -152,7 +154,9 @@ class RecursiveMutex
   public:
     RecursiveMutex() noexcept
     {
-        __ASSERT_NO_MSG(k_mutex_init(&mutex_) == 0);
+        const int result = k_mutex_init(&mutex_);
+        __ASSERT_NO_MSG(result == 0);
+        (void)result;
     }
 
     RecursiveMutex(const RecursiveMutex&) = delete;

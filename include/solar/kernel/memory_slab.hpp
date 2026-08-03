@@ -196,7 +196,9 @@ class MemorySlab
 
     MemorySlab() noexcept
     {
-        __ASSERT_NO_MSG(k_mem_slab_init(&slab_, storage_.data(), block_stride, BlockCount) == 0);
+        const int result = k_mem_slab_init(&slab_, storage_.data(), block_stride, BlockCount);
+        __ASSERT_NO_MSG(result == 0);
+        (void)result;
     }
 
     ~MemorySlab()

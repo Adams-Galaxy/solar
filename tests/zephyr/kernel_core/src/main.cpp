@@ -147,6 +147,8 @@ struct IsrContext
     kernel::Pipe<16>* pipe;
     kernel::PollSet<1>* poll;
     kernel::Timer* timer;
+    kernel::Thread<512>* thread;
+    kernel::ConditionVariable* condition;
     bool observed_isr{};
     solar::Status semaphore_thread_status{solar::Status::Error};
     solar::Status semaphore_isr_status{solar::Status::Error};
@@ -162,8 +164,12 @@ struct IsrContext
     solar::Status sleep_status{solar::Status::Error};
     solar::Status yield_status{solar::Status::Error};
     solar::Status priority_status{solar::Status::Error};
+    solar::Status thread_create_status{solar::Status::Error};
+    solar::Status condition_notify_status{solar::Status::Error};
     solar::Status mutex_status{solar::Status::Error};
 };
+
+void unused_thread_entry(void*) noexcept {}
 
 void exercise_isr(const void* argument)
 {
@@ -189,6 +195,10 @@ void exercise_isr(const void* argument)
         result_status(kernel::this_thread::sleep_for(kernel::Timeout::no_wait()));
     context.yield_status = result_status(kernel::this_thread::yield());
     context.priority_status = result_status(kernel::this_thread::priority());
+    context.thread_create_status = result_status(context.thread->prepare(
+        unused_thread_entry,
+        {.priority = kernel::Priority::preemptive<0>(), .name = nullptr, .options = 0}));
+    context.condition_notify_status = result_status(context.condition->notify_one());
     context.mutex_status = result_status(context.mutex->try_lock());
 }
 
@@ -526,6 +536,8 @@ ZTEST(solar_kernel_core, test_isr_specific_operations)
     kernel::Pipe<16> pipe;
     kernel::PollSet<1> poll;
     kernel::Timer timer;
+    kernel::Thread<512> thread;
+    kernel::ConditionVariable condition;
     zassert_equal(result_status(poll.add(semaphore)), solar::Status::Ok);
     IsrContext context{
         .semaphore = &semaphore,
@@ -536,6 +548,8 @@ ZTEST(solar_kernel_core, test_isr_specific_operations)
         .pipe = &pipe,
         .poll = &poll,
         .timer = &timer,
+        .thread = &thread,
+        .condition = &condition,
     };
 
     irq_offload(exercise_isr, &context);
@@ -555,6 +569,8 @@ ZTEST(solar_kernel_core, test_isr_specific_operations)
     zassert_equal(result_status(context.sleep_status), solar::Status::Invalid);
     zassert_equal(result_status(context.yield_status), solar::Status::Invalid);
     zassert_equal(result_status(context.priority_status), solar::Status::Invalid);
+    zassert_equal(result_status(context.thread_create_status), solar::Status::Invalid);
+    zassert_equal(result_status(context.condition_notify_status), solar::Status::Invalid);
     zassert_equal(result_status(context.mutex_status), solar::Status::Invalid);
     zassert_equal(*queue.try_receive(), 42);
     zassert_equal(result_status(events.try_wait_any_isr(0x1).error()), solar::Status::WouldBlock);

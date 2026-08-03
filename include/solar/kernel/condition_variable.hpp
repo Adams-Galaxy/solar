@@ -121,7 +121,9 @@ class ConditionVariable
   public:
     ConditionVariable() noexcept
     {
-        __ASSERT_NO_MSG(k_condvar_init(&condition_) == 0);
+        const int result = k_condvar_init(&condition_);
+        __ASSERT_NO_MSG(result == 0);
+        (void)result;
     }
 
     ConditionVariable(const ConditionVariable&) = delete;

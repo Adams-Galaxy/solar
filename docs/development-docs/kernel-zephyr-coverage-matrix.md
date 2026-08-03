@@ -79,6 +79,19 @@ and any outstanding wait or allocation.
 
 ## 3. Zephyr Kernel Coverage
 
+### Context contract inventory
+
+| Context class | Solar operations |
+| --- | --- |
+| Unconditionally ISR-safe | semaphore `give/reset/count`; event `post/set/clear/test`; queue `try_send_front/peek/peek_at/purge` and size queries; slab release/statistics; timer `stop` and time queries; work submit/cancel/state queries; triggered-work submit/cancel-trigger/state queries; workqueue `unplug`; spin/interrupt locks; busy wait; poll-signal raise/reset/check |
+| Explicit no-wait ISR | semaphore `try_take_isr`; queue `try_send_isr/try_receive_isr`; event `try_wait_any_isr/try_take_any_isr`; slab `try_allocate_isr` |
+| Thread-only with pre-call rejection | mutex and condition-variable operations; ordinary wait-capable semaphore, queue, event, and slab calls; all pipe transfers; poll wait; timer start/sync; thread creation and join; current-thread sleep/yield/priority access; scheduler lock; stop-token waits and source mutation; work/workqueue synchronous cancellation, flush, drain, start, stop, and abort |
+
+An ordinary `try_` method remains thread-only when it is the no-wait form of a
+wait-capable method. Only the explicit `_isr` spelling crosses that boundary.
+Operations in the first row keep one ordinary name because Zephyr permits them
+from either context without changing their contract.
+
 | Zephyr 4.4 family | Baseline Solar coverage | Planned disposition |
 | --- | --- | --- |
 | Priority values | coop/preemptive factories; semantic collapsing above them | Phase 1 exact native, cooperative, preemptive, and optional Meta-IRQ values |
@@ -194,4 +207,22 @@ Errors: semaphore, message queue, memory slab, pipe, workqueue, and triggered
 Teensy: optimized/LTO application built; FLASH 301068 B, RAM 198040 B
 Known limitations: the complete per-operation context inventory, richer poll
                    outcomes, constructor audit, and race tests remain Phase 3
+```
+
+### 2026-08-03 — context and error contracts
+
+```text
+Solar worktree after context foundation: Phase 3 completion
+Native default: kernel core, execution, and Remote protocol passed; 21/21 cases
+Native assertions-disabled: kernel core and execution exercised with
+                            CONFIG_ASSERT=n
+Race coverage: semaphore reset -> -EAGAIN, queue purge -> -ENOMSG,
+               pipe reset -> -ECANCELED, pipe close -> -EPIPE
+Construction: native initializers execute independently of assertions;
+              semaphore configuration is compile-time and typed queue borrowing
+              validates native item size at runtime
+Partial success: poll-signal timeout race is a successful LatchedAfterTimeout
+                 outcome retaining native -EAGAIN
+Teensy: optimized/LTO application built; FLASH 301068 B, RAM 198040 B
+Known limitations: exact thread and scheduler control expansion begins Phase 4
 ```

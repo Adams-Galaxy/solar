@@ -20,8 +20,12 @@ struct StopState
 {
     StopState() noexcept
     {
-        __ASSERT_NO_MSG(k_mutex_init(&mutex) == 0);
-        __ASSERT_NO_MSG(k_condvar_init(&condition) == 0);
+        const int mutex_result = k_mutex_init(&mutex);
+        const int condition_result = k_condvar_init(&condition);
+        __ASSERT_NO_MSG(mutex_result == 0);
+        __ASSERT_NO_MSG(condition_result == 0);
+        (void)mutex_result;
+        (void)condition_result;
     }
 
     std::atomic_bool requested{false};

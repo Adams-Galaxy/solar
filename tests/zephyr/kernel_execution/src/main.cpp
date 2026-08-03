@@ -1,5 +1,6 @@
 #include <array>
 #include <atomic>
+#include <cerrno>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -94,6 +95,59 @@ struct ConditionContext
     bool ready{};
     solar::Status result{solar::Status::Error};
 };
+
+struct BlockingResult
+{
+    kernel::Semaphore entered;
+    std::atomic<solar::Status> status{solar::Status::Error};
+    std::atomic_int native{};
+};
+
+struct SemaphoreWaitContext : BlockingResult
+{
+    kernel::Semaphore* semaphore{};
+};
+
+void semaphore_waiter(void* argument) noexcept
+{
+    auto& context = *static_cast<SemaphoreWaitContext*>(argument);
+    context.entered.give();
+    const auto result = context.semaphore->take(kernel::Timeout::after(100ms));
+    context.status.store(result ? solar::Status::Ok : result.error().status,
+                         std::memory_order_release);
+    context.native.store(result ? 0 : result.error().native, std::memory_order_release);
+}
+
+struct QueueSendContext : BlockingResult
+{
+    kernel::MessageQueue<std::uint32_t, 1>* queue{};
+};
+
+void queue_sender(void* argument) noexcept
+{
+    auto& context = *static_cast<QueueSendContext*>(argument);
+    context.entered.give();
+    const auto result = context.queue->send(2, kernel::Timeout::after(100ms));
+    context.status.store(result ? solar::Status::Ok : result.error().status,
+                         std::memory_order_release);
+    context.native.store(result ? 0 : result.error().native, std::memory_order_release);
+}
+
+struct PipeReadContext : BlockingResult
+{
+    kernel::Pipe<8>* pipe{};
+};
+
+void pipe_reader(void* argument) noexcept
+{
+    auto& context = *static_cast<PipeReadContext*>(argument);
+    std::array<std::byte, 1> destination{};
+    context.entered.give();
+    const auto result = context.pipe->read(destination, kernel::Timeout::after(100ms));
+    context.status.store(result ? solar::Status::Ok : result.error().status,
+                         std::memory_order_release);
+    context.native.store(result ? 0 : result.error().native, std::memory_order_release);
+}
 
 void condition_waiter(void* argument) noexcept
 {
@@ -275,6 +329,74 @@ ZTEST(solar_kernel_execution, test_stop_token_and_condition_variable)
     zassert_equal(result_status(condition_thread.join(kernel::Timeout::after(100ms))),
                   solar::Status::Ok);
     zassert_equal(condition_context.result, solar::Status::Ok);
+}
+
+ZTEST(solar_kernel_execution, test_native_reset_purge_and_close_outcomes)
+{
+    const kernel::ThreadConfiguration configuration{.priority = kernel::Priority::preemptive<1>()};
+
+    kernel::Semaphore semaphore;
+    SemaphoreWaitContext semaphore_context;
+    semaphore_context.semaphore = &semaphore;
+    kernel::Thread<2048> semaphore_thread;
+    zassert_equal(
+        result_status(semaphore_thread.launch(semaphore_waiter, &semaphore_context, configuration)),
+        solar::Status::Ok);
+    zassert_equal(result_status(semaphore_context.entered.take(kernel::Timeout::after(100ms))),
+                  solar::Status::Ok);
+    (void)kernel::this_thread::sleep_for(2ms);
+    semaphore.reset();
+    zassert_equal(result_status(semaphore_thread.join(kernel::Timeout::after(100ms))),
+                  solar::Status::Ok);
+    zassert_equal(semaphore_context.status.load(std::memory_order_acquire), solar::Status::Timeout);
+    zassert_equal(semaphore_context.native.load(std::memory_order_acquire), -EAGAIN);
+
+    kernel::MessageQueue<std::uint32_t, 1> queue;
+    zassert_true(queue.try_send(1).has_value());
+    QueueSendContext queue_context;
+    queue_context.queue = &queue;
+    kernel::Thread<2048> queue_thread;
+    zassert_equal(result_status(queue_thread.launch(queue_sender, &queue_context, configuration)),
+                  solar::Status::Ok);
+    zassert_equal(result_status(queue_context.entered.take(kernel::Timeout::after(100ms))),
+                  solar::Status::Ok);
+    (void)kernel::this_thread::sleep_for(2ms);
+    queue.purge();
+    zassert_equal(result_status(queue_thread.join(kernel::Timeout::after(100ms))),
+                  solar::Status::Ok);
+    zassert_equal(queue_context.status.load(std::memory_order_acquire), solar::Status::Cancelled);
+    zassert_equal(queue_context.native.load(std::memory_order_acquire), -ENOMSG);
+
+    kernel::Pipe<8> reset_pipe;
+    PipeReadContext reset_context;
+    reset_context.pipe = &reset_pipe;
+    kernel::Thread<2048> reset_thread;
+    zassert_equal(result_status(reset_thread.launch(pipe_reader, &reset_context, configuration)),
+                  solar::Status::Ok);
+    zassert_equal(result_status(reset_context.entered.take(kernel::Timeout::after(100ms))),
+                  solar::Status::Ok);
+    (void)kernel::this_thread::sleep_for(2ms);
+    reset_pipe.reset();
+    zassert_equal(result_status(reset_thread.join(kernel::Timeout::after(100ms))),
+                  solar::Status::Ok);
+    zassert_equal(reset_context.status.load(std::memory_order_acquire), solar::Status::Cancelled);
+    zassert_equal(reset_context.native.load(std::memory_order_acquire), -ECANCELED);
+
+    kernel::Pipe<8> closed_pipe;
+    PipeReadContext close_context;
+    close_context.pipe = &closed_pipe;
+    kernel::Thread<2048> close_thread;
+    zassert_equal(result_status(close_thread.launch(pipe_reader, &close_context, configuration)),
+                  solar::Status::Ok);
+    zassert_equal(result_status(close_context.entered.take(kernel::Timeout::after(100ms))),
+                  solar::Status::Ok);
+    (void)kernel::this_thread::sleep_for(2ms);
+    closed_pipe.close();
+    zassert_equal(result_status(close_thread.join(kernel::Timeout::after(100ms))),
+                  solar::Status::Ok);
+    zassert_equal(close_context.status.load(std::memory_order_acquire),
+                  solar::Status::UnexpectedExit);
+    zassert_equal(close_context.native.load(std::memory_order_acquire), -EPIPE);
 }
 
 ZTEST(solar_kernel_execution, test_system_work_submission_and_self_deadlock_detection)

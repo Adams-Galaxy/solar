@@ -264,6 +264,9 @@ template <std::size_t StackBytes> class Thread
                                       ThreadConfiguration configuration, Timeout delay,
                                       bool prepared_only) noexcept
     {
+        if (in_isr()) {
+            return fail<Error>({.status = Status::Invalid});
+        }
         const auto valid = validate(entry, configuration);
         if (!valid) {
             return valid;
