@@ -44,7 +44,7 @@ test ABI:
 
 ## 2. Current Wrapper Interoperation
 
-This matrix records the Phase 2 boundary. A raw handle appears only on a value
+This matrix records the final kernel boundary. A raw handle appears only on a value
 type or transparent borrowed reference whose invariants survive native calls.
 
 | Solar surface | Solar-only state | Borrowing/interoperation | Owner raw handle |
@@ -57,8 +57,12 @@ type or transparent borrowed reference whose invariants survive native calls.
 | `Semaphore` | none | `SemaphoreRef`, including native handle | no |
 | `EventFlags` | none | `EventFlagsRef`, including native handle | no |
 | `MessageQueue<T, N>` | owned typed buffer and capacity | `MessageQueueRef<T>` typed operations; no reinitialization handle | no |
+| `Queue<T>`, `Fifo<T>`, `Lifo<T>` | node membership and owned native queue | corresponding typed refs; native queue handle on ref | no |
+| `Stack<T, N>` | owned machine-word buffer | `StackRef<T>` typed operations; native stack handle on ref | no |
 | `Pipe<N>` | owned byte buffer and capacity | `PipeRef` operations; no reinitialization handle | no |
 | `MemorySlab<B, N>` | owned aligned storage | `MemorySlabRef<B>` and native-backed RAII block | no |
+| `Heap<B, A>` | owned aligned heap region | `HeapRef` allocation operations; native heap handle on ref | no |
+| `Mailbox` | none | `MailboxRef`, including native handle; deferred and async descriptors own lifetime state | no |
 | `Timer` | callback pointers and user data | `TimerRef` operations; no reinitialization handle | no |
 | `SpinLock` | none | `SpinLockRef`, including native handle | no |
 | `InterruptLock`, `SchedulerLock` | acquisition ownership | focused RAII capability | n/a |
@@ -83,20 +87,20 @@ and any outstanding wait or allocation.
 
 | Context class | Solar operations |
 | --- | --- |
-| Unconditionally ISR-safe | semaphore `give/reset/count`; event `post/set/clear/test`; queue `try_send_front/peek/peek_at/purge` and size queries; slab release/statistics; timer `stop` and time queries; work submit/cancel/state queries; triggered-work submit/cancel-trigger/state queries; workqueue `unplug`; spin/interrupt locks; busy wait; poll-signal raise/reset/check |
-| Explicit no-wait ISR | semaphore `try_take_isr`; queue `try_send_isr/try_receive_isr`; event `try_wait_any_isr/try_take_any_isr`; slab `try_allocate_isr` |
-| Thread-only with pre-call rejection | mutex and condition-variable operations; ordinary wait-capable semaphore, queue, event, and slab calls; all pipe transfers; poll wait; timer start/sync; thread creation and join; current-thread sleep/yield/priority access; scheduler lock; stop-token waits and source mutation; work/workqueue synchronous cancellation, flush, drain, start, stop, and abort |
+| Unconditionally ISR-safe | semaphore `give/reset/count`; event `post/set/clear/test`; message-queue front insertion/peek/purge and size queries; intrusive queue insertion/removal/cancellation; stack push; slab release/statistics; timer `stop` and time queries; work submit/cancel/state queries; triggered-work submit/cancel-trigger/state queries; workqueue `unplug`; spin/interrupt locks; busy wait; poll-signal raise/reset/check |
+| Explicit no-wait ISR | semaphore `try_take_isr`; message-queue `try_send_isr/try_receive_isr`; intrusive queue `try_get_isr`; stack `try_pop_isr`; event `try_wait_any_isr/try_take_any_isr`; slab `try_allocate_isr`; heap `try_allocate_isr` |
+| Thread-only with pre-call rejection | mutex and condition-variable operations; ordinary wait-capable semaphore, queues, stack, events, slab, and heap calls; heap free; all mailbox and pipe transfers; poll wait; timer start/sync; thread creation and join; current-thread sleep/yield/priority access; scheduler lock; stop-token waits and source mutation; work/workqueue synchronous cancellation, flush, drain, start, and stop |
 
 An ordinary `try_` method remains thread-only when it is the no-wait form of a
 wait-capable method. Only the explicit `_isr` spelling crosses that boundary.
 Operations in the first row keep one ordinary name because Zephyr permits them
 from either context without changing their contract.
 
-| Zephyr 4.4 family | Baseline Solar coverage | Planned disposition |
+| Zephyr 4.4 family | Current Solar coverage | Disposition |
 | --- | --- | --- |
-| Priority values | coop/preemptive factories; semantic collapsing above them | Phase 1 exact native, cooperative, preemptive, and optional Meta-IRQ values |
-| Thread create/start/join/abort | static stack owner with partial shadow lifecycle | Phases 2-4 owner/reference redesign and scheduler controls |
-| Sleep, yield, busy wait | wrapped with chrono | Phase 5 overflow, no-clock, and context audit |
+| Priority values | exact native, cooperative, preemptive, and optional Meta-IRQ values | canonical wrapper |
+| Thread create/start/join/abort | static stack owner plus `ThreadRef`; fact-only lifecycle | canonical wrapper |
+| Sleep, yield, busy wait | chrono with saturating tick conversion and context checks | canonical wrapper |
 | Scheduler lock | RAII wrapper | Phase 4 reschedule/preemptibility/time slicing/deadlines |
 | Mutex and condition variable | wrapped | Phases 2, 3, and 5 fidelity repair |
 | Semaphore and events | wrapped | Phases 2, 3, and 5; add masked event set |
@@ -105,14 +109,14 @@ from either context without changing their contract.
 | Timer | callback owner | Phases 2, 3, and 5 lifecycle/time repair |
 | Work and delayable work | callback owners and queue submission | Phase 6 native transition repair |
 | Triggered work | restricted single-arm wrapper | Phase 6 explicit arm and replacement model |
-| Workqueue | static owner with unsafe abort and shadow state | Phase 6 supported lifecycle plus submission target |
-| Poll and signals | selected signal/semaphore/message-queue sources | Phase 6 exact state bits and broader sources |
+| Workqueue | supported start/drain/plug/unplug/stop lifecycle plus submission target | canonical wrapper |
+| Poll and signals | exact state bitmask; signal/semaphore/message queue/pipe/intrusive queue sources | canonical selected-source wrapper |
 | Spin/IRQ locks | RAII wrappers | Phases 2, 3, and 5 context/native-access audit |
 | Fatal handling | optional observer bridge | Phase 7 real fatal-path verification |
-| Thread diagnostics | optional snapshots using some private layout | Phase 7 public API repair |
-| Intrusive queue/FIFO/LIFO | absent | Phase 8 typed zero-copy wrappers |
-| Kernel word stack | absent | Phase 8 constrained typed wrapper |
-| Heap | absent | Phase 9 fixed-storage owner/reference and optional PMR adapter |
+| Thread diagnostics | optional snapshots using only public Zephyr APIs | canonical selected diagnostics |
+| Intrusive queue/FIFO/LIFO | typed zero-copy owner/reference with membership protection | canonical wrapper |
+| Kernel word stack | constrained typed fixed-storage owner/reference | canonical wrapper |
+| Heap | fixed-storage owner/reference and explicit-failure PMR adapter | canonical wrapper |
 | Mailbox | `Mailbox` / `MailboxRef` | Targeted typed rendezvous, metadata, deferred copy, and lifetime-safe async owner |
 | Userspace/object permissions/memory domains | absent | deferred; direct Zephyr API |
 | Dynamic thread stacks | absent | deferred; direct Zephyr API |
@@ -137,9 +141,9 @@ The final matrix must contain executable or compile-only fixtures for:
 - an SMP-capable target for lock/reference safety; and
 - optimized Teensy application integration.
 
-At baseline, only native mixed-priority, native optional-feature-disabled, and
-Teensy build coverage exist. Missing rows remain Phase 12 work and must not be
-treated as verified merely because the default native configuration passes.
+All listed fixtures are now checked in. Runtime behavior is exercised on native
+simulation and ARM QEMU; the no-clock, no-multithreading, scheduler-minimal,
+priority-variant, and SMP entries are intentionally compile gates.
 
 ## 5. Evidence Log
 
@@ -376,4 +380,26 @@ Simulator: application build and generated Python Cockpit data/input-stream
            exercise passed over TCP, including safe/manual transitions
 Wire digest: 4a72e86b57cd03e8b7d133efe90a0b61f15ef379aaeb59c2d04bd44205dafad1
 Teensy optimized/LTO: FLASH 301500 B, RAM 198040 B (unchanged from Phase 8/9)
+```
+
+### 2026-08-03 — final configuration and hardening gate
+
+```text
+Checked-in matrix: default and assertions-disabled kernel runtime; optional
+                   poll/events and mailbox async disabled; five exact priority
+                   layouts; scheduler extras disabled; system clock disabled;
+                   multithreading disabled; two-CPU SMP compile
+Architecture sweep: native_sim/native/64, qemu_cortex_m3, and qemu_x86_64;
+                    27 configurations selected, 18 executed, 9 build-only,
+                    100/100 runtime cases passed with no build failures/warnings
+Host: GCC ASan+UBSan build passed 70/70 tests
+Documentation: Doxygen, Sphinx HTML, link check, and coverage audit passed;
+               18 aggregate headers, 9 subsystem pages, 67 Kconfig symbols,
+               and 3 canonical examples covered
+Interop audit: owner/reference table updated for intrusive queues, stack, heap,
+               mailbox, repaired workqueue, poll, and public-only diagnostics
+Source audit: no private Zephyr object layout, semantic priority ladder,
+              workqueue abort, or in-tree raw application scheduling remains
+Robot: native simulator generated-client TCP exercise passed; optimized/LTO
+       Teensy build passed at FLASH 301500 B and RAM 198040 B
 ```

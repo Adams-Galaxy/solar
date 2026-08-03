@@ -2,7 +2,7 @@
 
 Date: 2026-08-03
 
-Status: implementation in progress; phases 0-11 complete
+Status: complete; phases 0-12 verified
 
 Companion problem statement:
 [`kernel-zephyr-fidelity.md`](kernel-zephyr-fidelity.md)
@@ -168,7 +168,7 @@ exact Zephyr recursive behavior and may provide `RecursiveMutexRef`.
 | 9 | Heap, PMR, and storage statistics | complete |
 | 10 | Mailbox | complete |
 | 11 | Application and robot migration | complete |
-| 12 | Configuration matrix, documentation, and hardening | in progress |
+| 12 | Configuration matrix, documentation, and hardening | complete |
 
 Only one semantic foundation phase may be active at a time. Tests and
 documentation for the active phase land with its implementation.

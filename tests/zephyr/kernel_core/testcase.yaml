@@ -8,3 +8,13 @@ tests:
       - solar
       - kernel
       - isr
+  solar.kernel.core.assertions_disabled:
+    ignore_faults: true
+    platform_allow:
+      - native_sim/native/64
+    extra_configs:
+      - CONFIG_ASSERT=n
+    tags:
+      - solar
+      - kernel
+      - assertions-disabled

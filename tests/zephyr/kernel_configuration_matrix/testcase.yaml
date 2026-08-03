@@ -1,0 +1,53 @@
+tests:
+  solar.kernel.configuration.scheduler_minimal:
+    build_only: true
+    platform_allow:
+      - qemu_cortex_m3
+    extra_configs:
+      - CONFIG_SCHED_DEADLINE=n
+      - CONFIG_TIMESLICING=n
+    tags:
+      - solar
+      - kernel
+      - configuration
+  solar.kernel.configuration.no_clock:
+    build_only: true
+    platform_allow:
+      - qemu_cortex_m3
+    extra_args:
+      - EXTRA_CFLAGS=-DSOLAR_EXPECT_NO_CLOCK
+      - EXTRA_CXXFLAGS=-DSOLAR_EXPECT_NO_CLOCK
+    extra_configs:
+      - CONFIG_SYS_CLOCK_EXISTS=n
+    tags:
+      - solar
+      - kernel
+      - configuration
+  solar.kernel.configuration.no_multithreading:
+    build_only: true
+    platform_allow:
+      - qemu_cortex_m3
+    extra_args:
+      - EXTRA_CFLAGS=-DSOLAR_EXPECT_NO_MULTITHREADING
+      - EXTRA_CXXFLAGS=-DSOLAR_EXPECT_NO_MULTITHREADING
+    extra_configs:
+      - CONFIG_MULTITHREADING=n
+    tags:
+      - solar
+      - kernel
+      - configuration
+  solar.kernel.configuration.smp:
+    build_only: true
+    platform_allow:
+      - qemu_x86_64
+    extra_args:
+      - EXTRA_CFLAGS=-DSOLAR_EXPECT_SMP
+      - EXTRA_CXXFLAGS=-DSOLAR_EXPECT_SMP
+    extra_configs:
+      - CONFIG_SMP=y
+      - CONFIG_MP_MAX_NUM_CPUS=2
+    tags:
+      - solar
+      - kernel
+      - configuration
+      - smp
