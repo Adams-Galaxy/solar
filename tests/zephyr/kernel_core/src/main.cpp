@@ -212,6 +212,9 @@ ZTEST(solar_kernel_core, test_time_timeout_and_deadline)
     zassert_true(K_TIMEOUT_EQ(kernel::Timeout::forever().native_handle(), K_FOREVER));
     zassert_true(kernel::to_ticks_ceil(1ms) > 0);
     zassert_true(kernel::to_ticks_ceil(1us) > 0);
+    using Days = std::chrono::duration<std::int64_t, std::ratio<86400>>;
+    zassert_equal(kernel::to_ticks_ceil(Days{std::numeric_limits<std::int64_t>::max()}),
+                  std::numeric_limits<kernel::Tick>::max());
 
     const auto before = kernel::now();
     auto deadline = kernel::Deadline::after(10ms);

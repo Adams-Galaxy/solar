@@ -1,6 +1,7 @@
 #pragma once
 
 #include <chrono>
+#include <concepts>
 #include <cstdint>
 #include <limits>
 #include <ratio>
@@ -92,12 +93,32 @@ template <typename Rep, typename Period>
         return 0;
     }
 
-    const auto nanoseconds = std::chrono::ceil<std::chrono::nanoseconds>(duration).count();
-    const auto clamped = static_cast<std::uint64_t>(nanoseconds);
-    const auto ticks = k_ns_to_ticks_ceil64(clamped);
-    return ticks > static_cast<std::uint64_t>(std::numeric_limits<Tick>::max())
-               ? std::numeric_limits<Tick>::max()
-               : static_cast<Tick>(ticks);
+    constexpr Tick maximum = std::numeric_limits<Tick>::max();
+
+    if constexpr (std::integral<Rep>) {
+        using Wide = unsigned __int128;
+        const auto count = static_cast<Wide>(duration.count());
+        const auto denominator = static_cast<Wide>(Period::den);
+        const auto factor =
+            static_cast<Wide>(Period::num) * static_cast<Wide>(CONFIG_SYS_CLOCK_TICKS_PER_SEC);
+        const auto saturation_limit = static_cast<Wide>(maximum) * denominator;
+        if (factor != 0 && count > saturation_limit / factor) {
+            return maximum;
+        }
+        const auto numerator = count * factor;
+        const auto ticks = (numerator + denominator - 1U) / denominator;
+        return ticks > static_cast<Wide>(maximum) ? maximum : static_cast<Tick>(ticks);
+    } else {
+        const long double ticks = static_cast<long double>(duration.count()) *
+                                  static_cast<long double>(Period::num) *
+                                  static_cast<long double>(CONFIG_SYS_CLOCK_TICKS_PER_SEC) /
+                                  static_cast<long double>(Period::den);
+        if (ticks >= static_cast<long double>(maximum)) {
+            return maximum;
+        }
+        const auto truncated = static_cast<Tick>(ticks);
+        return static_cast<long double>(truncated) == ticks ? truncated : truncated + 1;
+    }
 }
 
 [[nodiscard]] constexpr TickDuration from_ticks(Tick ticks) noexcept
