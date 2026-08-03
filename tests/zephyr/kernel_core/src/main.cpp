@@ -464,6 +464,11 @@ ZTEST(solar_kernel_core, test_semaphore_message_queue_and_events)
     zassert_equal(result_status(queue.try_send(1)), solar::Status::Ok);
     zassert_equal(result_status(queue.try_send(2)), solar::Status::Ok);
     zassert_true(queue.full());
+    const auto attributes = queue.attributes();
+    zassert_equal(attributes.message_size, sizeof(std::uint32_t));
+    zassert_equal(attributes.capacity, 2);
+    zassert_equal(attributes.used, 2);
+    zassert_equal(attributes.available, 0);
     const auto full = queue.try_send(3);
     zassert_equal(result_status(full), solar::Status::Full);
     zassert_equal(full.error().native, -ENOMSG);
@@ -488,6 +493,10 @@ ZTEST(solar_kernel_core, test_semaphore_message_queue_and_events)
     zassert_equal(result_status(events.try_wait_any_isr(0x1).error()), solar::Status::WouldBlock);
     (void)events.post(0x3);
     zassert_equal(*events.take_all(0x3), 0x3);
+    (void)events.post(0xF);
+    zassert_equal(events.set_masked(0x5, 0x7), 0x7);
+    zassert_equal(events.test(), 0xD);
+    (void)events.clear(0xD);
     zassert_equal(result_status(events.wait_any(0x1, kernel::Timeout::after(2ms)).error()),
                   solar::Status::Timeout);
     zassert_equal(result_status(events.wait_any(0, kernel::Timeout::no_wait()).error()),
@@ -564,8 +573,8 @@ ZTEST(solar_kernel_core, test_timer_callback_context_and_sync)
     const auto count = synchronized.sync();
     zassert_true(count.has_value());
     zassert_true(*count >= 1);
-    zassert_equal(result_status(synchronized.start(kernel::Timeout::forever())),
-                  solar::Status::Invalid);
+    zassert_equal(result_status(synchronized.start(kernel::Timeout::forever())), solar::Status::Ok);
+    zassert_false(synchronized.running());
 }
 
 ZTEST(solar_kernel_core, test_isr_specific_operations)

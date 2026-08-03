@@ -615,6 +615,18 @@ ZTEST(solar_kernel_execution, test_memory_slab_pipe_and_spinlock)
     first->reset();
     zassert_equal(slab.available(), 1);
     zassert_true(slab.try_allocate().has_value());
+    const auto statistics = slab.statistics();
+    zassert_true(statistics.has_value());
+    zassert_equal(statistics->allocated_bytes, 16);
+    zassert_equal(statistics->free_bytes, 16);
+#if defined(CONFIG_MEM_SLAB_TRACE_MAX_UTILIZATION)
+    zassert_equal(statistics->maximum_allocated_bytes, 32);
+    zassert_equal(result_status(slab.reset_maximum_usage()), solar::Status::Ok);
+    zassert_equal(slab.statistics()->maximum_allocated_bytes, 16);
+#else
+    zassert_equal(statistics->maximum_allocated_bytes, 0);
+    zassert_equal(result_status(slab.reset_maximum_usage()), solar::Status::NotSupported);
+#endif
 
     kernel::Pipe<8> pipe;
     const std::array input{std::byte{1}, std::byte{2}, std::byte{3}};

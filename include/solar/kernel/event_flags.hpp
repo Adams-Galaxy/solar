@@ -39,6 +39,11 @@ class EventFlagsRef
         return k_event_set(event_, bits);
     }
 
+    [[nodiscard]] EventBits set_masked(EventBits bits, EventBits mask) const noexcept
+    {
+        return k_event_set_masked(event_, bits, mask);
+    }
+
     [[nodiscard]] EventBits clear(EventBits bits) const noexcept
     {
         return k_event_clear(event_, bits);
@@ -157,6 +162,10 @@ class EventFlags
     [[nodiscard]] EventBits set(EventBits bits) noexcept
     {
         return ref().set(bits);
+    }
+    [[nodiscard]] EventBits set_masked(EventBits bits, EventBits mask) noexcept
+    {
+        return ref().set_masked(bits, mask);
     }
     [[nodiscard]] EventBits clear(EventBits bits) noexcept
     {

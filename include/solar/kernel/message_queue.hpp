@@ -17,6 +17,14 @@
 namespace solar::kernel
 {
 
+struct MessageQueueAttributes
+{
+    std::size_t message_size{};
+    std::size_t capacity{};
+    std::size_t used{};
+    std::size_t available{};
+};
+
 template <std::size_t Capacity> class PollSet;
 
 /** Non-owning typed access to an initialized Zephyr message queue. */
@@ -136,6 +144,16 @@ template <typename Message> class MessageQueueRef
     [[nodiscard]] bool full() const noexcept
     {
         return available() == 0;
+    }
+
+    [[nodiscard]] MessageQueueAttributes attributes() const noexcept
+    {
+        k_msgq_attrs native{};
+        k_msgq_get_attrs(queue_, &native);
+        return {.message_size = native.msg_size,
+                .capacity = native.max_msgs,
+                .used = native.used_msgs,
+                .available = native.max_msgs - native.used_msgs};
     }
 
   private:
@@ -276,6 +294,13 @@ template <typename Message, std::size_t Capacity> class MessageQueue
     [[nodiscard]] bool full() const noexcept
     {
         return size() == Capacity;
+    }
+
+    [[nodiscard]] MessageQueueAttributes attributes() const noexcept
+    {
+        return MessageQueueRef<Message>{const_cast<k_msgq&>(queue_),
+                                        typename MessageQueueRef<Message>::Unchecked{}}
+            .attributes();
     }
 
     [[nodiscard]] MessageQueueRef<Message> ref() noexcept

@@ -13,10 +13,18 @@
 
 #include "solar/core/status.hpp"
 #include "solar/kernel/deadline.hpp"
+#include "solar/kernel/error.hpp"
 #include "solar/kernel/interrupt.hpp"
 
 namespace solar::kernel
 {
+
+struct MemorySlabStatistics
+{
+    std::size_t free_bytes{};
+    std::size_t allocated_bytes{};
+    std::size_t maximum_allocated_bytes{};
+};
 
 template <std::size_t BlockBytes> class MemorySlabRef;
 
@@ -146,6 +154,27 @@ template <std::size_t BlockBytes> class MemorySlabRef
         return k_mem_slab_num_free_get(slab_);
     }
 
+    [[nodiscard]] Result<MemorySlabStatistics> statistics() const noexcept
+    {
+        sys_memory_stats native{};
+        const int result = k_mem_slab_runtime_stats_get(slab_, &native);
+        if (result != 0) {
+            return fail<Error>(error_from_errno(result));
+        }
+        return MemorySlabStatistics{.free_bytes = native.free_bytes,
+                                    .allocated_bytes = native.allocated_bytes,
+                                    .maximum_allocated_bytes = native.max_allocated_bytes};
+    }
+
+    [[nodiscard]] Result<void> reset_maximum_usage() const noexcept
+    {
+#if defined(CONFIG_MEM_SLAB_TRACE_MAX_UTILIZATION)
+        return detail::map_native(k_mem_slab_runtime_stats_reset_max(slab_));
+#else
+        return fail<Error>({.status = Status::NotSupported});
+#endif
+    }
+
   private:
     [[nodiscard]] Result<Block> allocate_native(Timeout timeout) const noexcept
     {
@@ -244,6 +273,16 @@ class MemorySlab
     [[nodiscard]] std::size_t available() const noexcept
     {
         return k_mem_slab_num_free_get(const_cast<k_mem_slab*>(&slab_));
+    }
+
+    [[nodiscard]] Result<MemorySlabStatistics> statistics() const noexcept
+    {
+        return MemorySlabRef<BlockBytes>{const_cast<k_mem_slab&>(slab_)}.statistics();
+    }
+
+    [[nodiscard]] Result<void> reset_maximum_usage() noexcept
+    {
+        return ref().reset_maximum_usage();
     }
 
     [[nodiscard]] MemorySlabRef<BlockBytes> ref() noexcept

@@ -24,9 +24,6 @@ class TimerRef
         if (in_isr()) {
             return fail<Error>({.status = Status::Invalid});
         }
-        if (initial.is_forever()) {
-            return fail<Error>({.status = Status::Invalid});
-        }
         k_timer_start(timer_, initial.native_handle(), period.native_handle());
         return {};
     }
