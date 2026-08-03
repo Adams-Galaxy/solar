@@ -40,11 +40,18 @@ struct ThreadRuntimeStats
     std::optional<std::uint64_t> idle_cycles{};
 };
 
+enum class ThreadObservedState : std::uint8_t
+{
+    Unknown,
+    Running,
+    Exited,
+};
+
 struct ThreadDiagnostics
 {
     ThreadId id{};
     std::optional<std::string_view> name{};
-    ThreadExecutionState state{ThreadExecutionState::Unknown};
+    ThreadObservedState state{ThreadObservedState::Unknown};
     std::optional<Priority> priority{};
     std::optional<std::size_t> stack_size{};
     std::optional<std::size_t> stack_used{};
@@ -215,7 +222,7 @@ thread_diagnostics(ThreadId thread,
     ThreadDiagnostics diagnostics{.id = thread, .observed_at = now()};
     const auto exited = thread_exited(thread);
     if (exited) {
-        diagnostics.state = *exited ? ThreadExecutionState::Exited : ThreadExecutionState::Running;
+        diagnostics.state = *exited ? ThreadObservedState::Exited : ThreadObservedState::Running;
     }
 
 #if defined(CONFIG_THREAD_NAME)
@@ -253,9 +260,6 @@ template <std::size_t StackBytes>
         return fail<Error>(reference.error());
     }
     auto diagnostics = thread_diagnostics(reference->id(), Thread<StackBytes>::stack_size());
-    if (diagnostics) {
-        diagnostics->state = thread.state();
-    }
     return diagnostics;
 }
 

@@ -83,6 +83,11 @@ void invalid_native_access(solar::kernel::SpinLock& lock)
 {
     (void)lock.native_handle();
 }
+#elif SOLAR_FAIL_CASE == 26
+solar::kernel::ThreadConfiguration invalid_raw_options{
+    .priority = solar::kernel::Priority::preemptive<0>(), .options = K_USER};
+#elif SOLAR_FAIL_CASE == 27
+solar::kernel::ThreadOptions invalid_user_mode{K_USER};
 #else
 #error SOLAR_DIAGNOSTIC_UNKNOWN_KERNEL_FAILURE_CASE
 #endif

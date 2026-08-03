@@ -226,3 +226,21 @@ Partial success: poll-signal timeout race is a successful LatchedAfterTimeout
 Teensy: optimized/LTO application built; FLASH 301068 B, RAM 198040 B
 Known limitations: exact thread and scheduler control expansion begins Phase 4
 ```
+
+### 2026-08-03 — thread and scheduler controls
+
+```text
+Solar worktree after Phase 3: Phase 4 implementation
+Lifecycle: owner records Empty, Prepared, Started, Finished, or owner-issued
+           Aborted facts; suspend/resume are no longer claimed as scheduler state
+ThreadRef: native/current/owned priority, wake, suspend/resume, abort, join,
+           exit, wake deadline, and wake remaining operations
+Self operations: suspend and abort exercised through this_thread
+Scheduling: reschedule, preemptibility, global and per-thread time slicing,
+            relative and absolute hardware-cycle deadlines
+Options: raw flags removed; supervisor-safe ThreadOptions required; raw K_USER
+         and direct option construction rejected by compile-fail cases 26/27
+Native: default kernel core/execution and deadline/per-thread-slice variants pass
+Known limitations: user mode, essential threads, CPU affinity, and callable
+                   adapters remain explicitly deferred
+```

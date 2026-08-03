@@ -8,6 +8,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/sys/time_units.h>
 
+#include "solar/core/status.hpp"
 #include "solar/core/time.hpp"
 
 namespace solar::kernel
@@ -37,6 +38,52 @@ struct SteadyClock
 
 using TickDuration = SteadyClock::duration;
 using TimePoint = SteadyClock::time_point;
+
+/** Signed scheduler-deadline offset measured in hardware cycles. */
+class CycleDuration
+{
+  public:
+    [[nodiscard]] static constexpr Result<CycleDuration> from_cycles(std::uint64_t cycles) noexcept
+    {
+        if (cycles > static_cast<std::uint64_t>(std::numeric_limits<std::int32_t>::max())) {
+            return fail<Error>({.status = Status::Invalid});
+        }
+        return CycleDuration{static_cast<std::int32_t>(cycles)};
+    }
+
+    [[nodiscard]] constexpr std::int32_t count() const noexcept
+    {
+        return cycles_;
+    }
+
+  private:
+    explicit constexpr CycleDuration(std::int32_t cycles) noexcept : cycles_(cycles) {}
+    std::int32_t cycles_{};
+};
+
+/** Absolute 32-bit hardware-cycle timestamp used by Zephyr deadline scheduling. */
+class CycleTimePoint
+{
+  public:
+    [[nodiscard]] static constexpr CycleTimePoint from_cycles(std::uint32_t cycles) noexcept
+    {
+        return CycleTimePoint{cycles};
+    }
+
+    [[nodiscard]] static CycleTimePoint now() noexcept
+    {
+        return from_cycles(k_cycle_get_32());
+    }
+
+    [[nodiscard]] constexpr std::uint32_t count() const noexcept
+    {
+        return cycles_;
+    }
+
+  private:
+    explicit constexpr CycleTimePoint(std::uint32_t cycles) noexcept : cycles_(cycles) {}
+    std::uint32_t cycles_{};
+};
 
 template <typename Rep, typename Period>
 [[nodiscard]] constexpr Tick to_ticks_ceil(std::chrono::duration<Rep, Period> duration) noexcept

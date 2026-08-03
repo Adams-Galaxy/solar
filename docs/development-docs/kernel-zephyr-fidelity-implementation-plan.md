@@ -160,7 +160,7 @@ exact Zephyr recursive behavior and may provide `RecursiveMutexRef`.
 | 1 | Priority and scheduling values | complete |
 | 2 | Ownership, references, and native interoperation | complete |
 | 3 | Context and error contracts | complete |
-| 4 | Threads and scheduler controls | not started |
+| 4 | Threads and scheduler controls | complete |
 | 5 | Synchronization, communication, time, and memory repairs | not started |
 | 6 | Work, workqueues, triggered work, and poll | not started |
 | 7 | Diagnostics, fatal handling, and stop tokens | not started |

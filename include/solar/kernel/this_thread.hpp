@@ -75,6 +75,26 @@ sleep_for(std::chrono::duration<Rep, Period> duration) noexcept
     return {};
 }
 
+/** Suspend the current thread until another context resumes it. */
+[[nodiscard]] inline Result<void> suspend() noexcept
+{
+    if (in_isr()) {
+        return fail<Error>({.status = Status::Invalid});
+    }
+    k_thread_suspend(k_current_get());
+    return {};
+}
+
+/** Abort the current thread. On success this function cannot return. */
+[[nodiscard]] inline Result<void> abort() noexcept
+{
+    if (in_isr()) {
+        return fail<Error>({.status = Status::Invalid});
+    }
+    k_thread_abort(k_current_get());
+    CODE_UNREACHABLE;
+}
+
 template <typename Rep, typename Period>
 [[nodiscard]] inline Result<void>
 busy_wait_for(std::chrono::duration<Rep, Period> duration) noexcept

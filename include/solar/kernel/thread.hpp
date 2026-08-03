@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 
 #include <zephyr/kernel.h>
 
@@ -99,27 +100,91 @@ class ThreadRef
     }
 #endif
 
+#if defined(CONFIG_SCHED_DEADLINE)
+    [[nodiscard]] Result<void> set_deadline(CycleDuration deadline) const noexcept
+    {
+        if (in_isr()) {
+            return fail<Error>({.status = Status::Invalid});
+        }
+        k_thread_deadline_set(thread_, deadline.count());
+        return {};
+    }
+
+    [[nodiscard]] Result<void> set_absolute_deadline(CycleTimePoint deadline) const noexcept
+    {
+        if (in_isr()) {
+            return fail<Error>({.status = Status::Invalid});
+        }
+        k_thread_absolute_deadline_set(thread_, static_cast<int>(deadline.count()));
+        return {};
+    }
+#endif
+
+#if defined(CONFIG_TIMESLICE_PER_THREAD)
+    [[nodiscard]] Result<void> set_time_slice(TickDuration slice,
+                                              k_thread_timeslice_fn_t expired = nullptr,
+                                              void* user_data = nullptr) const noexcept
+    {
+        if (in_isr()) {
+            return fail<Error>({.status = Status::Invalid});
+        }
+        if (slice.count() < 0 ||
+            static_cast<std::uint64_t>(slice.count()) >
+                static_cast<std::uint64_t>(std::numeric_limits<std::int32_t>::max())) {
+            return fail<Error>({.status = Status::Invalid});
+        }
+        k_thread_time_slice_set(thread_, static_cast<std::int32_t>(slice.count()), expired,
+                                user_data);
+        return {};
+    }
+#endif
+
   private:
     k_thread* thread_;
 };
 
-enum class ThreadExecutionState : std::uint8_t
+/** Lifecycle transitions the owning wrapper can prove without guessing scheduler state. */
+enum class ThreadLifecycleState : std::uint8_t
 {
-    Unknown,
     Empty,
     Prepared,
-    Scheduled,
-    Running,
-    Suspended,
-    Exited,
+    Started,
+    Finished,
     Aborted,
+};
+
+/** Validated native option bits for Solar-owned supervisor threads. */
+class ThreadOptions
+{
+  public:
+    [[nodiscard]] static constexpr ThreadOptions none() noexcept
+    {
+        return ThreadOptions{};
+    }
+
+#if defined(K_FP_REGS)
+    [[nodiscard]] static constexpr ThreadOptions floating_point() noexcept
+    {
+        return ThreadOptions{K_FP_REGS};
+    }
+#endif
+
+    [[nodiscard]] constexpr std::uint32_t native_handle() const noexcept
+    {
+        return value_;
+    }
+
+  private:
+    explicit constexpr ThreadOptions(std::uint32_t value = 0) noexcept : value_(value) {}
+
+    std::uint32_t value_{};
 };
 
 struct ThreadConfiguration
 {
     Priority priority;
     const char* name{};
-    std::uint32_t options{};
+    ThreadOptions options{ThreadOptions::none()};
 };
 
 template <std::size_t StackBytes> class Thread
@@ -172,11 +237,10 @@ template <std::size_t StackBytes> class Thread
 
     [[nodiscard]] Result<void> start() noexcept
     {
-        ThreadExecutionState expected = ThreadExecutionState::Prepared;
-        if (!state_.compare_exchange_strong(expected, ThreadExecutionState::Scheduled,
-                                            std::memory_order_acq_rel)) {
-            return fail<Error>({.status = expected == ThreadExecutionState::Scheduled ||
-                                                  expected == ThreadExecutionState::Running
+        ThreadLifecycleState expected = ThreadLifecycleState::Prepared;
+        if (!lifecycle_.compare_exchange_strong(expected, ThreadLifecycleState::Started,
+                                                std::memory_order_acq_rel)) {
+            return fail<Error>({.status = expected == ThreadLifecycleState::Started
                                               ? Status::Already
                                               : Status::NotReady});
         }
@@ -197,17 +261,15 @@ template <std::size_t StackBytes> class Thread
             return fail<Error>({.status = Status::NotReady});
         }
         ThreadRef{*id}.suspend();
-        state_.store(ThreadExecutionState::Suspended, std::memory_order_release);
         return {};
     }
 
     [[nodiscard]] Result<void> resume() noexcept
     {
         const auto id = id_.load(std::memory_order_acquire);
-        if (id == nullptr || state() != ThreadExecutionState::Suspended) {
+        if (id == nullptr || !active()) {
             return fail<Error>({.status = Status::NotReady});
         }
-        state_.store(ThreadExecutionState::Scheduled, std::memory_order_release);
         ThreadRef{*id}.resume();
         return {};
     }
@@ -217,7 +279,7 @@ template <std::size_t StackBytes> class Thread
         if (id_.load(std::memory_order_acquire) == nullptr) {
             return fail<Error>({.status = Status::NotReady});
         }
-        if (state() == ThreadExecutionState::Prepared) {
+        if (lifecycle() == ThreadLifecycleState::Prepared) {
             return fail<Error>({.status = Status::NotReady});
         }
         if (in_isr()) {
@@ -225,8 +287,8 @@ template <std::size_t StackBytes> class Thread
         }
 
         const auto status = ThreadRef{thread_}.join(timeout);
-        if (status && state() != ThreadExecutionState::Aborted) {
-            state_.store(ThreadExecutionState::Exited, std::memory_order_release);
+        if (status && lifecycle() != ThreadLifecycleState::Aborted) {
+            lifecycle_.store(ThreadLifecycleState::Finished, std::memory_order_release);
         }
         return status;
     }
@@ -241,11 +303,15 @@ template <std::size_t StackBytes> class Thread
         if (id_.load(std::memory_order_acquire) == nullptr) {
             return fail<solar::Error>({.status = solar::Status::NotReady});
         }
-        if (state() == ThreadExecutionState::Prepared) {
+        if (lifecycle() == ThreadLifecycleState::Prepared) {
             return false;
         }
 
-        return ThreadRef{const_cast<k_thread&>(thread_)}.exited();
+        const auto result = ThreadRef{const_cast<k_thread&>(thread_)}.exited();
+        if (result && *result && lifecycle() == ThreadLifecycleState::Started) {
+            lifecycle_.store(ThreadLifecycleState::Finished, std::memory_order_release);
+        }
+        return result;
     }
 
     [[nodiscard]] Result<void> abort() noexcept
@@ -266,22 +332,20 @@ template <std::size_t StackBytes> class Thread
         }
 
         ThreadRef{*id}.abort();
-        state_.store(ThreadExecutionState::Aborted, std::memory_order_release);
+        lifecycle_.store(ThreadLifecycleState::Aborted, std::memory_order_release);
         return {};
     }
 
-    [[nodiscard]] ThreadExecutionState state() const noexcept
+    [[nodiscard]] ThreadLifecycleState lifecycle() const noexcept
     {
-        return state_.load(std::memory_order_acquire);
+        return lifecycle_.load(std::memory_order_acquire);
     }
 
     [[nodiscard]] bool active() const noexcept
     {
-        const auto current = state();
-        return current == ThreadExecutionState::Prepared ||
-               current == ThreadExecutionState::Scheduled ||
-               current == ThreadExecutionState::Running ||
-               current == ThreadExecutionState::Suspended;
+        const auto current = lifecycle();
+        return current == ThreadLifecycleState::Prepared ||
+               current == ThreadLifecycleState::Started;
     }
 
     [[nodiscard]] Result<ThreadRef> ref() noexcept
@@ -338,17 +402,18 @@ template <std::size_t StackBytes> class Thread
 
         entry_ = entry;
         argument_ = argument;
-        state_.store(prepared_only ? ThreadExecutionState::Prepared
-                                   : ThreadExecutionState::Scheduled,
-                     std::memory_order_release);
+        lifecycle_.store(prepared_only ? ThreadLifecycleState::Prepared
+                                       : ThreadLifecycleState::Started,
+                         std::memory_order_release);
 
         const bool controlled_start = prepared_only || delay.is_no_wait();
         const auto native_delay = controlled_start ? K_FOREVER : delay.native_handle();
-        const auto id = k_thread_create(
-            &thread_, stack_, K_KERNEL_STACK_SIZEOF(stack_), &Thread::trampoline, this, nullptr,
-            nullptr, configuration.priority.native_handle(), configuration.options, native_delay);
+        const auto id =
+            k_thread_create(&thread_, stack_, K_KERNEL_STACK_SIZEOF(stack_), &Thread::trampoline,
+                            this, nullptr, nullptr, configuration.priority.native_handle(),
+                            configuration.options.native_handle(), native_delay);
         if (id == nullptr) {
-            state_.store(ThreadExecutionState::Empty, std::memory_order_release);
+            lifecycle_.store(ThreadLifecycleState::Empty, std::memory_order_release);
             return fail<Error>({.status = Status::Error});
         }
         id_.store(id, std::memory_order_release);
@@ -357,7 +422,7 @@ template <std::size_t StackBytes> class Thread
             const auto name_status = detail::map_native(k_thread_name_set(id, configuration.name));
             if (!name_status) {
                 k_thread_abort(id);
-                state_.store(ThreadExecutionState::Aborted, std::memory_order_release);
+                lifecycle_.store(ThreadLifecycleState::Aborted, std::memory_order_release);
                 return name_status;
             }
         }
@@ -371,9 +436,8 @@ template <std::size_t StackBytes> class Thread
     static void trampoline(void* self_pointer, void*, void*) noexcept
     {
         auto& self = *static_cast<Thread*>(self_pointer);
-        self.state_.store(ThreadExecutionState::Running, std::memory_order_release);
         self.entry_(self.argument_);
-        self.state_.store(ThreadExecutionState::Exited, std::memory_order_release);
+        self.lifecycle_.store(ThreadLifecycleState::Finished, std::memory_order_release);
     }
 
     k_thread thread_{};
@@ -381,7 +445,7 @@ template <std::size_t StackBytes> class Thread
     Entry entry_{};
     void* argument_{};
     std::atomic<ThreadId> id_{nullptr};
-    std::atomic<ThreadExecutionState> state_{ThreadExecutionState::Empty};
+    mutable std::atomic<ThreadLifecycleState> lifecycle_{ThreadLifecycleState::Empty};
 };
 
 } // namespace solar::kernel

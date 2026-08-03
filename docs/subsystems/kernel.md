@@ -74,6 +74,23 @@ return `Result`, including priority access, priority changes, sleep, and yield.
 This prevents interrupt context from being mistaken for an ordinary current
 thread. `busy_wait_for()` remains directly ISR-safe, matching Zephyr.
 
+Owned threads expose `ThreadLifecycleState`, which records only wrapper facts:
+empty storage, prepared, start issued, normal/native-observed finish, or an
+owner-issued abort. Suspend and resume deliberately do not manufacture a
+scheduler state. Use `thread_diagnostics()` for a best-effort native
+observation. `ThreadConfiguration` accepts `ThreadOptions`, not raw native
+bits; this milestone supports supervisor threads and deliberately excludes
+user-mode, inherited-permission, and essential-thread creation.
+
+`ThreadRef` is the common surface for owned, current, and native Zephyr
+threads. It provides priority changes, wakeup, suspend/resume, external abort,
+join, and wake timing. `this_thread::suspend()` and `this_thread::abort()` cover
+the corresponding self operations. Scheduler deadline APIs use
+`CycleDuration` and `CycleTimePoint`, retaining Zephyr's hardware-cycle units
+and signed half-range constraint. Global time slices use milliseconds and an
+exact `Priority`; per-thread slices use `TickDuration` when
+`CONFIG_TIMESLICE_PER_THREAD` is enabled.
+
 ## Native interoperation
 
 Owning wrappers use stable native storage and do not expose mutable handles when

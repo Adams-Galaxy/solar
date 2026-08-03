@@ -2,6 +2,7 @@
 #include <cerrno>
 #include <chrono>
 #include <cstdint>
+#include <limits>
 #include <type_traits>
 
 #include <zephyr/irq_offload.h>
@@ -195,9 +196,10 @@ void exercise_isr(const void* argument)
         result_status(kernel::this_thread::sleep_for(kernel::Timeout::no_wait()));
     context.yield_status = result_status(kernel::this_thread::yield());
     context.priority_status = result_status(kernel::this_thread::priority());
-    context.thread_create_status = result_status(context.thread->prepare(
-        unused_thread_entry,
-        {.priority = kernel::Priority::preemptive<0>(), .name = nullptr, .options = 0}));
+    context.thread_create_status = result_status(
+        context.thread->prepare(unused_thread_entry, {.priority = kernel::Priority::preemptive<0>(),
+                                                      .name = nullptr,
+                                                      .options = kernel::ThreadOptions::none()}));
     context.condition_notify_status = result_status(context.condition->notify_one());
     context.mutex_status = result_status(context.mutex->try_lock());
 }
@@ -264,6 +266,17 @@ ZTEST(solar_kernel_core, test_priority_scheduler_and_current_thread)
     zassert_true(current_ref->wake_remaining().count() >= 0);
 #endif
 
+#if defined(CONFIG_SCHED_DEADLINE)
+    const auto relative_deadline = kernel::CycleDuration::from_cycles(1000);
+    zassert_true(relative_deadline.has_value());
+    zassert_equal(result_status(current_ref->set_deadline(*relative_deadline)), solar::Status::Ok);
+    zassert_equal(result_status(current_ref->set_absolute_deadline(kernel::CycleTimePoint::now())),
+                  solar::Status::Ok);
+    zassert_false(kernel::CycleDuration::from_cycles(
+                      static_cast<std::uint64_t>(std::numeric_limits<std::int32_t>::max()) + 1U)
+                      .has_value());
+#endif
+
 #if defined(CONFIG_TIMESLICING)
     zassert_equal(result_status(kernel::configure_time_slicing(2ms, *preemptive)),
                   solar::Status::Ok);
@@ -274,6 +287,13 @@ ZTEST(solar_kernel_core, test_priority_scheduler_and_current_thread)
     zassert_true(configured_threshold.has_value());
     zassert_equal(result_status(kernel::configure_time_slicing(
                       std::chrono::milliseconds{CONFIG_TIMESLICE_SIZE}, *configured_threshold)),
+                  solar::Status::Ok);
+#endif
+
+#if defined(CONFIG_TIMESLICE_PER_THREAD)
+    zassert_equal(result_status(current_ref->set_time_slice(kernel::TickDuration{2})),
+                  solar::Status::Ok);
+    zassert_equal(result_status(current_ref->set_time_slice(kernel::TickDuration{0})),
                   solar::Status::Ok);
 #endif
 

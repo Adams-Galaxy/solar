@@ -71,6 +71,32 @@ void record_priority(void* argument) noexcept
                                                    std::memory_order_release);
 }
 
+struct SelfSuspendContext
+{
+    kernel::Semaphore entered;
+    kernel::Semaphore resumed;
+};
+
+void self_suspending_thread(void* argument) noexcept
+{
+    auto& context = *static_cast<SelfSuspendContext*>(argument);
+    context.entered.give();
+    (void)kernel::this_thread::suspend();
+    context.resumed.give();
+}
+
+void self_aborting_thread(void* argument) noexcept
+{
+    static_cast<kernel::Semaphore*>(argument)->give();
+    (void)kernel::this_thread::abort();
+}
+
+void sleeping_thread(void* argument) noexcept
+{
+    static_cast<kernel::Semaphore*>(argument)->give();
+    (void)kernel::this_thread::sleep_for(50ms);
+}
+
 struct StopContext
 {
     explicit StopContext(solar::StopToken value) : token(value) {}
@@ -225,7 +251,7 @@ ZTEST(solar_kernel_execution, test_thread_prepare_release_join_and_delayed_launc
 
     zassert_equal(result_status(thread.prepare(&controlled_thread, &context, configuration)),
                   solar::Status::Ok);
-    zassert_equal(thread.state(), kernel::ThreadExecutionState::Prepared);
+    zassert_equal(thread.lifecycle(), kernel::ThreadLifecycleState::Prepared);
     (void)kernel::this_thread::sleep_for(2ms);
     zassert_equal(context.calls.load(std::memory_order_relaxed), 0);
     zassert_equal(result_status(thread.start()), solar::Status::Ok);
@@ -237,6 +263,14 @@ ZTEST(solar_kernel_execution, test_thread_prepare_release_join_and_delayed_launc
     zassert_equal(result_status(thread.join(kernel::Timeout::after(100ms))), solar::Status::Ok);
     zassert_true(*thread.exited());
 
+    ThreadContext reused_context;
+    zassert_equal(result_status(thread.launch(&controlled_thread, &reused_context, configuration)),
+                  solar::Status::Ok);
+    zassert_equal(result_status(reused_context.entered.take(kernel::Timeout::after(100ms))),
+                  solar::Status::Ok);
+    reused_context.release.give();
+    zassert_equal(result_status(thread.join(kernel::Timeout::after(100ms))), solar::Status::Ok);
+
     ThreadContext delayed_context;
     kernel::Thread<2048> delayed;
     zassert_equal(result_status(delayed.launch(
@@ -246,6 +280,9 @@ ZTEST(solar_kernel_execution, test_thread_prepare_release_join_and_delayed_launc
                   solar::Status::Ok);
     (void)kernel::this_thread::sleep_for(2ms);
     zassert_equal(delayed_context.calls.load(std::memory_order_relaxed), 0);
+    const auto delayed_ref = delayed.ref();
+    zassert_true(delayed_ref.has_value());
+    delayed_ref->wakeup();
     zassert_equal(result_status(delayed_context.entered.take(kernel::Timeout::after(100ms))),
                   solar::Status::Ok);
     delayed_context.release.give();
@@ -276,7 +313,7 @@ ZTEST(solar_kernel_execution, test_thread_suspend_resume_and_abort)
     zassert_equal(result_status(context.entered.take(kernel::Timeout::after(100ms))),
                   solar::Status::Ok);
     zassert_equal(result_status(thread.suspend()), solar::Status::Ok);
-    zassert_equal(thread.state(), kernel::ThreadExecutionState::Suspended);
+    zassert_equal(thread.lifecycle(), kernel::ThreadLifecycleState::Started);
     context.release.give();
     (void)kernel::this_thread::sleep_for(2ms);
     zassert_false(*thread.exited());
@@ -291,8 +328,56 @@ ZTEST(solar_kernel_execution, test_thread_suspend_resume_and_abort)
     zassert_equal(result_status(aborted_context.entered.take(kernel::Timeout::after(100ms))),
                   solar::Status::Ok);
     zassert_equal(result_status(aborted.abort()), solar::Status::Ok);
-    zassert_equal(aborted.state(), kernel::ThreadExecutionState::Aborted);
+    zassert_equal(aborted.lifecycle(), kernel::ThreadLifecycleState::Aborted);
     zassert_true(*aborted.exited());
+}
+
+ZTEST(solar_kernel_execution, test_self_suspend_and_abort)
+{
+    const kernel::ThreadConfiguration configuration{.priority = kernel::Priority::preemptive<1>()};
+
+    SelfSuspendContext context;
+    kernel::Thread<2048> suspended;
+    zassert_equal(result_status(suspended.launch(self_suspending_thread, &context, configuration)),
+                  solar::Status::Ok);
+    zassert_equal(result_status(context.entered.take(kernel::Timeout::after(100ms))),
+                  solar::Status::Ok);
+    (void)kernel::this_thread::sleep_for(2ms);
+    const auto suspended_ref = suspended.ref();
+    zassert_true(suspended_ref.has_value());
+    suspended_ref->resume();
+    zassert_equal(result_status(context.resumed.take(kernel::Timeout::after(100ms))),
+                  solar::Status::Ok);
+    zassert_equal(result_status(suspended.join(kernel::Timeout::after(100ms))), solar::Status::Ok);
+
+    kernel::Semaphore abort_entered;
+    kernel::Thread<2048> aborted;
+    zassert_equal(
+        result_status(aborted.launch(self_aborting_thread, &abort_entered, configuration)),
+        solar::Status::Ok);
+    zassert_equal(result_status(abort_entered.take(kernel::Timeout::after(100ms))),
+                  solar::Status::Ok);
+    zassert_equal(result_status(aborted.join(kernel::Timeout::after(100ms))), solar::Status::Ok);
+    zassert_equal(aborted.lifecycle(), kernel::ThreadLifecycleState::Finished);
+}
+
+ZTEST(solar_kernel_execution, test_thread_wake_timing_and_wakeup)
+{
+    kernel::Semaphore entered;
+    kernel::Thread<2048> sleeper;
+    zassert_equal(result_status(sleeper.launch(sleeping_thread, &entered,
+                                               {.priority = kernel::Priority::preemptive<1>()})),
+                  solar::Status::Ok);
+    zassert_equal(result_status(entered.take(kernel::Timeout::after(100ms))), solar::Status::Ok);
+    (void)kernel::this_thread::sleep_for(2ms);
+    const auto reference = sleeper.ref();
+    zassert_true(reference.has_value());
+#if defined(CONFIG_SYS_CLOCK_EXISTS)
+    zassert_true(reference->wake_remaining().count() > 0);
+    zassert_true(reference->wake_deadline() >= kernel::now());
+#endif
+    reference->wakeup();
+    zassert_equal(result_status(sleeper.join(kernel::Timeout::after(100ms))), solar::Status::Ok);
 }
 
 ZTEST(solar_kernel_execution, test_stop_token_and_condition_variable)
