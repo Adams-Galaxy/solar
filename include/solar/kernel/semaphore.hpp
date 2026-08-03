@@ -75,10 +75,7 @@ class SemaphoreRef
 class Semaphore
 {
   public:
-    explicit Semaphore(std::uint32_t initial_count = 0, std::uint32_t limit = 1) noexcept
-    {
-        __ASSERT_NO_MSG(k_sem_init(&semaphore_, initial_count, limit) == 0);
-    }
+    Semaphore() noexcept : Semaphore(0, 1, ValidatedConfiguration{}) {}
 
     Semaphore(const Semaphore&) = delete;
     Semaphore& operator=(const Semaphore&) = delete;
@@ -126,6 +123,19 @@ class Semaphore
     }
 
   private:
+    struct ValidatedConfiguration
+    {};
+
+    Semaphore(std::uint32_t initial_count, std::uint32_t limit, ValidatedConfiguration) noexcept
+    {
+        const int result = k_sem_init(&semaphore_, initial_count, limit);
+        __ASSERT_NO_MSG(result == 0);
+        (void)result;
+    }
+
+    friend class BinarySemaphore;
+    template <std::uint32_t, std::uint32_t> friend class CountingSemaphore;
+
     k_sem semaphore_{};
 };
 
@@ -133,8 +143,23 @@ class BinarySemaphore : public Semaphore
 {
   public:
     explicit BinarySemaphore(bool initially_available = false) noexcept
-        : Semaphore(initially_available ? 1U : 0U, 1U)
+        : Semaphore(initially_available ? 1U : 0U, 1U, ValidatedConfiguration{})
     {}
+};
+
+/** Semaphore whose capacity and initial count are validated at compile time. */
+template <std::uint32_t Limit, std::uint32_t InitialCount = 0>
+class CountingSemaphore : public Semaphore
+{
+    static_assert(Limit > 0,
+                  "SOLAR_DIAGNOSTIC_SEMAPHORE_ZERO_LIMIT: semaphore limit must be non-zero");
+    static_assert(Limit <= K_SEM_MAX_LIMIT,
+                  "SOLAR_DIAGNOSTIC_SEMAPHORE_LIMIT_OVERFLOW: limit exceeds Zephyr's maximum");
+    static_assert(InitialCount <= Limit,
+                  "SOLAR_DIAGNOSTIC_SEMAPHORE_INITIAL_OVERFLOW: initial count exceeds limit");
+
+  public:
+    CountingSemaphore() noexcept : Semaphore(InitialCount, Limit, ValidatedConfiguration{}) {}
 };
 
 } // namespace solar::kernel

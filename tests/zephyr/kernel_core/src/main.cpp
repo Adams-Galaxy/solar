@@ -33,6 +33,7 @@ static_assert(!std::is_copy_constructible_v<kernel::RecursiveMutex>);
 static_assert(!std::is_move_constructible_v<kernel::RecursiveMutex>);
 static_assert(!std::is_copy_constructible_v<kernel::Semaphore>);
 static_assert(!std::is_move_constructible_v<kernel::Semaphore>);
+static_assert(std::is_default_constructible_v<kernel::CountingSemaphore<4, 2>>);
 static_assert(!std::is_copy_constructible_v<kernel::MessageQueue<std::uint32_t, 2>>);
 static_assert(!std::is_move_constructible_v<kernel::MessageQueue<std::uint32_t, 2>>);
 static_assert(!std::is_copy_constructible_v<kernel::EventFlags>);
@@ -381,7 +382,7 @@ ZTEST(solar_kernel_core, test_mutex_lock_ownership_and_timeout)
 
 ZTEST(solar_kernel_core, test_semaphore_message_queue_and_events)
 {
-    kernel::Semaphore semaphore{0, 2};
+    kernel::CountingSemaphore<2> semaphore;
     const auto unavailable = semaphore.try_take();
     zassert_equal(result_status(unavailable), solar::Status::WouldBlock);
     zassert_equal(unavailable.error().native, -EBUSY);

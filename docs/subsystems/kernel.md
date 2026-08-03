@@ -34,6 +34,11 @@ Blocking operations return `Result<T>`. A no-wait miss is normally
 `Status::Timeout`. Check each primitive's typed error where it carries richer
 native detail.
 
+`Semaphore` is the ordinary binary-capacity primitive. Use
+`CountingSemaphore<Limit, InitialCount>` when more than one permit is needed;
+both values are checked against Zephyr at compile time, so invalid dynamic
+constructor arguments cannot disappear with release-build assertions.
+
 `PollSignal::raise()` returns `PollSignalOutcome`. Zephyr can latch the signal
 and its value while returning `-EAGAIN` because a waiting poll timeout is
 already expiring; Solar reports that as the successful
