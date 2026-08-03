@@ -7,6 +7,9 @@ Status: accepted direction; implementation not started
 Companion problem statement:
 [`kernel-zephyr-fidelity.md`](kernel-zephyr-fidelity.md)
 
+Baseline and native coverage matrix:
+[`kernel-zephyr-coverage-matrix.md`](kernel-zephyr-coverage-matrix.md)
+
 ## 1. Purpose And Authority
 
 This document is the implementation script for finishing `solar::kernel` as a
@@ -153,8 +156,8 @@ exact Zephyr recursive behavior and may provide `RecursiveMutexRef`.
 
 | Phase | Scope | State |
 | --- | --- | --- |
-| 0 | Baseline and native coverage matrix | not started |
-| 1 | Priority and scheduling values | not started |
+| 0 | Baseline and native coverage matrix | complete |
+| 1 | Priority and scheduling values | in progress |
 | 2 | Ownership, references, and native interoperation | not started |
 | 3 | Context and error contracts | not started |
 | 4 | Threads and scheduler controls | not started |
@@ -664,4 +667,3 @@ Known limitations assigned to a later phase:
 Do not mark a phase verified on compilation alone when its behavior depends on
 thread scheduling, ISR context, cancellation, native object state, or object
 lifetime.
-
