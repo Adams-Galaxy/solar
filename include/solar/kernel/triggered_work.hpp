@@ -15,6 +15,20 @@ inline constexpr bool triggered_work_available = IS_ENABLED(CONFIG_POLL);
 
 #if defined(CONFIG_POLL)
 
+namespace detail
+{
+
+[[nodiscard]] constexpr WorkError triggered_work_error(int native_error) noexcept
+{
+    if (native_error == -EINVAL) {
+        return {
+            .status = Status::Busy, .reason = WorkErrorReason::Busy, .native_error = native_error};
+    }
+    return work_error(native_error);
+}
+
+} // namespace detail
+
 class TriggeredWork
 {
   public:
@@ -91,7 +105,7 @@ class TriggeredWork
 
         const int trigger_result = k_work_poll_cancel(&work_);
         if (trigger_result != 0 && trigger_result != -EINVAL) {
-            return fail<WorkError>(detail::work_error(trigger_result));
+            return fail<WorkError>(detail::triggered_work_error(trigger_result));
         }
 
         k_work_sync sync{};
@@ -109,7 +123,7 @@ class TriggeredWork
             return fail<WorkError>(detail::work_deadlock());
         }
         if (claimed_.load(std::memory_order_acquire) && k_work_busy_get(&work_.work) == 0) {
-            return fail<WorkError>(detail::work_error(-EBUSY));
+            return fail<WorkError>(detail::triggered_work_error(-EBUSY));
         }
         k_work_sync sync{};
         return k_work_flush(&work_.work, &sync);
@@ -143,7 +157,7 @@ class TriggeredWork
         }
         bool expected = false;
         if (!claimed_.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
-            return fail<WorkError>(detail::work_error(-EBUSY));
+            return fail<WorkError>(detail::triggered_work_error(-EBUSY));
         }
         return {};
     }
@@ -153,7 +167,7 @@ class TriggeredWork
         if (result == 0) {
             return {};
         }
-        return fail<WorkError>(detail::work_error(result));
+        return fail<WorkError>(detail::triggered_work_error(result));
     }
 
     static void invoke(k_work* work) noexcept

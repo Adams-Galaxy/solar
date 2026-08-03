@@ -45,6 +45,14 @@ already expiring; Solar reports that as the successful
 `LatchedAfterTimeout` outcome and preserves `-EAGAIN` instead of pretending the
 signal was lost.
 
+Some native return values are intentionally not given more precision than
+Zephyr provides. A blocking semaphore take reports native `-EAGAIN` for either
+timeout expiry or a concurrent reset, and a message-queue `-ENOMSG` can mean an
+immediate capacity miss or a concurrent purge. Solar preserves the native code
+and reports the operation-level outcome; it does not invent a cause that the
+kernel did not supply. Event waits return a zero bitmask for an unsatisfied
+wait, so there is no native errno to retain.
+
 Zephyr 4.4 reacquires a condition-variable mutex only when the wait succeeds.
 After a timeout or no-wait miss, Solar therefore marks the accompanying
 `UniqueLock` as not owning the mutex; call `lock()` again before accessing the

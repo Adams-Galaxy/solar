@@ -13,6 +13,13 @@ using namespace std::chrono_literals;
 
 namespace kernel = solar::kernel;
 
+#if defined(CONFIG_POLL)
+static_assert(kernel::detail::triggered_work_error(-EINVAL).status == solar::Status::Busy);
+static_assert(kernel::detail::triggered_work_error(-EINVAL).reason ==
+              kernel::WorkErrorReason::Busy);
+static_assert(kernel::detail::triggered_work_error(-EINVAL).native_error == -EINVAL);
+#endif
+
 static_assert(!std::is_copy_constructible_v<kernel::Thread<1024>>);
 static_assert(!std::is_move_constructible_v<kernel::Thread<1024>>);
 static_assert(!std::is_copy_constructible_v<kernel::Work>);
