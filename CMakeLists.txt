@@ -74,10 +74,65 @@ if(DEFINED ZEPHYR_BASE AND COMMAND zephyr_include_directories)
             VERBATIM)
         add_custom_target(solar_remote_manifest_artifacts ALL DEPENDS ${solar_remote_cbor})
     endif()
+
+    if(CONFIG_SOLAR_APPLICATION_AUTO_INTEGRATION)
+        get_filename_component(solar_application_project
+            "${CONFIG_SOLAR_APPLICATION_PROJECT}" ABSOLUTE
+            BASE_DIR "${APPLICATION_SOURCE_DIR}")
+        get_filename_component(solar_application_lock
+            "${CONFIG_SOLAR_APPLICATION_LOCK}" ABSOLUTE
+            BASE_DIR "${APPLICATION_SOURCE_DIR}")
+
+        if(EXISTS "${solar_application_project}")
+            if(CONFIG_SOLAR_APPLICATION_REQUIRE_LOCK AND
+               NOT EXISTS "${solar_application_lock}")
+                message(FATAL_ERROR
+                    "Solar application identity lock is required but missing: "
+                    "${solar_application_lock}. Update it explicitly with solar-codegen "
+                    "--update-lock.")
+            endif()
+            set(solar_application_options VALIDATE_FEATURES COMPILE_APPLICATION)
+            if(NOT CONFIG_SOLAR_APPLICATION_GENERATE_PYTHON)
+                list(APPEND solar_application_options NO_PYTHON)
+            endif()
+            if(CONFIG_SOLAR_APPLICATION_EXPLAIN)
+                list(APPEND solar_application_options EXPLAIN)
+            endif()
+            if(CONFIG_SOLAR_REMOTE)
+                list(APPEND solar_application_options REMOTE_AVAILABLE)
+            endif()
+            set(solar_application_output "${CMAKE_BINARY_DIR}/solar/application")
+            _solar_attach_contract(
+                TARGET app
+                PROJECT "${solar_application_project}"
+                LOCK "${solar_application_lock}"
+                OUTPUT_DIR "${solar_application_output}"
+                ${solar_application_options})
+
+            if(CONFIG_SOLAR_APPLICATION_GENERATE_SHIPMENT)
+                if(NOT CONFIG_SOLAR_REMOTE_GENERATE_MANIFEST)
+                    message(FATAL_ERROR
+                        "Solar application shipment generation requires "
+                        "CONFIG_SOLAR_REMOTE_GENERATE_MANIFEST=y")
+                endif()
+                solar_generate_shipment(
+                    TARGET solar_application_shipment
+                    IR "${solar_application_output}/interface.ir.json"
+                    MANIFEST_JSON "${CMAKE_BINARY_DIR}/solar/remote/manifest.json"
+                    MANIFEST_BIN "${CMAKE_BINARY_DIR}/solar/remote/manifest.bin"
+                    ELF "${CMAKE_BINARY_DIR}/zephyr/zephyr.elf"
+                    OUTPUT_DIR "${solar_application_output}/shipment")
+            endif()
+        elseif(NOT CONFIG_SOLAR_APPLICATION_PROJECT STREQUAL "solar.project.yaml")
+            message(FATAL_ERROR
+                "Configured Solar application manifest does not exist: "
+                "${solar_application_project}")
+        endif()
+    endif()
     return()
 endif()
 
-project(solar VERSION 0.1.0 LANGUAGES CXX)
+project(solar VERSION 0.2.0 LANGUAGES CXX)
 
 function(solar_add_header_module target)
     add_library(${target} INTERFACE)

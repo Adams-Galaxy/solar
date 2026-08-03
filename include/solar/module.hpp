@@ -3,6 +3,7 @@
 #include <concepts>
 #include <string_view>
 #include <type_traits>
+#include <utility>
 
 #include "solar/core/status.hpp"
 #include "solar/core/type_list.hpp"
@@ -109,3 +110,86 @@ template <typename Application, typename Identity, typename Owner> struct Static
 };
 
 } // namespace solar::module
+
+namespace solar
+{
+
+/** A static type already expressed in Solar's lifecycle vocabulary. */
+template <typename T>
+concept Module = requires {
+    { T::initialize() } -> std::same_as<Result<void>>;
+    { T::start() } -> std::same_as<Result<void>>;
+    { T::stop() } -> std::same_as<Result<void>>;
+    { T::deinitialize() } -> std::same_as<Result<void>>;
+};
+
+namespace module::detail
+{
+template <typename T, typename = void> struct DependenciesOf
+{
+    using type = TypeList<>;
+};
+template <typename T> struct DependenciesOf<T, std::void_t<typename T::Dependencies>>
+{
+    using type = typename T::Dependencies;
+};
+
+template <typename Function> [[nodiscard]] Result<void> adapt(Function&& function) noexcept
+{
+    if constexpr (std::is_void_v<std::invoke_result_t<Function>>) {
+        std::forward<Function>(function)();
+        return {};
+    } else {
+        auto result = std::forward<Function>(function)();
+        if constexpr (std::same_as<decltype(result), Result<void>>) {
+            return result;
+        } else {
+            return result ? Result<void>{} : fail<Error>({.status = status_of(result.error())});
+        }
+    }
+}
+} // namespace module::detail
+
+/**
+ * Adapt a conventional static device (`init/start/stop/deinit`) to a Solar
+ * lifecycle module. Error types are reduced through `status_of`.
+ */
+template <typename Device> struct AsModule
+{
+    using DeviceType = Device;
+    using Dependencies = typename module::detail::DependenciesOf<Device>::type;
+    static constexpr std::string_view name = [] {
+        if constexpr (requires { Device::name; })
+            return std::string_view{Device::name};
+        if constexpr (requires { Device::descriptor.name; })
+            return std::string_view{Device::descriptor.name};
+        return std::string_view{};
+    }();
+
+    [[nodiscard]] static Result<void> initialize() noexcept
+    {
+        if constexpr (requires { Device::init(); })
+            return module::detail::adapt([] { return Device::init(); });
+        return {};
+    }
+    [[nodiscard]] static Result<void> start() noexcept
+    {
+        if constexpr (requires { Device::start(); })
+            return module::detail::adapt([] { return Device::start(); });
+        return {};
+    }
+    [[nodiscard]] static Result<void> stop() noexcept
+    {
+        if constexpr (requires { Device::stop(); })
+            return module::detail::adapt([] { return Device::stop(); });
+        return {};
+    }
+    [[nodiscard]] static Result<void> deinitialize() noexcept
+    {
+        if constexpr (requires { Device::deinit(); })
+            return module::detail::adapt([] { return Device::deinit(); });
+        return {};
+    }
+};
+
+} // namespace solar

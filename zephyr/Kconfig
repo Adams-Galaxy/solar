@@ -6,6 +6,69 @@ menuconfig SOLAR
 
 if SOLAR
 
+menu "Application integration"
+
+config SOLAR_APPLICATION_AUTO_INTEGRATION
+	bool "Automatically integrate a Solar application manifest"
+	default y
+	help
+	  Generate and attach the conventional application contract when the
+	  configured project manifest exists. The default path is optional so
+	  standalone Solar modules do not require an application manifest.
+
+if SOLAR_APPLICATION_AUTO_INTEGRATION
+
+config SOLAR_APPLICATION_PROJECT
+	string "Application project manifest"
+	default "solar.project.yaml"
+
+config SOLAR_APPLICATION_LOCK
+	string "Application interface lock"
+	default "solar.interface.lock"
+
+config SOLAR_APPLICATION_REQUIRE_LOCK
+	bool "Require an existing interface lock"
+	default y
+	help
+	  Normal builds never modify the identity lock. Use solar-codegen with
+	  --update-lock when intentionally changing the interface.
+
+config SOLAR_APPLICATION_GENERATE_PYTHON
+	bool "Generate the typed Python application client"
+	default y if SOLAR_REMOTE
+
+config SOLAR_APPLICATION_GENERATE_SHIPMENT
+	bool "Verify and package the linked application shipment"
+	default y if SOLAR_REMOTE
+	help
+	  Requires linked Remote manifest generation when an application manifest
+	  is present. The CMake integration diagnoses that requirement without
+	  forcing it on standalone Remote users.
+
+config SOLAR_APPLICATION_EXPLAIN
+	bool "Generate application expansion reports"
+	default y
+
+config SOLAR_APPLICATION_DEFAULT_SERVICE_STACK
+	int "Default service runner stack size"
+	range 512 65536
+	default 2048
+
+config SOLAR_APPLICATION_DEFAULT_SERVICE_PRIORITY
+	int "Default service runner preemptive priority"
+	range 0 15
+	default 2
+
+config SOLAR_APPLICATION_LOG_HISTORY_CAPACITY
+	int "Retained structured log record capacity"
+	range 1 1024
+	default 24
+	depends on SOLAR_LOG
+
+endif # SOLAR_APPLICATION_AUTO_INTEGRATION
+
+endmenu
+
 config SOLAR_DESCRIPTOR_STRINGS
 	bool "Retain descriptor strings"
 	default y

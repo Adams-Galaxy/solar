@@ -30,6 +30,10 @@ add_executable(solar_host_module_foundation module_foundation.cpp)
 target_link_libraries(solar_host_module_foundation PRIVATE solar)
 add_test(NAME solar.host.module.foundation COMMAND solar_host_module_foundation)
 
+add_executable(solar_host_application_layer application_layer.cpp)
+target_link_libraries(solar_host_application_layer PRIVATE solar)
+add_test(NAME solar.host.application.layer COMMAND solar_host_application_layer)
+
 add_executable(solar_host_standalone_modules standalone_modules.cpp)
 target_compile_definitions(solar_host_standalone_modules PRIVATE
     CONFIG_SOLAR_LOG=1
@@ -84,6 +88,8 @@ add_executable(solar_host_generated_application
 add_dependencies(solar_host_generated_application solar_application_generate)
 target_include_directories(solar_host_generated_application
     PRIVATE ${solar_application_generated_dir})
+target_compile_definitions(solar_host_generated_application
+    PRIVATE SOLAR_HAS_GENERATED_APPLICATION=1)
 target_link_libraries(solar_host_generated_application PRIVATE solar)
 add_test(NAME solar.host.generated.application COMMAND solar_host_generated_application)
 
@@ -258,6 +264,14 @@ solar_add_compile_failure(
     solar.compile_fail.system_dispatch_invalid_signature
     SOLAR_SYSTEM_INVALID_ACTION_HANDLER
     ${CMAKE_CURRENT_SOURCE_DIR}/../compile_fail/fixtures/system_dispatch_invalid_signature.cpp)
+solar_add_compile_failure(
+    solar.compile_fail.system_endpoints_conflicting_declarations
+    SOLAR_SYSTEM_CONFLICTING_ENDPOINT_DECLARATIONS
+    ${CMAKE_CURRENT_SOURCE_DIR}/../compile_fail/fixtures/system_endpoints_conflicting_declarations.cpp)
+solar_add_compile_failure(
+    solar.compile_fail.application_duplicate_stack
+    SOLAR_APPLICATION_DUPLICATE_SERVICE_STACK
+    ${CMAKE_CURRENT_SOURCE_DIR}/../compile_fail/fixtures/application_duplicate_stack.cpp)
 
 add_test(
     NAME solar.compile_fail.self_test

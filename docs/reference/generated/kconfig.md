@@ -3,7 +3,7 @@
 This page is generated from `zephyr/Kconfig`. Change the Kconfig source or
 help text, then rebuild the documentation; do not edit this page manually.
 
-Solar currently defines 55 configuration symbols.
+Solar currently defines 65 configuration symbols.
 
 ## `CONFIG_SOLAR`
 
@@ -14,6 +14,124 @@ Solar C++ framework
 - Defaults: `y`
 
 Enable Solar's modular C++23 facilities for Zephyr applications.
+
+## `CONFIG_SOLAR_APPLICATION_AUTO_INTEGRATION`
+
+Automatically integrate a Solar application manifest
+
+- Type: `bool`
+- Menu: Main menu / Application integration
+- Defaults: `y` if `SOLAR`
+- Depends on: `SOLAR`
+
+Generate and attach the conventional application contract when the
+configured project manifest exists. The default path is optional so
+standalone Solar modules do not require an application manifest.
+
+## `CONFIG_SOLAR_APPLICATION_DEFAULT_SERVICE_PRIORITY`
+
+Default service runner preemptive priority
+
+- Type: `int`
+- Menu: Main menu / Application integration
+- Defaults: `2` if `SOLAR_APPLICATION_AUTO_INTEGRATION and SOLAR`
+- Depends on: `SOLAR_APPLICATION_AUTO_INTEGRATION and SOLAR`
+- Range: `0` to `15`
+
+No additional help text.
+
+## `CONFIG_SOLAR_APPLICATION_DEFAULT_SERVICE_STACK`
+
+Default service runner stack size
+
+- Type: `int`
+- Menu: Main menu / Application integration
+- Defaults: `2048` if `SOLAR_APPLICATION_AUTO_INTEGRATION and SOLAR`
+- Depends on: `SOLAR_APPLICATION_AUTO_INTEGRATION and SOLAR`
+- Range: `512` to `65536`
+
+No additional help text.
+
+## `CONFIG_SOLAR_APPLICATION_EXPLAIN`
+
+Generate application expansion reports
+
+- Type: `bool`
+- Menu: Main menu / Application integration
+- Defaults: `y` if `SOLAR_APPLICATION_AUTO_INTEGRATION and SOLAR`
+- Depends on: `SOLAR_APPLICATION_AUTO_INTEGRATION and SOLAR`
+
+No additional help text.
+
+## `CONFIG_SOLAR_APPLICATION_GENERATE_PYTHON`
+
+Generate the typed Python application client
+
+- Type: `bool`
+- Menu: Main menu / Application integration
+- Defaults: `y` if `SOLAR_REMOTE and SOLAR_APPLICATION_AUTO_INTEGRATION and SOLAR`
+- Depends on: `SOLAR_APPLICATION_AUTO_INTEGRATION and SOLAR`
+
+No additional help text.
+
+## `CONFIG_SOLAR_APPLICATION_GENERATE_SHIPMENT`
+
+Verify and package the linked application shipment
+
+- Type: `bool`
+- Menu: Main menu / Application integration
+- Defaults: `y` if `SOLAR_REMOTE and SOLAR_APPLICATION_AUTO_INTEGRATION and SOLAR`
+- Depends on: `SOLAR_APPLICATION_AUTO_INTEGRATION and SOLAR`
+
+Requires linked Remote manifest generation when an application manifest
+is present. The CMake integration diagnoses that requirement without
+forcing it on standalone Remote users.
+
+## `CONFIG_SOLAR_APPLICATION_LOCK`
+
+Application interface lock
+
+- Type: `string`
+- Menu: Main menu / Application integration
+- Defaults: `"solar.interface.lock"` if `SOLAR_APPLICATION_AUTO_INTEGRATION and SOLAR`
+- Depends on: `SOLAR_APPLICATION_AUTO_INTEGRATION and SOLAR`
+
+No additional help text.
+
+## `CONFIG_SOLAR_APPLICATION_LOG_HISTORY_CAPACITY`
+
+Retained structured log record capacity
+
+- Type: `int`
+- Menu: Main menu / Application integration
+- Defaults: `24` if `SOLAR_LOG and SOLAR_APPLICATION_AUTO_INTEGRATION and SOLAR`
+- Depends on: `SOLAR_LOG and SOLAR_APPLICATION_AUTO_INTEGRATION and SOLAR`
+- Range: `1` to `1024`
+
+No additional help text.
+
+## `CONFIG_SOLAR_APPLICATION_PROJECT`
+
+Application project manifest
+
+- Type: `string`
+- Menu: Main menu / Application integration
+- Defaults: `"solar.project.yaml"` if `SOLAR_APPLICATION_AUTO_INTEGRATION and SOLAR`
+- Depends on: `SOLAR_APPLICATION_AUTO_INTEGRATION and SOLAR`
+
+No additional help text.
+
+## `CONFIG_SOLAR_APPLICATION_REQUIRE_LOCK`
+
+Require an existing interface lock
+
+- Type: `bool`
+- Menu: Main menu / Application integration
+- Defaults: `y` if `SOLAR_APPLICATION_AUTO_INTEGRATION and SOLAR`
+- Depends on: `SOLAR_APPLICATION_AUTO_INTEGRATION and SOLAR`
+
+Normal builds never modify the identity lock. Use solar-codegen with
+--update-lock when intentionally changing the interface.
 
 ## `CONFIG_SOLAR_DESCRIPTOR_STRINGS`
 

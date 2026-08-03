@@ -1,5 +1,7 @@
 CompileFlags:
-  CompilationDatabase: build/host
+  # This local, native database gives framework headers a host compilation
+  # context. Firmware translation units still use their Zephyr database.
+  CompilationDatabase: build/clangd
   Add:
     - -std=c++23
   Remove:

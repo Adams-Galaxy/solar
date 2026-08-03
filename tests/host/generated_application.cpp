@@ -1,45 +1,55 @@
 #include <cassert>
 
-#include <solar/generated/app.hpp>
-#include <solar/system/composer.hpp>
+#include <solar/application.hpp>
 
 namespace fixture_app
 {
 
-struct Application;
 using parameters = solar::parameters::StaticStore<Application, generated::ParameterSchema>;
 
 struct Cockpit
 {
-    using Contributions = solar::Contributions<
-        solar::Uses<parameters, generated::DriveKp>, solar::Provides<generated::SystemStateData>,
-        solar::Handles<generated::SystemPingAction>, solar::Publishes<generated::ImuEulerStream>,
-        solar::Consumes<generated::DriveCommandStream>>;
+    using State = contract::data::system::State;
+    using Ping = contract::actions::system::Ping;
+    using EulerStream = contract::streams::imu::Euler;
+    using DriveStream = contract::streams::drive::Command;
+    using DriveKp = contract::parameters::drive::Kp;
 
-    static generated::PingResponse handle(generated::SystemPingAction, const generated::Empty&)
+    static generated::PingResponse ping(const generated::Empty&)
     {
         return {};
     }
-    static generated::Euler publish(generated::ImuEulerStream)
+    static generated::Euler euler()
     {
         return {};
     }
-    static generated::RobotState read(generated::SystemStateData)
+    static generated::RobotState read_state()
     {
         return state;
     }
-    static solar::Result<void> write(generated::SystemStateData, const generated::RobotState& value)
+    static solar::Result<void> write_state(const generated::RobotState& value)
     {
         state = value;
         return {};
     }
-    static solar::Result<void> consume(generated::DriveCommandStream,
-                                       const generated::DriveCommand&)
+    static solar::Result<void> drive(const generated::DriveCommand&)
     {
         return {};
     }
+    using Endpoints =
+        solar::Endpoints<DriveKp::Use<parameters>, State::ReadWrite<&read_state, &write_state>,
+                         Ping::Handle<&ping>, EulerStream::Output<&euler>,
+                         DriveStream::Input<&drive>>;
     inline static generated::RobotState state{};
 };
+
+struct Application
+{
+    using Devices = solar::Devices<>;
+    using Services = solar::Services<Cockpit>;
+};
+
+static_assert(std::is_same_v<parameters, solar::application::parameters_t<Application>>);
 
 template <typename Parameters> struct ReusableGainReader
 {
@@ -51,10 +61,15 @@ template <typename Parameters> struct ReusableGainReader
 
 using GainReader = ReusableGainReader<parameters>;
 
-using system =
-    solar::system::System<Application,
-                          solar::Compose<solar::Contract<generated::Contract>,
-                                         solar::Own<parameters>, solar::Components<Cockpit>>>;
+using system = solar::System<Application>;
+
+using runner = solar::execution::ServiceRunner<Application, Cockpit, 2048, 2>;
+using explicit_composition =
+    solar::Compose<solar::Contract<generated::Contract>, solar::Own<parameters, runner>,
+                   solar::Components<Cockpit>>;
+static_assert(std::is_same_v<typename solar::application::specification_t<Application>::Contract,
+                             generated::Contract>);
+static_assert(std::is_same_v<solar::application::composition_t<Application>, explicit_composition>);
 
 } // namespace fixture_app
 
@@ -67,8 +82,8 @@ int main()
     assert(gain && *gain == 2.5F);
     const auto reusable_gain = GainReader::read();
     assert(reusable_gain && *reusable_gain == 2.5F);
-    using Endpoints = solar::system::Dispatch<generated::Contract, solar::TypeList<Cockpit>>;
-    assert(Endpoints::update<generated::SystemStateData>({.enabled = true}));
-    assert(Endpoints::query<generated::SystemStateData>().enabled);
+    using Dispatch = solar::system::Dispatch<generated::Contract, solar::TypeList<Cockpit>>;
+    assert(Dispatch::update<generated::SystemStateData>({.enabled = true}));
+    assert(Dispatch::query<generated::SystemStateData>().enabled);
     assert(system::shutdown());
 }
