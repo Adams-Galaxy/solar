@@ -273,10 +273,15 @@ ZTEST(solar_kernel_core, test_borrowed_native_objects)
     alignas(std::uint32_t) std::array<std::byte, sizeof(std::uint32_t) * 2> storage{};
     k_msgq native_queue;
     k_msgq_init(&native_queue, reinterpret_cast<char*>(storage.data()), sizeof(std::uint32_t), 2);
-    kernel::MessageQueueRef<std::uint32_t> queue{native_queue};
+    const auto borrowed_queue = kernel::MessageQueueRef<std::uint32_t>::borrow(native_queue);
+    zassert_true(borrowed_queue.has_value());
+    const auto queue = *borrowed_queue;
     zassert_equal(result_status(queue.try_send(42)), solar::Status::Ok);
     zassert_equal(queue.size(), 1);
     zassert_equal(*queue.try_receive(), 42);
+    const auto wrong_queue = kernel::MessageQueueRef<std::uint16_t>::borrow(native_queue);
+    zassert_false(wrong_queue.has_value());
+    zassert_equal(result_status(wrong_queue.error()), solar::Status::Invalid);
 
     k_timer native_timer;
     k_timer_init(&native_timer, nullptr, nullptr);
@@ -407,6 +412,7 @@ ZTEST(solar_kernel_core, test_semaphore_message_queue_and_events)
     zassert_equal(*queue.try_receive(), 1);
     zassert_equal(result_status(queue.try_send_front(9)), solar::Status::Ok);
     zassert_equal(*queue.try_receive(), 9);
+
     zassert_equal(*queue.try_receive(), 2);
     const auto timed_out = queue.receive(kernel::Timeout::after(2ms));
     zassert_equal(result_status(timed_out.error()), solar::Status::Timeout);

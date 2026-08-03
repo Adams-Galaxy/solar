@@ -8,7 +8,6 @@
 #include <type_traits>
 
 #include <zephyr/kernel.h>
-#include <zephyr/sys/__assert.h>
 
 #include "solar/core/status.hpp"
 #include "solar/kernel/deadline.hpp"
@@ -28,11 +27,14 @@ template <typename Message> class MessageQueueRef
                   "trivially copyable");
 
   public:
-    explicit MessageQueueRef(k_msgq& queue) noexcept : queue_(&queue)
+    [[nodiscard]] static Result<MessageQueueRef> borrow(k_msgq& queue) noexcept
     {
         k_msgq_attrs attributes{};
-        k_msgq_get_attrs(queue_, &attributes);
-        __ASSERT_NO_MSG(attributes.msg_size == sizeof(Message));
+        k_msgq_get_attrs(&queue, &attributes);
+        if (attributes.msg_size != sizeof(Message)) {
+            return fail<Error>({.status = Status::Invalid});
+        }
+        return MessageQueueRef{queue, Unchecked{}};
     }
 
     [[nodiscard]] Result<void> send(const Message& message,

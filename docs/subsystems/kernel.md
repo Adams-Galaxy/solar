@@ -69,7 +69,9 @@ a native call could invalidate their lifecycle or callback state. Use
 mutexes, condition variables, events, message queues, pipes, memory slabs,
 timers, spinlocks, poll signals, and initialized threads.
 The matching `FooRef` can also borrow a Zephyr-owned object without taking over
-its initialization or lifetime.
+its initialization or lifetime. Typed native queues use
+`MessageQueueRef<T>::borrow(queue)`, which validates Zephyr's configured item
+size and returns `Status::Invalid` instead of relying on an assertion.
 
 Custom workqueues expose `target()`, a narrow `WorkQueueTarget` capability that
 allows submission without allowing queue reinitialization or lifecycle changes.
