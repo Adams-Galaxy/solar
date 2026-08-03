@@ -88,6 +88,10 @@ solar::kernel::ThreadConfiguration invalid_raw_options{
     .priority = solar::kernel::Priority::preemptive<0>(), .options = K_USER};
 #elif SOLAR_FAIL_CASE == 27
 solar::kernel::ThreadOptions invalid_user_mode{K_USER};
+#elif SOLAR_FAIL_CASE == 28
+solar::kernel::Stack<std::int32_t, 2> invalid_stack_value;
+#elif SOLAR_FAIL_CASE == 29
+solar::kernel::Stack<std::uint32_t, 0> invalid_stack_capacity;
 #else
 #error SOLAR_DIAGNOSTIC_UNKNOWN_KERNEL_FAILURE_CASE
 #endif

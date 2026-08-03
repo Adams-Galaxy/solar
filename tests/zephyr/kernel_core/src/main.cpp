@@ -1,3 +1,4 @@
+#include <array>
 #include <atomic>
 #include <cerrno>
 #include <chrono>
@@ -79,6 +80,10 @@ static_assert(kernel::detail::poll_signal_outcome(-EAGAIN)->delivery ==
               kernel::PollSignalDelivery::LatchedAfterTimeout);
 static_assert(kernel::detail::poll_signal_outcome(-EAGAIN)->native == -EAGAIN);
 static_assert(sizeof(kernel::Timer) >= sizeof(k_timer) + 2 * sizeof(kernel::Timer::Callback));
+static_assert(kernel::StackValue<std::uint32_t>);
+static_assert(kernel::StackValue<void*>);
+static_assert(!kernel::StackValue<std::int32_t>);
+static_assert(!kernel::StackValue<double>);
 #if CONFIG_NUM_COOP_PRIORITIES > 0
 static_assert(kernel::Priority::cooperative<0>().native_handle() == K_PRIO_COOP(0));
 static_assert(kernel::Priority::cooperative<0>().category() == kernel::PriorityClass::Cooperative);
@@ -171,6 +176,22 @@ struct IsrContext
 };
 
 void unused_thread_entry(void*) noexcept {}
+
+struct IntrusiveIsrContext
+{
+    kernel::Queue<std::uint32_t>* queue{};
+    kernel::IntrusiveNode<std::uint32_t>* node{};
+    kernel::Stack<std::uint32_t, 2>* stack{};
+    solar::Status queue_status{solar::Status::Error};
+    solar::Status stack_status{solar::Status::Error};
+};
+
+void exercise_intrusive_isr(const void* argument)
+{
+    auto& context = *static_cast<IntrusiveIsrContext*>(const_cast<void*>(argument));
+    context.queue_status = result_status(context.queue->append(*context.node));
+    context.stack_status = result_status(context.stack->push(42));
+}
 
 void exercise_isr(const void* argument)
 {
@@ -559,6 +580,78 @@ ZTEST(solar_kernel_core, test_poll_signal_semaphore_and_message_queue)
                   solar::Status::Timeout);
     volatile std::size_t invalid_index = 9;
     zassert_equal(result_status(poll.event(invalid_index).error()), solar::Status::NotFound);
+}
+
+ZTEST(solar_kernel_core, test_intrusive_queue_fifo_lifo_and_word_stack)
+{
+    using Node = kernel::IntrusiveNode<std::uint32_t>;
+
+    kernel::Queue<std::uint32_t> queue;
+    kernel::Queue<std::uint32_t> other;
+    Node one{1};
+    Node two{2};
+    Node three{3};
+    zassert_equal(result_status(queue.append(one)), solar::Status::Ok);
+    zassert_equal(result_status(other.append(one).error()), solar::Status::Already);
+    zassert_false(*queue.unique_append(one));
+    zassert_equal(result_status(queue.prepend(two)), solar::Status::Ok);
+    zassert_equal(result_status(queue.insert_after(two, three)), solar::Status::Ok);
+    zassert_equal(queue.peek_head()->value(), 2);
+    zassert_equal(queue.peek_tail()->value(), 1);
+    zassert_true(queue.remove(three));
+    zassert_false(three.linked());
+    zassert_equal((*queue.try_get())->value(), 2);
+    zassert_equal((*queue.try_get())->value(), 1);
+    zassert_equal(result_status(queue.try_get().error()), solar::Status::WouldBlock);
+    zassert_equal(result_status(queue.get(kernel::Timeout::after(2ms)).error()),
+                  solar::Status::Timeout);
+    zassert_equal(result_status(queue.append(one)), solar::Status::Ok);
+    zassert_equal((*queue.try_get())->value(), 1);
+    Node four{4};
+    Node five{5};
+    const std::array<Node*, 2> batch{&four, &five};
+    zassert_equal(result_status(queue.append_list(batch)), solar::Status::Ok);
+    zassert_equal((*queue.try_get())->value(), 4);
+    zassert_equal((*queue.try_get())->value(), 5);
+
+    kernel::Fifo<std::uint32_t> fifo;
+    Node fifo_one{10};
+    Node fifo_two{20};
+    zassert_equal(result_status(fifo.put(fifo_one)), solar::Status::Ok);
+    zassert_equal(result_status(fifo.put(fifo_two)), solar::Status::Ok);
+    zassert_equal((*fifo.try_get())->value(), 10);
+    zassert_equal((*fifo.try_get())->value(), 20);
+
+    kernel::Lifo<std::uint32_t> lifo;
+    Node lifo_one{10};
+    Node lifo_two{20};
+    zassert_equal(result_status(lifo.put(lifo_one)), solar::Status::Ok);
+    zassert_equal(result_status(lifo.put(lifo_two)), solar::Status::Ok);
+    zassert_equal((*lifo.try_get())->value(), 20);
+    zassert_equal((*lifo.try_get())->value(), 10);
+
+    kernel::Stack<std::uint32_t, 2> stack;
+    zassert_equal(result_status(stack.push(1)), solar::Status::Ok);
+    zassert_equal(result_status(stack.push(2)), solar::Status::Ok);
+    zassert_equal(result_status(stack.push(3).error()), solar::Status::NoSpace);
+    zassert_equal(*stack.try_pop(), 2);
+    zassert_equal(*stack.try_pop(), 1);
+    zassert_equal(result_status(stack.try_pop().error()), solar::Status::WouldBlock);
+    zassert_equal(result_status(stack.pop(kernel::Timeout::after(2ms)).error()),
+                  solar::Status::Timeout);
+
+    std::uint32_t pointed_value = 7;
+    kernel::Stack<std::uint32_t*, 1> pointer_stack;
+    zassert_equal(result_status(pointer_stack.push(&pointed_value)), solar::Status::Ok);
+    zassert_equal(*pointer_stack.try_pop(), &pointed_value);
+
+    Node isr_node{42};
+    IntrusiveIsrContext isr_context{.queue = &queue, .node = &isr_node, .stack = &stack};
+    irq_offload(exercise_intrusive_isr, &isr_context);
+    zassert_equal(isr_context.queue_status, solar::Status::Ok);
+    zassert_equal(isr_context.stack_status, solar::Status::Ok);
+    zassert_equal((*queue.try_get())->value(), 42);
+    zassert_equal(*stack.try_pop(), 42);
 }
 
 ZTEST(solar_kernel_core, test_timer_callback_context_and_sync)

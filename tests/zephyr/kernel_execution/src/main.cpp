@@ -122,6 +122,35 @@ struct ConditionContext
     solar::Status result{solar::Status::Error};
 };
 
+struct QueuePollContext
+{
+    kernel::Queue<std::uint32_t>* queue{};
+    kernel::Semaphore entered;
+    std::atomic<solar::Status> status{solar::Status::Error};
+    std::atomic_bool interrupted{false};
+    std::atomic_bool cancelled{false};
+};
+
+void queue_poll_waiter(void* argument) noexcept
+{
+    auto& context = *static_cast<QueuePollContext*>(argument);
+    kernel::PollSet<1> poll;
+    if (!poll.add(*context.queue)) {
+        return;
+    }
+    context.entered.give();
+    const auto result = poll.wait(kernel::Timeout::after(100ms));
+    context.status.store(result ? solar::Status::Ok : solar::status_of(result.error()),
+                         std::memory_order_release);
+    if (result) {
+        context.interrupted.store(result->interrupted, std::memory_order_release);
+        const auto event = poll.event(0);
+        context.cancelled.store(event &&
+                                    kernel::has_state(event->state, kernel::PollState::Cancelled),
+                                std::memory_order_release);
+    }
+}
+
 struct BlockingResult
 {
     kernel::Semaphore entered;
@@ -503,6 +532,24 @@ ZTEST(solar_kernel_execution, test_native_reset_purge_and_close_outcomes)
     zassert_equal(close_context.status.load(std::memory_order_acquire),
                   solar::Status::UnexpectedExit);
     zassert_equal(close_context.native.load(std::memory_order_acquire), -EPIPE);
+}
+
+ZTEST(solar_kernel_execution, test_intrusive_queue_poll_cancellation_preserves_event_state)
+{
+    kernel::Queue<std::uint32_t> queue;
+    QueuePollContext context{.queue = &queue};
+    kernel::Thread<2048> waiter;
+    zassert_equal(result_status(waiter.launch(&queue_poll_waiter, &context,
+                                              {.priority = kernel::Priority::preemptive<1>()})),
+                  solar::Status::Ok);
+    zassert_equal(result_status(context.entered.take(kernel::Timeout::after(100ms))),
+                  solar::Status::Ok);
+    (void)kernel::this_thread::sleep_for(2ms);
+    queue.cancel_wait();
+    zassert_equal(result_status(waiter.join(kernel::Timeout::after(100ms))), solar::Status::Ok);
+    zassert_equal(context.status.load(std::memory_order_acquire), solar::Status::Ok);
+    zassert_true(context.interrupted.load(std::memory_order_acquire));
+    zassert_true(context.cancelled.load(std::memory_order_acquire));
 }
 
 ZTEST(solar_kernel_execution, test_system_work_submission_and_self_deadlock_detection)

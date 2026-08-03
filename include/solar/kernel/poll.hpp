@@ -11,6 +11,7 @@
 #include "solar/core/status.hpp"
 #include "solar/kernel/error.hpp"
 #include "solar/kernel/interrupt.hpp"
+#include "solar/kernel/intrusive_queue.hpp"
 #include "solar/kernel/message_queue.hpp"
 #include "solar/kernel/pipe.hpp"
 #include "solar/kernel/semaphore.hpp"
@@ -208,6 +209,30 @@ template <std::size_t Capacity> class PollSet
     [[nodiscard]] Result<void> add(MessageQueueRef<Message> queue, std::uint8_t tag = 0) noexcept
     {
         return add_native(K_POLL_TYPE_MSGQ_DATA_AVAILABLE, queue.native_queue(), tag);
+    }
+
+    template <typename Value>
+    [[nodiscard]] Result<void> add(Queue<Value>& queue, std::uint8_t tag = 0) noexcept
+    {
+        return add(queue.ref(), tag);
+    }
+
+    template <typename Value>
+    [[nodiscard]] Result<void> add(Fifo<Value>& fifo, std::uint8_t tag = 0) noexcept
+    {
+        return add(fifo.ref(), tag);
+    }
+
+    template <typename Value>
+    [[nodiscard]] Result<void> add(Lifo<Value>& lifo, std::uint8_t tag = 0) noexcept
+    {
+        return add(lifo.ref(), tag);
+    }
+
+    template <typename Value>
+    [[nodiscard]] Result<void> add(QueueRef<Value> queue, std::uint8_t tag = 0) noexcept
+    {
+        return add_native(K_POLL_TYPE_DATA_AVAILABLE, queue.native_queue(), tag);
     }
 
     template <std::size_t Bytes>
