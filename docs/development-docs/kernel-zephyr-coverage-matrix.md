@@ -282,3 +282,21 @@ Teensy optimized/LTO: FLASH 301396 B, RAM 198040 B
 Deferred dependency: queue/FIFO poll sources and live -EINTR cancellation test
                      land with the Phase 8 intrusive queue owners
 ```
+
+### 2026-08-03 — diagnostics, fatal handling, and stop generations
+
+```text
+Diagnostics: no Solar header or source accesses k_thread private layout;
+             borrowed stack totals remain optional unless supplied by caller
+Zephyr 4.4 compatibility: runtime stack-threshold implementation-name mismatch
+                          isolated in one exact-version translation unit
+Configuration: enabled execution diagnostics and disabled diagnostics fixtures pass
+Fatal bridge: controlled worker k_oops reaches the real Zephyr fatal handler;
+              observer validates KernelOops, native reason, requested status,
+              and the already-latched fatal snapshot before worker termination
+Stop tokens: reset advances a 32-bit lock-free generation, wakes old waiters,
+             keeps every old token stopped, and leaves new tokens unstopped
+Native: execution 15/15 and disabled diagnostics 1/1 passed
+ARM QEMU: execution 15/15 passed; 32-bit target rejected a non-lock-free
+          64-bit generation during development, so the final counter is uint32_t
+```

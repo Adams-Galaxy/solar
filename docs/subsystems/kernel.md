@@ -104,6 +104,24 @@ and signed half-range constraint. Global time slices use milliseconds and an
 exact `Priority`; per-thread slices use `TickDuration` when
 `CONFIG_TIMESLICE_PER_THREAD` is enabled.
 
+Thread diagnostics report only information available through supported Zephyr
+APIs. A borrowed thread has a known unused-stack count but no public total
+stack-size query, so its total and used sizes remain empty unless the caller
+supplies the configured size. Solar's Zephyr 4.4 threshold-symbol workaround is
+kept in one version-gated implementation file rather than reading private
+`k_thread` fields.
+
+`StopSource` and `StopToken` are Solar companion cancellation types, not Zephyr
+wrappers. Every reset begins a new one-shot generation: tokens from all older
+generations remain stopped, including waiters woken by the reset. The source
+owns the shared state and must outlive every token and outstanding wait.
+
+When the optional fatal bridge is enabled, its observer runs synchronously in
+Zephyr's fatal path. It must use only bounded, non-blocking, allocation-free
+operations appropriate to that context. The bridge latches the normalized and
+native reason before calling the observer, then follows the production fatal
+halt policy.
+
 ## Native interoperation
 
 Owning wrappers use stable native storage and do not expose mutable handles when
