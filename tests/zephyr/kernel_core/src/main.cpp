@@ -264,6 +264,19 @@ ZTEST(solar_kernel_core, test_priority_scheduler_and_current_thread)
     zassert_true(current_ref->wake_remaining().count() >= 0);
 #endif
 
+#if defined(CONFIG_TIMESLICING)
+    zassert_equal(result_status(kernel::configure_time_slicing(2ms, *preemptive)),
+                  solar::Status::Ok);
+    zassert_equal(result_status(kernel::disable_time_slicing()), solar::Status::Ok);
+    zassert_equal(result_status(kernel::configure_time_slicing(0ms, *preemptive)),
+                  solar::Status::Invalid);
+    const auto configured_threshold = kernel::Priority::from_native(CONFIG_TIMESLICE_PRIORITY);
+    zassert_true(configured_threshold.has_value());
+    zassert_equal(result_status(kernel::configure_time_slicing(
+                      std::chrono::milliseconds{CONFIG_TIMESLICE_SIZE}, *configured_threshold)),
+                  solar::Status::Ok);
+#endif
+
     auto scheduler_lock = kernel::SchedulerLock::acquire();
     zassert_true(scheduler_lock.has_value());
 }
