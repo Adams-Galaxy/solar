@@ -159,24 +159,9 @@ class Work
         return detail::work_submission(k_work_submit_to_queue(target.native_queue(), &work_));
     }
 
-    [[nodiscard]] Result<WorkSubmission, WorkError> try_submit_isr() noexcept
-    {
-        return submit();
-    }
-
-    [[nodiscard]] Result<WorkSubmission, WorkError> try_submit_isr(WorkQueueTarget target) noexcept
-    {
-        return submit(target);
-    }
-
     [[nodiscard]] WorkState cancel() noexcept
     {
         return static_cast<WorkState>(k_work_cancel(&work_));
-    }
-
-    [[nodiscard]] WorkState try_cancel_isr() noexcept
-    {
-        return cancel();
     }
 
     [[nodiscard]] Result<bool, WorkError> cancel_sync() noexcept
@@ -311,11 +296,6 @@ class DelayableWork
     [[nodiscard]] WorkState cancel() noexcept
     {
         return static_cast<WorkState>(k_work_cancel_delayable(&work_));
-    }
-
-    [[nodiscard]] WorkState try_cancel_isr() noexcept
-    {
-        return cancel();
     }
 
     [[nodiscard]] Result<bool, WorkError> cancel_sync() noexcept

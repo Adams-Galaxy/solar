@@ -8,6 +8,7 @@
 #include "solar/core/status.hpp"
 #include "solar/kernel/deadline.hpp"
 #include "solar/kernel/error.hpp"
+#include "solar/kernel/interrupt.hpp"
 
 namespace solar::kernel
 {
@@ -23,15 +24,12 @@ class SemaphoreRef
         k_sem_give(semaphore_);
     }
 
-    void give_isr() const noexcept
-    {
-        give();
-    }
-
     [[nodiscard]] Result<void> take(Timeout timeout = Timeout::forever()) const noexcept
     {
-        return detail::map_wait(k_sem_take(semaphore_, timeout.native_handle()), timeout,
-                                Status::WouldBlock);
+        if (in_isr()) {
+            return fail<Error>({.status = Status::Invalid});
+        }
+        return take_native(timeout);
     }
 
     [[nodiscard]] Result<void> take(const Deadline& deadline) const noexcept
@@ -46,7 +44,7 @@ class SemaphoreRef
 
     [[nodiscard]] Result<void> try_take_isr() const noexcept
     {
-        return take(Timeout::no_wait());
+        return take_native(Timeout::no_wait());
     }
 
     void reset() const noexcept
@@ -65,6 +63,12 @@ class SemaphoreRef
     }
 
   private:
+    [[nodiscard]] Result<void> take_native(Timeout timeout) const noexcept
+    {
+        return detail::map_wait(k_sem_take(semaphore_, timeout.native_handle()), timeout,
+                                Status::WouldBlock);
+    }
+
     k_sem* semaphore_;
 };
 
@@ -86,11 +90,6 @@ class Semaphore
         ref().give();
     }
 
-    void give_isr() noexcept
-    {
-        ref().give_isr();
-    }
-
     [[nodiscard]] Result<void> take(Timeout timeout = Timeout::forever()) noexcept
     {
         return ref().take(timeout);
@@ -108,7 +107,7 @@ class Semaphore
 
     [[nodiscard]] Result<void> try_take_isr() noexcept
     {
-        return take(Timeout::no_wait());
+        return ref().try_take_isr();
     }
 
     void reset() noexcept

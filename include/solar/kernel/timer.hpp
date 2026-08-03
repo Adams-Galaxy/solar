@@ -21,6 +21,9 @@ class TimerRef
     [[nodiscard]] Result<void> start(Timeout initial,
                                      Timeout period = Timeout::no_wait()) const noexcept
     {
+        if (in_isr()) {
+            return fail<Error>({.status = Status::Invalid});
+        }
         if (initial.is_forever()) {
             return fail<Error>({.status = Status::Invalid});
         }
@@ -32,11 +35,6 @@ class TimerRef
     {
         k_timer_stop(timer_);
     }
-    void stop_isr() const noexcept
-    {
-        k_timer_stop(timer_);
-    }
-
     [[nodiscard]] std::uint32_t expirations() const noexcept
     {
         return k_timer_status_get(timer_);
@@ -110,11 +108,6 @@ class Timer
     void stop() noexcept
     {
         ref().stop();
-    }
-
-    void stop_isr() noexcept
-    {
-        ref().stop_isr();
     }
 
     [[nodiscard]] std::uint32_t expirations() noexcept

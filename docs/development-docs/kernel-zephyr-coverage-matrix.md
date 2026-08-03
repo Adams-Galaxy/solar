@@ -178,3 +178,20 @@ Documentation audit: 18 aggregates, 9 subsystems, 67 Kconfig symbols passed
 Known limitations: context rejection and errno preservation are assigned to
                    Phase 3
 ```
+
+### 2026-08-03 — context vocabulary foundation
+
+```text
+Solar worktree after Phase 2: Phase 3 first implementation block
+Native: kernel core and kernel execution passed; 19/19 runtime cases
+ISR table: ordinary wait-capable semaphore, message queue, event, memory slab,
+           pipe, poll, mutex, and timer-start calls reject before Zephyr;
+           explicit no-wait ISR variants succeed where Zephyr permits them
+API cleanup: unconditional ISR-safe operations use their ordinary names;
+             redundant work, timer, semaphore, and event aliases removed
+Errors: semaphore, message queue, memory slab, pipe, workqueue, and triggered
+        work mappings preserve native errno for mapped failures
+Teensy: optimized/LTO application built; FLASH 301068 B, RAM 198040 B
+Known limitations: the complete per-operation context inventory, richer poll
+                   outcomes, constructor audit, and race tests remain Phase 3
+```

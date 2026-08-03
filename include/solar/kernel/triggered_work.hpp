@@ -68,21 +68,6 @@ class TriggeredWork
         return submit_result(result);
     }
 
-    template <std::size_t Capacity>
-    [[nodiscard]] Result<void, WorkError>
-    try_submit_isr(PollSet<Capacity>& events, Timeout timeout = Timeout::forever()) noexcept
-    {
-        return submit(events, timeout);
-    }
-
-    template <std::size_t Capacity>
-    [[nodiscard]] Result<void, WorkError>
-    try_submit_isr(PollSet<Capacity>& events, WorkQueueTarget target,
-                   Timeout timeout = Timeout::forever()) noexcept
-    {
-        return submit(events, target, timeout);
-    }
-
     [[nodiscard]] Result<void> cancel_trigger() noexcept
     {
         const int result = k_work_poll_cancel(&work_);
@@ -90,7 +75,7 @@ class TriggeredWork
             claimed_.store(false, std::memory_order_release);
         }
         if (result == -EINVAL) {
-            return fail<Error>({.status = Status::Busy});
+            return fail<Error>({.status = Status::Busy, .native = result});
         }
         return result == 0 ? Result<void>{} : Result<void>{fail<Error>(error_from_errno(result))};
     }

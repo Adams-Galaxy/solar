@@ -13,6 +13,7 @@
 #include "solar/core/status.hpp"
 #include "solar/kernel/deadline.hpp"
 #include "solar/kernel/error.hpp"
+#include "solar/kernel/interrupt.hpp"
 
 namespace solar::kernel
 {
@@ -37,8 +38,10 @@ template <typename Message> class MessageQueueRef
     [[nodiscard]] Result<void> send(const Message& message,
                                     Timeout timeout = Timeout::forever()) const noexcept
     {
-        return detail::map_wait(k_msgq_put(queue_, &message, timeout.native_handle()), timeout,
-                                Status::Full);
+        if (in_isr()) {
+            return fail<Error>({.status = Status::Invalid});
+        }
+        return send_native(message, timeout);
     }
 
     [[nodiscard]] Result<void> send(const Message& message, const Deadline& deadline) const noexcept
@@ -53,30 +56,22 @@ template <typename Message> class MessageQueueRef
 
     [[nodiscard]] Result<void> try_send_isr(const Message& message) const noexcept
     {
-        return try_send(message);
+        return send_native(message, Timeout::no_wait());
     }
 
     [[nodiscard]] Result<void> try_send_front(const Message& message) const noexcept
     {
-        return k_msgq_put_front(queue_, &message) == 0
-                   ? Result<void>{}
-                   : Result<void>{fail<Error>({.status = Status::Full})};
-    }
-
-    [[nodiscard]] Result<void> try_send_front_isr(const Message& message) const noexcept
-    {
-        return try_send_front(message);
+        const int result = k_msgq_put_front(queue_, &message);
+        return result == 0 ? Result<void>{}
+                           : Result<void>{fail<Error>({.status = Status::Full, .native = result})};
     }
 
     [[nodiscard]] Result<Message> receive(Timeout timeout = Timeout::forever()) const noexcept
     {
-        std::array<std::byte, sizeof(Message)> bytes{};
-        const auto status = detail::map_wait(
-            k_msgq_get(queue_, bytes.data(), timeout.native_handle()), timeout, Status::Empty);
-        if (!status) {
-            return fail<Error>(status.error());
+        if (in_isr()) {
+            return fail<Error>({.status = Status::Invalid});
         }
-        return std::bit_cast<Message>(bytes);
+        return receive_native(timeout);
     }
 
     [[nodiscard]] Result<Message> receive(const Deadline& deadline) const noexcept
@@ -91,14 +86,15 @@ template <typename Message> class MessageQueueRef
 
     [[nodiscard]] Result<Message> try_receive_isr() const noexcept
     {
-        return try_receive();
+        return receive_native(Timeout::no_wait());
     }
 
     [[nodiscard]] Result<Message> peek() const noexcept
     {
         std::array<std::byte, sizeof(Message)> bytes{};
-        if (k_msgq_peek(queue_, bytes.data()) != 0) {
-            return fail<solar::Error>({.status = solar::Status::Empty});
+        const int result = k_msgq_peek(queue_, bytes.data());
+        if (result != 0) {
+            return fail<solar::Error>({.status = solar::Status::Empty, .native = result});
         }
         return std::bit_cast<Message>(bytes);
     }
@@ -109,8 +105,9 @@ template <typename Message> class MessageQueueRef
             return fail<solar::Error>({.status = solar::Status::Invalid});
         }
         std::array<std::byte, sizeof(Message)> bytes{};
-        if (k_msgq_peek_at(queue_, bytes.data(), static_cast<std::uint32_t>(index)) != 0) {
-            return fail<solar::Error>({.status = solar::Status::NotFound});
+        const int result = k_msgq_peek_at(queue_, bytes.data(), static_cast<std::uint32_t>(index));
+        if (result != 0) {
+            return fail<solar::Error>({.status = solar::Status::NotFound, .native = result});
         }
         return std::bit_cast<Message>(bytes);
     }
@@ -140,6 +137,23 @@ template <typename Message> class MessageQueueRef
     }
 
   private:
+    [[nodiscard]] Result<void> send_native(const Message& message, Timeout timeout) const noexcept
+    {
+        return detail::map_wait(k_msgq_put(queue_, &message, timeout.native_handle()), timeout,
+                                Status::Full);
+    }
+
+    [[nodiscard]] Result<Message> receive_native(Timeout timeout) const noexcept
+    {
+        std::array<std::byte, sizeof(Message)> bytes{};
+        const auto status = detail::map_wait(
+            k_msgq_get(queue_, bytes.data(), timeout.native_handle()), timeout, Status::Empty);
+        if (!status) {
+            return fail<Error>(status.error());
+        }
+        return std::bit_cast<Message>(bytes);
+    }
+
     [[nodiscard]] constexpr k_msgq* native_queue() const noexcept
     {
         return queue_;
@@ -199,17 +213,12 @@ template <typename Message, std::size_t Capacity> class MessageQueue
 
     [[nodiscard]] Result<void> try_send_isr(const Message& message) noexcept
     {
-        return send(message, Timeout::no_wait());
+        return ref().try_send_isr(message);
     }
 
     [[nodiscard]] Result<void> try_send_front(const Message& message) noexcept
     {
         return ref().try_send_front(message);
-    }
-
-    [[nodiscard]] Result<void> try_send_front_isr(const Message& message) noexcept
-    {
-        return try_send_front(message);
     }
 
     [[nodiscard]] Result<Message> receive(Timeout timeout = Timeout::forever()) noexcept
@@ -229,7 +238,7 @@ template <typename Message, std::size_t Capacity> class MessageQueue
 
     [[nodiscard]] Result<Message> try_receive_isr() noexcept
     {
-        return receive(Timeout::no_wait());
+        return ref().try_receive_isr();
     }
 
     [[nodiscard]] Result<Message> peek() noexcept

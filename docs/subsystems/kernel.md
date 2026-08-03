@@ -41,10 +41,14 @@ protected state.
 
 ## Interrupt context
 
-Only methods explicitly named for ISR use, or documented as no-wait ISR-safe,
-may be called from interrupt context. They never block. Synchronous cancel,
-join, flush, mutex locking, and operations that can reschedule a thread belong
-in thread context.
+Methods that Zephyr permits unconditionally from ISR keep their ordinary name,
+such as `Semaphore::give()`, `EventFlags::post()`, `Timer::stop()`, and
+`Work::submit()`. Wait-capable methods are always thread-only, including their
+`try_` forms. Where Zephyr permits the same operation from ISR only with
+`K_NO_WAIT`, Solar exposes a structurally non-blocking `try_*_isr()` method.
+Synchronous cancel, join, poll, condition waits, pipe transfers, mutex locking,
+and timer start belong in thread context and return `Status::Invalid` from ISR
+before calling Zephyr.
 
 ## Native interoperation
 

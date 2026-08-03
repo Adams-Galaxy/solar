@@ -109,23 +109,10 @@ template <std::size_t BlockBytes> class MemorySlabRef
 
     [[nodiscard]] Result<Block> allocate(Timeout timeout = Timeout::forever()) const noexcept
     {
-        if (in_isr() && !timeout.is_no_wait()) {
+        if (in_isr()) {
             return fail<solar::Error>({.status = solar::Status::Invalid});
         }
-
-        void* memory{};
-        const int result = k_mem_slab_alloc(slab_, &memory, timeout.native_handle());
-        if (result == 0) {
-            return Block{*slab_, memory};
-        }
-        if (result == -ENOMEM) {
-            return fail<solar::Error>({.status = solar::Status::NoMemory});
-        }
-        if (result == -EAGAIN) {
-            return fail<Error>(
-                {.status = timeout.is_no_wait() ? Status::NoMemory : Status::Timeout});
-        }
-        return fail<Error>(error_from_errno(result));
+        return allocate_native(timeout);
     }
 
     [[nodiscard]] Result<Block> allocate(const Deadline& deadline) const noexcept
@@ -140,7 +127,7 @@ template <std::size_t BlockBytes> class MemorySlabRef
 
     [[nodiscard]] Result<Block> try_allocate_isr() const noexcept
     {
-        return allocate(Timeout::no_wait());
+        return allocate_native(Timeout::no_wait());
     }
 
     void release(void* block) const noexcept
@@ -160,6 +147,24 @@ template <std::size_t BlockBytes> class MemorySlabRef
     }
 
   private:
+    [[nodiscard]] Result<Block> allocate_native(Timeout timeout) const noexcept
+    {
+
+        void* memory{};
+        const int result = k_mem_slab_alloc(slab_, &memory, timeout.native_handle());
+        if (result == 0) {
+            return Block{*slab_, memory};
+        }
+        if (result == -ENOMEM) {
+            return fail<solar::Error>({.status = solar::Status::NoMemory, .native = result});
+        }
+        if (result == -EAGAIN) {
+            return fail<Error>({.status = timeout.is_no_wait() ? Status::NoMemory : Status::Timeout,
+                                .native = result});
+        }
+        return fail<Error>(error_from_errno(result));
+    }
+
     k_mem_slab* slab_;
 };
 
@@ -221,7 +226,7 @@ class MemorySlab
 
     [[nodiscard]] Result<Block> try_allocate_isr() noexcept
     {
-        return allocate(Timeout::no_wait());
+        return ref().try_allocate_isr();
     }
 
     void release(void* block) noexcept

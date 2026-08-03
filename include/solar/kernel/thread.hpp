@@ -151,7 +151,7 @@ template <std::size_t StackBytes> class Thread
         if (state() == ThreadExecutionState::Prepared) {
             return fail<Error>({.status = Status::NotReady});
         }
-        if (in_isr() && !timeout.is_no_wait()) {
+        if (in_isr()) {
             return fail<Error>({.status = Status::Invalid});
         }
 

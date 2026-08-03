@@ -126,7 +126,7 @@ template <std::size_t StackBytes> class WorkQueue
             return {};
         }
         if (result == -ETIMEDOUT) {
-            return fail<Error>({.status = Status::Timeout});
+            return fail<Error>({.status = Status::Timeout, .native = result});
         }
         return result == 0 ? Result<void>{} : Result<void>{fail<Error>(error_from_errno(result))};
     }

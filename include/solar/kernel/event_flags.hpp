@@ -7,6 +7,7 @@
 
 #include "solar/core/status.hpp"
 #include "solar/kernel/deadline.hpp"
+#include "solar/kernel/interrupt.hpp"
 
 namespace solar::kernel
 {
@@ -33,29 +34,14 @@ class EventFlagsRef
         return k_event_post(event_, bits);
     }
 
-    [[nodiscard]] EventBits post_isr(EventBits bits) const noexcept
-    {
-        return post(bits);
-    }
-
     [[nodiscard]] EventBits set(EventBits bits) const noexcept
     {
         return k_event_set(event_, bits);
     }
 
-    [[nodiscard]] EventBits set_isr(EventBits bits) const noexcept
-    {
-        return set(bits);
-    }
-
     [[nodiscard]] EventBits clear(EventBits bits) const noexcept
     {
         return k_event_clear(event_, bits);
-    }
-
-    [[nodiscard]] EventBits clear_isr(EventBits bits) const noexcept
-    {
-        return clear(bits);
     }
 
     [[nodiscard]] EventBits
@@ -94,12 +80,12 @@ class EventFlagsRef
 
     [[nodiscard]] Result<EventBits> try_wait_any_isr(EventBits mask) const noexcept
     {
-        return wait_any(mask, Timeout::no_wait());
+        return wait_native(mask, Timeout::no_wait(), ResetBeforeWait::No, false, false);
     }
 
     [[nodiscard]] Result<EventBits> try_take_any_isr(EventBits mask) const noexcept
     {
-        return take_any(mask, Timeout::no_wait());
+        return wait_native(mask, Timeout::no_wait(), ResetBeforeWait::No, false, true);
     }
 
     [[nodiscard]] constexpr k_event* native_handle() const noexcept
@@ -110,6 +96,16 @@ class EventFlagsRef
   private:
     [[nodiscard]] Result<EventBits> wait(EventBits mask, Timeout timeout, ResetBeforeWait reset,
                                          bool all, bool consume) const noexcept
+    {
+        if (in_isr()) {
+            return fail<Error>({.status = Status::Invalid});
+        }
+        return wait_native(mask, timeout, reset, all, consume);
+    }
+
+    [[nodiscard]] Result<EventBits> wait_native(EventBits mask, Timeout timeout,
+                                                ResetBeforeWait reset, bool all,
+                                                bool consume) const noexcept
     {
         if (mask == 0) {
             return fail<solar::Error>({.status = solar::Status::Invalid});
@@ -158,25 +154,13 @@ class EventFlags
     {
         return ref().post(bits);
     }
-    [[nodiscard]] EventBits post_isr(EventBits bits) noexcept
-    {
-        return ref().post_isr(bits);
-    }
     [[nodiscard]] EventBits set(EventBits bits) noexcept
     {
         return ref().set(bits);
     }
-    [[nodiscard]] EventBits set_isr(EventBits bits) noexcept
-    {
-        return ref().set_isr(bits);
-    }
     [[nodiscard]] EventBits clear(EventBits bits) noexcept
     {
         return ref().clear(bits);
-    }
-    [[nodiscard]] EventBits clear_isr(EventBits bits) noexcept
-    {
-        return ref().clear_isr(bits);
     }
     [[nodiscard]] EventBits test(EventBits mask = std::numeric_limits<EventBits>::max()) noexcept
     {

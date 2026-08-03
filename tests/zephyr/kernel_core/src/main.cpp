@@ -1,4 +1,5 @@
 #include <atomic>
+#include <cerrno>
 #include <chrono>
 #include <cstdint>
 #include <type_traits>
@@ -86,7 +87,7 @@ static_assert(kernel::Priority::meta_irq<0>().is_meta_irq());
 namespace
 {
 
-solar::Status result_status(const solar::Result<void>& result)
+template <typename T> solar::Status result_status(const solar::Result<T>& result)
 {
     return result ? solar::Status::Ok : solar::status_of(result.error());
 }
@@ -124,7 +125,7 @@ void timer_expired(kernel::Timer&) noexcept
 {
     timer_callback_was_isr.store(kernel::in_isr(), std::memory_order_relaxed);
     timer_expiries.fetch_add(1, std::memory_order_relaxed);
-    timer_signal.give_isr();
+    timer_signal.give();
 }
 
 void timer_stopped(kernel::Timer&) noexcept
@@ -138,8 +139,22 @@ struct IsrContext
     kernel::MessageQueue<std::uint32_t, 2>* queue;
     kernel::EventFlags* events;
     kernel::Mutex* mutex;
+    kernel::MemorySlab<16, 1>* slab;
+    kernel::Pipe<16>* pipe;
+    kernel::PollSet<1>* poll;
+    kernel::Timer* timer;
     bool observed_isr{};
-    solar::Status queue_status{solar::Status::Error};
+    solar::Status semaphore_thread_status{solar::Status::Error};
+    solar::Status semaphore_isr_status{solar::Status::Error};
+    solar::Status queue_thread_status{solar::Status::Error};
+    solar::Status queue_isr_status{solar::Status::Error};
+    solar::Status event_thread_status{solar::Status::Error};
+    solar::Status event_isr_status{solar::Status::Error};
+    solar::Status slab_thread_status{solar::Status::Error};
+    solar::Status slab_isr_status{solar::Status::Error};
+    solar::Status pipe_status{solar::Status::Error};
+    solar::Status poll_status{solar::Status::Error};
+    solar::Status timer_start_status{solar::Status::Error};
     solar::Status mutex_status{solar::Status::Error};
 };
 
@@ -147,9 +162,22 @@ void exercise_isr(const void* argument)
 {
     auto& context = *static_cast<IsrContext*>(const_cast<void*>(argument));
     context.observed_isr = kernel::in_isr();
-    context.semaphore->give_isr();
-    context.queue_status = result_status(context.queue->try_send_isr(42));
-    (void)context.events->post_isr(0x1);
+    context.semaphore->give();
+    context.semaphore_thread_status = result_status(context.semaphore->try_take());
+    context.semaphore_isr_status = result_status(context.semaphore->try_take_isr());
+    context.queue_thread_status = result_status(context.queue->try_send(41));
+    context.queue_isr_status = result_status(context.queue->try_send_isr(42));
+    (void)context.events->post(0x1);
+    context.event_thread_status =
+        result_status(context.events->wait_any(0x1, kernel::Timeout::no_wait()));
+    context.event_isr_status = result_status(context.events->try_take_any_isr(0x1));
+    context.slab_thread_status = result_status(context.slab->try_allocate().error());
+    const auto block = context.slab->try_allocate_isr();
+    context.slab_isr_status = block ? solar::Status::Ok : result_status(block.error());
+    const std::array<std::byte, 1> byte{};
+    context.pipe_status = result_status(context.pipe->try_write(byte).error());
+    context.poll_status = result_status(context.poll->try_wait().error());
+    context.timer_start_status = result_status(context.timer->start(kernel::Timeout::no_wait()));
     context.mutex_status = result_status(context.mutex->try_lock());
 }
 
@@ -349,7 +377,9 @@ ZTEST(solar_kernel_core, test_mutex_lock_ownership_and_timeout)
 ZTEST(solar_kernel_core, test_semaphore_message_queue_and_events)
 {
     kernel::Semaphore semaphore{0, 2};
-    zassert_equal(result_status(semaphore.try_take()), solar::Status::WouldBlock);
+    const auto unavailable = semaphore.try_take();
+    zassert_equal(result_status(unavailable), solar::Status::WouldBlock);
+    zassert_equal(unavailable.error().native, -EBUSY);
     semaphore.give();
     zassert_equal(semaphore.count(), 1);
     zassert_equal(result_status(semaphore.take()), solar::Status::Ok);
@@ -363,15 +393,18 @@ ZTEST(solar_kernel_core, test_semaphore_message_queue_and_events)
     zassert_equal(result_status(queue.try_send(1)), solar::Status::Ok);
     zassert_equal(result_status(queue.try_send(2)), solar::Status::Ok);
     zassert_true(queue.full());
-    zassert_equal(result_status(queue.try_send(3)), solar::Status::Full);
+    const auto full = queue.try_send(3);
+    zassert_equal(result_status(full), solar::Status::Full);
+    zassert_equal(full.error().native, -ENOMSG);
     zassert_equal(*queue.peek(), 1);
     zassert_equal(*queue.peek_at(1), 2);
     zassert_equal(*queue.try_receive(), 1);
     zassert_equal(result_status(queue.try_send_front(9)), solar::Status::Ok);
     zassert_equal(*queue.try_receive(), 9);
     zassert_equal(*queue.try_receive(), 2);
-    zassert_equal(result_status(queue.receive(kernel::Timeout::after(2ms)).error()),
-                  solar::Status::Timeout);
+    const auto timed_out = queue.receive(kernel::Timeout::after(2ms));
+    zassert_equal(result_status(timed_out.error()), solar::Status::Timeout);
+    zassert_equal(timed_out.error().native, -EAGAIN);
     queue.purge();
     zassert_true(queue.empty());
 
@@ -467,17 +500,39 @@ ZTEST(solar_kernel_core, test_isr_specific_operations)
     kernel::MessageQueue<std::uint32_t, 2> queue;
     kernel::EventFlags events;
     kernel::Mutex mutex;
+    kernel::MemorySlab<16, 1> slab;
+    kernel::Pipe<16> pipe;
+    kernel::PollSet<1> poll;
+    kernel::Timer timer;
+    zassert_equal(result_status(poll.add(semaphore)), solar::Status::Ok);
     IsrContext context{
-        .semaphore = &semaphore, .queue = &queue, .events = &events, .mutex = &mutex};
+        .semaphore = &semaphore,
+        .queue = &queue,
+        .events = &events,
+        .mutex = &mutex,
+        .slab = &slab,
+        .pipe = &pipe,
+        .poll = &poll,
+        .timer = &timer,
+    };
 
     irq_offload(exercise_isr, &context);
 
     zassert_true(context.observed_isr);
-    zassert_equal(result_status(context.queue_status), solar::Status::Ok);
+    zassert_equal(result_status(context.semaphore_thread_status), solar::Status::Invalid);
+    zassert_equal(result_status(context.semaphore_isr_status), solar::Status::Ok);
+    zassert_equal(result_status(context.queue_thread_status), solar::Status::Invalid);
+    zassert_equal(result_status(context.queue_isr_status), solar::Status::Ok);
+    zassert_equal(result_status(context.event_thread_status), solar::Status::Invalid);
+    zassert_equal(result_status(context.event_isr_status), solar::Status::Ok);
+    zassert_equal(result_status(context.slab_thread_status), solar::Status::Invalid);
+    zassert_equal(result_status(context.slab_isr_status), solar::Status::Ok);
+    zassert_equal(result_status(context.pipe_status), solar::Status::Invalid);
+    zassert_equal(result_status(context.poll_status), solar::Status::Invalid);
+    zassert_equal(result_status(context.timer_start_status), solar::Status::Invalid);
     zassert_equal(result_status(context.mutex_status), solar::Status::Invalid);
-    zassert_equal(result_status(semaphore.try_take()), solar::Status::Ok);
     zassert_equal(*queue.try_receive(), 42);
-    zassert_equal(*events.take_any(0x1), 0x1);
+    zassert_equal(result_status(events.try_wait_any_isr(0x1).error()), solar::Status::WouldBlock);
 }
 
 ZTEST_SUITE(solar_kernel_core, nullptr, nullptr, nullptr, nullptr, nullptr);

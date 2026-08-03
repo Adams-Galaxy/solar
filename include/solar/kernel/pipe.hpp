@@ -81,10 +81,11 @@ class PipeRef
         }
         if (result == -EAGAIN) {
             return fail<Error>(
-                {.status = timeout.is_no_wait() ? Status::WouldBlock : Status::Timeout});
+                {.status = timeout.is_no_wait() ? Status::WouldBlock : Status::Timeout,
+                 .native = result});
         }
         if (result == -ECANCELED) {
-            return fail<solar::Error>({.status = solar::Status::Cancelled});
+            return fail<solar::Error>({.status = solar::Status::Cancelled, .native = result});
         }
         return fail<Error>(error_from_errno(result));
     }

@@ -9,6 +9,7 @@
 
 #include "solar/core/status.hpp"
 #include "solar/kernel/error.hpp"
+#include "solar/kernel/interrupt.hpp"
 #include "solar/kernel/message_queue.hpp"
 #include "solar/kernel/semaphore.hpp"
 
@@ -163,6 +164,9 @@ template <std::size_t Capacity> class PollSet
 
     [[nodiscard]] Result<PollResult> wait(Timeout timeout = Timeout::forever()) noexcept
     {
+        if (in_isr()) {
+            return fail<Error>({.status = Status::Invalid});
+        }
         if (count_ == 0) {
             return fail<solar::Error>({.status = solar::Status::Invalid});
         }
