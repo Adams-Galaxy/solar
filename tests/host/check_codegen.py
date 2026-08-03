@@ -69,6 +69,8 @@ class CodegenTests(unittest.TestCase):
                 "solar/generated/parameters.hpp",
                 "solar/generated/contract.hpp",
                 "solar/generated/app.hpp",
+                "solar/generated/application.hpp",
+                "solar/generated/application.cpp",
             ):
                 self.assertEqual(
                     (second / name).read_bytes(), (third / name).read_bytes()
@@ -100,13 +102,74 @@ class CodegenTests(unittest.TestCase):
             )
             self.assertEqual(publication["domain"], "stream")
             self.assertEqual(publication["kind"], "out_stream")
-            self.assertEqual(ir["dependencies"], ["solar.project.yaml", "robot.solar.yaml"])
+            self.assertEqual(
+                ir["dependencies"], ["solar.project.yaml", "robot.solar.yaml"]
+            )
             self.assertEqual(ir["parameters"][0]["source"]["file"], "robot.solar.yaml")
             self.assertGreater(ir["parameters"][0]["source"]["line"], 0)
             self.assertIn(
                 "ParameterSchema",
                 (first / "solar/generated/parameters.hpp").read_text(),
             )
+            application = (first / "solar/generated/application.hpp").read_text()
+            contract = (first / "solar/generated/contract.hpp").read_text()
+            self.assertIn("GeneratedTraits<fixture_app::Application>", application)
+            self.assertIn(
+                "namespace fixture_app::contract::types",
+                (first / "solar/generated/types.hpp").read_text(),
+            )
+            self.assertIn("namespace fixture_app::contract::actions::system", contract)
+            self.assertIn("using Handle = solar::endpoint::Handle", contract)
+            self.assertIn("using Input = solar::endpoint::Input", contract)
+
+    def test_explain_and_feature_validation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fixture = self.copy_fixture(root)
+            lock = fixture / "solar.interface.lock"
+            output = root / "output"
+            self.assertEqual(self.generate(fixture, output, lock).returncode, 0)
+            explained = subprocess.run(
+                [
+                    sys.executable,
+                    str(self.generator),
+                    "explain",
+                    "application",
+                    "--project",
+                    str(fixture / "solar.project.yaml"),
+                    "--output",
+                    str(output),
+                    "--lock",
+                    str(lock),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(explained.returncode, 0, explained.stderr)
+            self.assertIn("Solar application: robot-fixture", explained.stdout)
+            self.assertTrue((output / "application.json").is_file())
+            self.assertTrue((output / "application.txt").is_file())
+
+            unavailable = subprocess.run(
+                [
+                    sys.executable,
+                    str(self.generator),
+                    "--project",
+                    str(fixture / "solar.project.yaml"),
+                    "--output",
+                    str(root / "unavailable"),
+                    "--lock",
+                    str(lock),
+                    "--validate-features",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(unavailable.returncode, 0)
+            self.assertIn("CONFIG_SOLAR_REMOTE", unavailable.stderr)
+            self.assertIn("solar.project.yaml:", unavailable.stderr)
 
     def test_clean_directories_are_byte_identical(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -118,22 +181,34 @@ class CodegenTests(unittest.TestCase):
             first_output = root / "one" / "output"
             second_output = root / "two" / "output"
             self.assertEqual(
-                self.generate(first_fixture, first_output, first_fixture / "solar.interface.lock").returncode,
+                self.generate(
+                    first_fixture, first_output, first_fixture / "solar.interface.lock"
+                ).returncode,
                 0,
             )
             self.assertEqual(
-                self.generate(second_fixture, second_output, second_fixture / "solar.interface.lock").returncode,
+                self.generate(
+                    second_fixture,
+                    second_output,
+                    second_fixture / "solar.interface.lock",
+                ).returncode,
                 0,
             )
             for relative in (
-                "interface.ir.json", "manifest.json", "compatibility.json",
-                "solar/generated/types.hpp", "solar/generated/parameters.hpp",
-                "solar/generated/contract.hpp", "solar/generated/app.hpp",
+                "interface.ir.json",
+                "manifest.json",
+                "compatibility.json",
+                "solar/generated/types.hpp",
+                "solar/generated/parameters.hpp",
+                "solar/generated/contract.hpp",
+                "solar/generated/app.hpp",
                 "python/robot_fixture_solar/models.py",
                 "python/robot_fixture_solar/client.py",
             ):
-                self.assertEqual((first_output / relative).read_bytes(),
-                                 (second_output / relative).read_bytes())
+                self.assertEqual(
+                    (first_output / relative).read_bytes(),
+                    (second_output / relative).read_bytes(),
+                )
 
     def test_unknown_type_has_source_location(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -162,7 +237,9 @@ class CodegenTests(unittest.TestCase):
             )
             with self.assertRaises(self.CompileError) as caught:
                 self.compile_project(fixture / "solar.project.yaml")
-            self.assertIn("unknown parameter drive.kp key 'maximim'", str(caught.exception))
+            self.assertIn(
+                "unknown parameter drive.kp key 'maximim'", str(caught.exception)
+            )
             self.assertIn("robot.solar.yaml:", str(caught.exception))
 
     def test_metadata_does_not_coerce_non_strings(self):
@@ -177,7 +254,9 @@ class CodegenTests(unittest.TestCase):
             )
             with self.assertRaises(self.CompileError) as caught:
                 self.compile_project(fixture / "solar.project.yaml")
-            self.assertIn("parameter description must be a string", str(caught.exception))
+            self.assertIn(
+                "parameter description must be a string", str(caught.exception)
+            )
 
     def test_boolean_fields_do_not_use_truthiness(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -196,7 +275,8 @@ class CodegenTests(unittest.TestCase):
             interface = fixture / "robot.solar.yaml"
             interface.write_text(
                 interface.read_text().replace(
-                    "  system.ping:\n    request:", "  system.ping:\n    id: 0\n    request:"
+                    "  system.ping:\n    request:",
+                    "  system.ping:\n    id: 0\n    request:",
                 )
             )
             with self.assertRaises(self.CompileError) as caught:
@@ -209,7 +289,10 @@ class CodegenTests(unittest.TestCase):
             interface = fixture / "robot.solar.yaml"
             interface.write_text(
                 interface.read_text()
-                .replace("      throttle: f32", "      throttle:\n        id: 4\n        type: f32")
+                .replace(
+                    "      throttle: f32",
+                    "      throttle:\n        id: 4\n        type: f32",
+                )
                 .replace(
                     "      differential: f32",
                     "      differential:\n        id: 4\n        type: f32",
@@ -254,7 +337,9 @@ class CodegenTests(unittest.TestCase):
             )
             interface.write_text(text.replace(marker, extra + marker))
             ir, _, _ = self.compile_project(fixture / "solar.project.yaml")
-            bounded = next(item for item in ir["types"] if item["cpp_name"] == "BoundedSample")
+            bounded = next(
+                item for item in ir["types"] if item["cpp_name"] == "BoundedSample"
+            )
             fields = {item["name"]: item["resolved"] for item in bounded["fields"]}
             self.assertEqual(fields["label"]["cpp"], "solar::BoundedText<32>")
             self.assertEqual(fields["payload"]["maximum_length"], 64)
@@ -267,7 +352,9 @@ class CodegenTests(unittest.TestCase):
             fixture = self.copy_fixture(Path(temporary))
             interface = fixture / "robot.solar.yaml"
             interface.write_text(
-                interface.read_text().replace("      sequence: u32", "      sequence: string")
+                interface.read_text().replace(
+                    "      sequence: u32", "      sequence: string"
+                )
             )
             with self.assertRaises(self.CompileError) as caught:
                 self.compile_project(fixture / "solar.project.yaml")
@@ -401,7 +488,9 @@ class CodegenTests(unittest.TestCase):
                     "  drive.gain:\n    renamed-from: drive.kp\n    type: f32",
                 )
             )
-            self.assertEqual(self.generate(fixture, root / "second", lock).returncode, 0)
+            self.assertEqual(
+                self.generate(fixture, root / "second", lock).returncode, 0
+            )
             interface.write_text(
                 interface.read_text().replace(
                     "  drive.gain:\n    renamed-from: drive.kp\n    type: f32",
@@ -424,7 +513,9 @@ class CodegenTests(unittest.TestCase):
                     "  drive.gain:\n    renamed-from: drive.kp\n    type: f32",
                 )
             )
-            self.assertEqual(self.generate(fixture, root / "second", lock).returncode, 0)
+            self.assertEqual(
+                self.generate(fixture, root / "second", lock).returncode, 0
+            )
             interface.write_text(
                 interface.read_text().replace(
                     "  drive.gain:\n    renamed-from: drive.kp\n    type: f32",
@@ -545,7 +636,9 @@ class CodegenTests(unittest.TestCase):
             output = root / "second"
             self.assertEqual(self.generate(fixture, output, lock).returncode, 0)
             changes = json.loads((output / "compatibility.json").read_text())["changes"]
-            self.assertFalse(any(item["declaration"] == "parameter:drive.kp" for item in changes))
+            self.assertFalse(
+                any(item["declaration"] == "parameter:drive.kp" for item in changes)
+            )
 
     def test_python_path_collision_is_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -587,7 +680,9 @@ class CodegenTests(unittest.TestCase):
             self.assertEqual(self.generate(fixture, first, lock).returncode, 0)
             before = {
                 field["name"]: field["id"]
-                for schema in json.loads((first / "manifest.json").read_text())["schemas"]
+                for schema in json.loads((first / "manifest.json").read_text())[
+                    "schemas"
+                ]
                 if schema["name"] == "robot.fixture.Euler"
                 for field in schema["fields"]
             }
@@ -608,7 +703,9 @@ class CodegenTests(unittest.TestCase):
             self.assertEqual(self.generate(fixture, second, lock).returncode, 0)
             after = {
                 field["name"]: field["id"]
-                for schema in json.loads((second / "manifest.json").read_text())["schemas"]
+                for schema in json.loads((second / "manifest.json").read_text())[
+                    "schemas"
+                ]
                 if schema["name"] == "robot.fixture.Euler"
                 for field in schema["fields"]
             }

@@ -7,6 +7,7 @@
 #include "solar/catalog/contribution.hpp"
 #include "solar/core/status.hpp"
 #include "solar/core/type_list.hpp"
+#include "solar/system/endpoints.hpp"
 
 namespace solar
 {
@@ -82,23 +83,120 @@ namespace contribution_detail
 
 template <typename> inline constexpr bool dependent_false_v = false;
 
+template <typename Binding> struct RoleFromBinding;
+
+template <typename Binding>
+    requires std::is_same_v<typename Binding::Kind, endpoint::ReadTag>
+struct RoleFromBinding<Binding>
+{
+    using type = Provides<typename Binding::EndpointType>;
+};
+template <typename Binding>
+    requires std::is_same_v<typename Binding::Kind, endpoint::HandleTag>
+struct RoleFromBinding<Binding>
+{
+    using type = Handles<typename Binding::EndpointType>;
+};
+template <typename Binding>
+    requires std::is_same_v<typename Binding::Kind, endpoint::OutputTag>
+struct RoleFromBinding<Binding>
+{
+    using type = Publishes<typename Binding::EndpointType>;
+};
+template <typename Binding>
+    requires std::is_same_v<typename Binding::Kind, endpoint::InputTag>
+struct RoleFromBinding<Binding>
+{
+    using type = Consumes<typename Binding::EndpointType>;
+};
+template <typename Binding>
+    requires std::is_same_v<typename Binding::Kind, endpoint::EmitTag>
+struct RoleFromBinding<Binding>
+{
+    using type = Emits<typename Binding::EndpointType>;
+};
+template <typename Binding>
+    requires std::is_same_v<typename Binding::Kind, endpoint::ObserveTag>
+struct RoleFromBinding<Binding>
+{
+    using type = Observes<typename Binding::EndpointType>;
+};
+template <typename Binding>
+    requires std::is_same_v<typename Binding::Kind, endpoint::RecordTag>
+struct RoleFromBinding<Binding>
+{
+    using type = Records<typename Binding::EndpointType>;
+};
+template <typename Binding>
+    requires std::is_same_v<typename Binding::Kind, endpoint::UseTag>
+struct RoleFromBinding<Binding>
+{
+    using type = Uses<typename Binding::ModuleType, typename Binding::EndpointType>;
+};
+
+template <typename Entries> struct RolesFromBindings;
+template <typename... Bindings> struct RolesFromBindings<TypeList<Bindings...>>
+{
+    using type = TypeList<typename RoleFromBinding<Bindings>::type...>;
+};
+
+template <typename Component>
+inline constexpr bool has_endpoints_v = requires { typename Component::Endpoints; };
+template <typename Component>
+inline constexpr bool has_contributions_v = requires { typename Component::Contributions; };
+template <typename Component>
+inline constexpr bool has_participation_v = requires { typename Component::Participation; };
+
 template <typename Component, typename = void> struct ComponentRoles
 {
     using type = TypeList<>;
 };
 
 template <typename Component>
-struct ComponentRoles<Component, std::void_t<typename Component::Contributions>>
+    requires has_endpoints_v<Component>
+struct ComponentRoles<Component, void>
 {
+    static_assert(!has_contributions_v<Component> && !has_participation_v<Component>,
+                  "SOLAR_SYSTEM_CONFLICTING_ENDPOINT_DECLARATIONS: define Endpoints or manual "
+                  "Contributions/Participation, not both");
+    using type = typename RolesFromBindings<typename Component::Endpoints::Entries>::type;
+};
+
+template <typename Component>
+    requires(!has_endpoints_v<Component> && has_contributions_v<Component>)
+struct ComponentRoles<Component, void>
+{
+    static_assert(!has_participation_v<Component>,
+                  "SOLAR_SYSTEM_CONFLICTING_ENDPOINT_DECLARATIONS: define Contributions or "
+                  "Participation, not both");
     using type = typename Component::Contributions::Entries;
 };
 
 template <typename Component>
-    requires requires { typename Component::Participation; }
+    requires(!has_endpoints_v<Component> && !has_contributions_v<Component> &&
+             has_participation_v<Component>)
 struct ComponentRoles<Component, void>
 {
     using type = typename Component::Participation::Entries;
 };
+
+template <typename Endpoint, typename Kind, typename Entries> struct FindBinding;
+template <typename Endpoint, typename Kind> struct FindBinding<Endpoint, Kind, TypeList<>>
+{
+    using type = void;
+};
+template <typename Endpoint, typename Kind, typename Head, typename... Tail>
+struct FindBinding<Endpoint, Kind, TypeList<Head, Tail...>>
+{
+    using type =
+        std::conditional_t<std::is_same_v<typename Head::EndpointType, Endpoint> &&
+                               std::is_same_v<typename Head::Kind, Kind>,
+                           Head, typename FindBinding<Endpoint, Kind, TypeList<Tail...>>::type>;
+};
+
+template <typename Endpoint, typename Kind, typename Component>
+using binding_for_t =
+    typename FindBinding<Endpoint, Kind, typename Component::Endpoints::Entries>::type;
 
 template <typename Role, typename = void> struct ValidRole : std::false_type
 {};
@@ -280,27 +378,112 @@ struct ExactOwners<TypeList<Entries...>, Kind, Components>
     : std::bool_constant<((OwnerCount<Entries, Kind, Components>::value == 1) && ...)>
 {};
 
+template <typename Endpoint, typename Owner, bool = has_endpoints_v<Owner>>
+struct ActionSignatureValid;
+template <typename Endpoint, typename Owner>
+    struct ActionSignatureValid<Endpoint, Owner, false>
+    : std::bool_constant < requires(const typename Endpoint::Request& request)
+{
+    {Owner::handle(Endpoint{}, request)}->std::same_as<typename Endpoint::Response>;
+}>{};
+template <typename Endpoint, typename Owner>
+    struct ActionSignatureValid<Endpoint, Owner, true>
+    : std::bool_constant < requires(const typename Endpoint::Request& request)
+{
+    {binding_for_t<Endpoint, endpoint::HandleTag, Owner>::call(request)}
+        ->std::same_as<typename Endpoint::Response>;
+}>{};
+
+template <typename Endpoint, typename Owner, bool = has_endpoints_v<Owner>>
+struct DataQuerySignatureValid;
+template <typename Endpoint, typename Owner>
+    struct DataQuerySignatureValid<Endpoint, Owner, false> : std::bool_constant < requires
+{
+    {Owner::read(Endpoint{})}->std::same_as<typename Endpoint::Value>;
+}>{};
+template <typename Endpoint, typename Owner>
+    struct DataQuerySignatureValid<Endpoint, Owner, true> : std::bool_constant < requires
+{
+    {binding_for_t<Endpoint, endpoint::ReadTag, Owner>::query()}
+        ->std::same_as<typename Endpoint::Value>;
+}>{};
+
+template <typename Endpoint, typename Owner, bool = has_endpoints_v<Owner>>
+struct DataUpdateSignatureValid;
+template <typename Endpoint, typename Owner>
+    struct DataUpdateSignatureValid<Endpoint, Owner, false>
+    : std::bool_constant < requires(const typename Endpoint::Value& value)
+{
+    {Owner::write(Endpoint{}, value)}->std::same_as<Result<void>>;
+}>{};
+template <typename Endpoint, typename Owner>
+    struct DataUpdateSignatureValid<Endpoint, Owner, true>
+    : std::bool_constant < requires(const typename Endpoint::Value& value)
+{
+    {binding_for_t<Endpoint, endpoint::ReadTag, Owner>::update(value)}->std::same_as<Result<void>>;
+}>{};
+
+template <typename Endpoint, typename Owner, bool = has_endpoints_v<Owner>>
+struct PublisherSignatureValid;
+template <typename Endpoint, typename Owner>
+    struct PublisherSignatureValid<Endpoint, Owner, false> : std::bool_constant < requires
+{
+    {Owner::publish(Endpoint{})}->std::same_as<typename Endpoint::Value>;
+}>{};
+template <typename Endpoint, typename Owner>
+    struct PublisherSignatureValid<Endpoint, Owner, true> : std::bool_constant < requires
+{
+    {binding_for_t<Endpoint, endpoint::OutputTag, Owner>::publish()}
+        ->std::same_as<typename Endpoint::Value>;
+}>{};
+
+template <typename Endpoint, typename Owner, bool = has_endpoints_v<Owner>>
+struct ConsumerSignatureValid;
+template <typename Endpoint, typename Owner>
+    struct ConsumerSignatureValid<Endpoint, Owner, false>
+    : std::bool_constant < requires(const typename Endpoint::Value& value)
+{
+    {Owner::consume(Endpoint{}, value)}->std::same_as<Result<void>>;
+}>{};
+template <typename Endpoint, typename Owner>
+    struct ConsumerSignatureValid<Endpoint, Owner, true>
+    : std::bool_constant < requires(const typename Endpoint::Value& value)
+{
+    {binding_for_t<Endpoint, endpoint::InputTag, Owner>::consume(value)}
+        ->std::same_as<Result<void>>;
+}>{};
+
+template <typename Endpoint, typename Owner, bool = has_endpoints_v<Owner>>
+struct MetricSignatureValid;
+template <typename Endpoint, typename Owner>
+    struct MetricSignatureValid<Endpoint, Owner, false>
+    : std::bool_constant < requires(const typename Endpoint::Value& value)
+{
+    {Owner::record(Endpoint{}, value)}->std::same_as<Result<void>>;
+}>{};
+template <typename Endpoint, typename Owner>
+    struct MetricSignatureValid<Endpoint, Owner, true>
+    : std::bool_constant < requires(const typename Endpoint::Value& value)
+{
+    {binding_for_t<Endpoint, endpoint::RecordTag, Owner>::record(value)}
+        ->std::same_as<Result<void>>;
+}>{};
+
 template <typename Action, typename Components> struct ValidateActionSignature
 {
     using Owner = typename FindOwner<Action, HandlesTag, Components>::type;
-    static_assert(
-        requires(const typename Action::Request& request) {
-            { Owner::handle(Action{}, request) } -> std::same_as<typename Action::Response>;
-        }, "SOLAR_SYSTEM_INVALID_ACTION_HANDLER: owner must implement static Response "
-           "handle(Action, const Request&)");
+    static constexpr bool valid = ActionSignatureValid<Action, Owner>::value;
+    static_assert(valid, "SOLAR_SYSTEM_INVALID_ACTION_HANDLER: Handle requires Response(const "
+                         "Request&)");
     static constexpr bool value = true;
 };
 
 template <typename Data, typename Components> struct ValidateDataSignature
 {
     using Owner = typename FindOwner<Data, ProvidesTag, Components>::type;
-    static constexpr bool query_valid = !Data::query || requires {
-        { Owner::read(Data{}) } -> std::same_as<typename Data::Value>;
-    };
+    static constexpr bool query_valid = !Data::query || DataQuerySignatureValid<Data, Owner>::value;
     static constexpr bool update_valid =
-        !Data::update || requires(const typename Data::Value& value) {
-            { Owner::write(Data{}, value) } -> std::same_as<Result<void>>;
-        };
+        !Data::update || DataUpdateSignatureValid<Data, Owner>::value;
     static_assert(query_valid,
                   "SOLAR_SYSTEM_INVALID_DATA_QUERY: provider must implement static Value "
                   "read(Data)");
@@ -313,22 +496,17 @@ template <typename Data, typename Components> struct ValidateDataSignature
 template <typename Stream, typename Components> struct ValidatePublisherSignature
 {
     using Owner = typename FindOwner<Stream, PublishesTag, Components>::type;
-    static_assert(
-        requires {
-            { Owner::publish(Stream{}) } -> std::same_as<typename Stream::Value>;
-        }, "SOLAR_SYSTEM_INVALID_STREAM_PUBLISHER: owner must implement static Value "
-           "publish(Stream)");
+    static constexpr bool valid = PublisherSignatureValid<Stream, Owner>::value;
+    static_assert(valid, "SOLAR_SYSTEM_INVALID_STREAM_PUBLISHER: Output requires Value()");
     static constexpr bool value = true;
 };
 
 template <typename Stream, typename Components> struct ValidateConsumerSignature
 {
     using Owner = typename FindOwner<Stream, ConsumesTag, Components>::type;
-    static_assert(
-        requires(const typename Stream::Value& value) {
-            { Owner::consume(Stream{}, value) } -> std::same_as<Result<void>>;
-        }, "SOLAR_SYSTEM_INVALID_STREAM_CONSUMER: owner must implement static Result<void> "
-           "consume(Stream, const Value&)");
+    static constexpr bool valid = ConsumerSignatureValid<Stream, Owner>::value;
+    static_assert(valid, "SOLAR_SYSTEM_INVALID_STREAM_CONSUMER: Input requires Result<void>(const "
+                         "Value&)");
     static constexpr bool value = true;
 };
 
@@ -338,9 +516,16 @@ template <typename Event, typename Components> struct ValidateObserverSignatures
     {
         if constexpr (!component_claims_v<Event, ObservesTag, Component>)
             return true;
-        return requires(const typename Event::Value& value) {
-            { Component::observe(Event{}, value) } -> std::same_as<void>;
-        };
+        if constexpr (has_endpoints_v<Component>) {
+            using Binding = binding_for_t<Event, endpoint::ObserveTag, Component>;
+            return requires(const typename Event::Value& value) {
+                { Binding::observe(value) } -> std::same_as<void>;
+            };
+        } else {
+            return requires(const typename Event::Value& value) {
+                { Component::observe(Event{}, value) } -> std::same_as<void>;
+            };
+        }
     }
     static constexpr bool value = []<typename... ComponentTypes>(TypeList<ComponentTypes...>) {
         return (valid_one<ComponentTypes>() && ...);
@@ -352,11 +537,9 @@ template <typename Event, typename Components> struct ValidateObserverSignatures
 template <typename Metric, typename Components> struct ValidateMetricSignature
 {
     using Owner = typename FindOwner<Metric, RecordsTag, Components>::type;
-    static_assert(
-        requires(const typename Metric::Value& value) {
-            { Owner::record(Metric{}, value) } -> std::same_as<Result<void>>;
-        }, "SOLAR_SYSTEM_INVALID_METRIC_RECORDER: owner must implement static Result<void> "
-           "record(Metric, const Value&)");
+    static constexpr bool valid = MetricSignatureValid<Metric, Owner>::value;
+    static_assert(valid, "SOLAR_SYSTEM_INVALID_METRIC_RECORDER: Record requires Result<void>(const "
+                         "Value&)");
     static constexpr bool value = true;
 };
 
@@ -424,27 +607,47 @@ template <typename ContractT, typename ComponentsT> struct Dispatch
     {
         using Owner =
             typename contribution_detail::FindOwner<Action, HandlesTag, ComponentsT>::type;
-        return Owner::handle(Action{}, request);
+        if constexpr (contribution_detail::has_endpoints_v<Owner>) {
+            using Binding = contribution_detail::binding_for_t<Action, endpoint::HandleTag, Owner>;
+            return Binding::call(request);
+        } else {
+            return Owner::handle(Action{}, request);
+        }
     }
 
     template <typename Data> [[nodiscard]] static typename Data::Value query()
     {
         using Owner = typename contribution_detail::FindOwner<Data, ProvidesTag, ComponentsT>::type;
-        return Owner::read(Data{});
+        if constexpr (contribution_detail::has_endpoints_v<Owner>) {
+            using Binding = contribution_detail::binding_for_t<Data, endpoint::ReadTag, Owner>;
+            return Binding::query();
+        } else {
+            return Owner::read(Data{});
+        }
     }
 
     template <typename Data>
     [[nodiscard]] static Result<void> update(const typename Data::Value& value)
     {
         using Owner = typename contribution_detail::FindOwner<Data, ProvidesTag, ComponentsT>::type;
-        return Owner::write(Data{}, value);
+        if constexpr (contribution_detail::has_endpoints_v<Owner>) {
+            using Binding = contribution_detail::binding_for_t<Data, endpoint::ReadTag, Owner>;
+            return Binding::update(value);
+        } else {
+            return Owner::write(Data{}, value);
+        }
     }
 
     template <typename Stream> [[nodiscard]] static typename Stream::Value publish()
     {
         using Owner =
             typename contribution_detail::FindOwner<Stream, PublishesTag, ComponentsT>::type;
-        return Owner::publish(Stream{});
+        if constexpr (contribution_detail::has_endpoints_v<Owner>) {
+            using Binding = contribution_detail::binding_for_t<Stream, endpoint::OutputTag, Owner>;
+            return Binding::publish();
+        } else {
+            return Owner::publish(Stream{});
+        }
     }
 
     template <typename Stream>
@@ -452,7 +655,12 @@ template <typename ContractT, typename ComponentsT> struct Dispatch
     {
         using Owner =
             typename contribution_detail::FindOwner<Stream, ConsumesTag, ComponentsT>::type;
-        return Owner::consume(Stream{}, value);
+        if constexpr (contribution_detail::has_endpoints_v<Owner>) {
+            using Binding = contribution_detail::binding_for_t<Stream, endpoint::InputTag, Owner>;
+            return Binding::consume(value);
+        } else {
+            return Owner::consume(Stream{}, value);
+        }
     }
 
     template <typename Stream, typename Context>
@@ -460,9 +668,12 @@ template <typename ContractT, typename ComponentsT> struct Dispatch
     {
         using Owner =
             typename contribution_detail::FindOwner<Stream, ConsumesTag, ComponentsT>::type;
-        if constexpr (requires {
-                          { Owner::open(Stream{}, context) } -> std::same_as<Result<void>>;
-                      }) {
+        if constexpr (contribution_detail::has_endpoints_v<Owner>) {
+            using Binding = contribution_detail::binding_for_t<Stream, endpoint::InputTag, Owner>;
+            return Binding::open(context);
+        } else if constexpr (requires {
+                                 { Owner::open(Stream{}, context) } -> std::same_as<Result<void>>;
+                             }) {
             return Owner::open(Stream{}, context);
         } else {
             return {};
@@ -473,7 +684,10 @@ template <typename ContractT, typename ComponentsT> struct Dispatch
     {
         using Owner =
             typename contribution_detail::FindOwner<Stream, ConsumesTag, ComponentsT>::type;
-        if constexpr (requires { Owner::close(Stream{}, context); }) {
+        if constexpr (contribution_detail::has_endpoints_v<Owner>) {
+            using Binding = contribution_detail::binding_for_t<Stream, endpoint::InputTag, Owner>;
+            Binding::close(context);
+        } else if constexpr (requires { Owner::close(Stream{}, context); }) {
             Owner::close(Stream{}, context);
         }
     }
@@ -485,7 +699,14 @@ template <typename ContractT, typename ComponentsT> struct Dispatch
             (([]<typename Component>(const typename Event::Value& item) {
                  if constexpr (contribution_detail::component_claims_v<Event, ObservesTag,
                                                                        Component>) {
-                     Component::observe(Event{}, item);
+                     if constexpr (contribution_detail::has_endpoints_v<Component>) {
+                         using Binding =
+                             contribution_detail::binding_for_t<Event, endpoint::ObserveTag,
+                                                                Component>;
+                         Binding::observe(item);
+                     } else {
+                         Component::observe(Event{}, item);
+                     }
                  }
              }.template operator()<ComponentTypes>(event)),
              ...);
@@ -497,7 +718,12 @@ template <typename ContractT, typename ComponentsT> struct Dispatch
     {
         using Owner =
             typename contribution_detail::FindOwner<Metric, RecordsTag, ComponentsT>::type;
-        return Owner::record(Metric{}, value);
+        if constexpr (contribution_detail::has_endpoints_v<Owner>) {
+            using Binding = contribution_detail::binding_for_t<Metric, endpoint::RecordTag, Owner>;
+            return Binding::record(value);
+        } else {
+            return Owner::record(Metric{}, value);
+        }
     }
 };
 

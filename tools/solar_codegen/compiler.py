@@ -210,9 +210,13 @@ def _source(
     """Preserve stable authored provenance in normalized IR."""
     location = _location(document, path)
     try:
-        source_path = location.path.resolve().relative_to(project_root.resolve()).as_posix()
+        source_path = (
+            location.path.resolve().relative_to(project_root.resolve()).as_posix()
+        )
     except ValueError as error:
-        raise CompileError("interface imports must remain below the project directory", location) from error
+        raise CompileError(
+            "interface imports must remain below the project directory", location
+        ) from error
     return {
         "file": source_path,
         "line": location.line,
@@ -280,7 +284,11 @@ def _stable_id(
     value = declaration.get("id")
     if value is None:
         return None
-    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 0xFFFFFFFF:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or not 1 <= value <= 0xFFFFFFFF
+    ):
         raise CompileError(
             "id must be an integer from 1 through 4294967295",
             _location(document, path + ("id",)),
@@ -445,7 +453,7 @@ def compile_project(
     )
     _check_keys(
         application,
-        {"name", "namespace"},
+        {"name", "namespace", "cpp-type", "cpp-header"},
         "application",
         project_document,
         ("application",),
@@ -462,6 +470,32 @@ def compile_project(
         project_document,
         ("application", "namespace"),
     )
+    cpp_type = application.get("cpp-type", "Application")
+    if not isinstance(cpp_type, str) or not re.fullmatch(
+        r"[A-Za-z_][A-Za-z0-9_]*", cpp_type
+    ):
+        raise CompileError(
+            "application.cpp-type must be one unqualified C++ identifier",
+            _location(project_document, ("application", "cpp-type")),
+        )
+    cpp_header = application.get("cpp-header", "app/app.hpp")
+    if (
+        not isinstance(cpp_header, str)
+        or not cpp_header
+        or any(part in ("", ".", "..") for part in cpp_header.split("/"))
+    ):
+        raise CompileError(
+            "application.cpp-header must be a project-relative include path",
+            _location(project_document, ("application", "cpp-header")),
+        )
+    modules = project.get("modules", {})
+    if modules is None:
+        modules = {}
+    if not isinstance(modules, dict):
+        raise CompileError(
+            "modules must be a mapping",
+            _location(project_document, ("modules",)),
+        )
     interfaces = project.get("interfaces")
     if not isinstance(interfaces, list) or not interfaces:
         raise CompileError(
@@ -521,7 +555,16 @@ def compile_project(
         dependencies.append(interface_path.relative_to(project_root).as_posix())
         _check_keys(
             document.value,
-            {"solar-interface", "package", "types", "parameters", "data", "actions", "stream-groups", "streams"},
+            {
+                "solar-interface",
+                "package",
+                "types",
+                "parameters",
+                "data",
+                "actions",
+                "stream-groups",
+                "streams",
+            },
             "interface",
             document,
             (),
@@ -596,7 +639,14 @@ def compile_project(
     )
     _check_keys(
         generation,
-        {"maximum-types", "maximum-parameters", "maximum-data", "maximum-actions", "maximum-stream-groups", "maximum-streams"},
+        {
+            "maximum-types",
+            "maximum-parameters",
+            "maximum-data",
+            "maximum-actions",
+            "maximum-stream-groups",
+            "maximum-streams",
+        },
         "generation",
         project_document,
         ("generation",),
@@ -664,8 +714,10 @@ def compile_project(
             "cpp_name": _identifier(name),
             "kind": kind,
             "description": _optional_string(
-                declaration.get("description"), "type description", document,
-                path + ("description",)
+                declaration.get("description"),
+                "type description",
+                document,
+                path + ("description",),
             ),
             "version": version,
             "source": _source(document, path, project_root),
@@ -682,10 +734,10 @@ def compile_project(
                     "enum requires at least one value",
                     _location(document, path + ("values",)),
                 )
-            if not all(isinstance(value, int) and not isinstance(value, bool)
-                       for value in values.values()) or len(
-                set(values.values())
-            ) != len(values):
+            if not all(
+                isinstance(value, int) and not isinstance(value, bool)
+                for value in values.values()
+            ) or len(set(values.values())) != len(values):
                 raise CompileError(
                     "enum values must be unique integers",
                     _location(document, path + ("values",)),
@@ -694,8 +746,10 @@ def compile_project(
                 {
                     "underlying": declaration.get("underlying", "u8"),
                     "open": _boolean(
-                        declaration.get("open", False), "enum open", document,
-                        path + ("open",)
+                        declaration.get("open", False),
+                        "enum open",
+                        document,
+                        path + ("open",),
                     ),
                     "values": values,
                 }
@@ -705,8 +759,14 @@ def compile_project(
                 _, numeric_kind, width = PRIMITIVES[underlying]
                 if numeric_kind in ("unsigned", "signed"):
                     minimum = 0 if numeric_kind == "unsigned" else -(2 ** (width - 1))
-                    maximum = 2**width - 1 if numeric_kind == "unsigned" else 2 ** (width - 1) - 1
-                    if any(not minimum <= value <= maximum for value in values.values()):
+                    maximum = (
+                        2**width - 1
+                        if numeric_kind == "unsigned"
+                        else 2 ** (width - 1) - 1
+                    )
+                    if any(
+                        not minimum <= value <= maximum for value in values.values()
+                    ):
                         raise CompileError(
                             f"enum value does not fit underlying type {underlying}",
                             _location(document, path + ("values",)),
@@ -738,18 +798,18 @@ def compile_project(
                         _location(document, path + ("fields", field_name)),
                     )
                 optional = _boolean(
-                    field_decl.get("optional", False), "field optional", document,
+                    field_decl.get("optional", False),
+                    "field optional",
+                    document,
                     path + ("fields", field_name, "optional"),
                 )
-                if optional and not field_type.startswith(
-                    "optional<"
-                ):
+                if optional and not field_type.startswith("optional<"):
                     field_type = f"optional<{field_type}>"
                 explicit_field_id = field_decl.get("id")
                 if explicit_field_id is not None and (
-                    isinstance(explicit_field_id, bool) or
-                    not isinstance(explicit_field_id, int) or
-                    not 1 <= explicit_field_id <= 0xFFFF
+                    isinstance(explicit_field_id, bool)
+                    or not isinstance(explicit_field_id, int)
+                    or not 1 <= explicit_field_id <= 0xFFFF
                 ):
                     raise CompileError(
                         "field id must be an integer from 1 through 65535",
@@ -759,11 +819,17 @@ def compile_project(
                 if renamed_field is not None and not isinstance(renamed_field, str):
                     raise CompileError(
                         "field renamed-from must be a string",
-                        _location(document, path + ("fields", field_name, "renamed-from")),
+                        _location(
+                            document, path + ("fields", field_name, "renamed-from")
+                        ),
                     )
                 field_id = allocator.allocate_scoped(
-                    f"field:{qualified}", field_name, _declaration_fingerprint(field_decl),
-                    explicit=explicit_field_id, renamed_from=renamed_field, maximum=0xFFFF,
+                    f"field:{qualified}",
+                    field_name,
+                    _declaration_fingerprint(field_decl),
+                    explicit=explicit_field_id,
+                    renamed_from=renamed_field,
+                    maximum=0xFFFF,
                 )
                 if field_id in used_field_ids:
                     raise CompileError(
@@ -779,11 +845,15 @@ def compile_project(
                         "type": field_type,
                         "required": not optional,
                         "unit": _optional_string(
-                            field_decl.get("unit"), "field unit", document,
+                            field_decl.get("unit"),
+                            "field unit",
+                            document,
                             path + ("fields", field_name, "unit"),
                         ),
                         "description": _optional_string(
-                            field_decl.get("description"), "field description", document,
+                            field_decl.get("description"),
+                            "field description",
+                            document,
                             path + ("fields", field_name, "description"),
                         ),
                         "source": _source(
@@ -852,7 +922,8 @@ def compile_project(
             capacity = int(collection.group(3))
             if capacity > 0xFFFF:
                 raise CompileError(
-                    "collection capacity must not exceed 65535", _location(document, path)
+                    "collection capacity must not exceed 65535",
+                    _location(document, path),
                 )
             cpp = (
                 f"std::array<{value['cpp']}, {capacity}>"
@@ -928,8 +999,9 @@ def compile_project(
         if item["kind"] == "enum":
             result = max(1, PRIMITIVES[item["underlying"]][2] // 8) + 1
         else:
-            result = 2 + sum(5 + encoded_bound(field["resolved"])
-                             for field in item["fields"])
+            result = 2 + sum(
+                5 + encoded_bound(field["resolved"]) for field in item["fields"]
+            )
         encoded_bounds[name] = result
         return result
 
@@ -1024,15 +1096,26 @@ def compile_project(
     for name, (declaration, document, path, package) in raw_parameters.items():
         _check_keys(
             declaration,
-            {"id", "version", "renamed-from", "type", "default", "minimum", "maximum",
-             "unit", "description"},
+            {
+                "id",
+                "version",
+                "renamed-from",
+                "type",
+                "default",
+                "minimum",
+                "maximum",
+                "unit",
+                "description",
+            },
             f"parameter {name}",
             document,
             path,
         )
         version = _version(declaration, document, path)
         description = _optional_string(
-            declaration.get("description"), "parameter description", document,
+            declaration.get("description"),
+            "parameter description",
+            document,
             path + ("description",),
         )
         unit = _optional_string(
@@ -1304,7 +1387,9 @@ def compile_project(
         )
         version = _version(declaration, document, path)
         description = _optional_string(
-            declaration.get("description"), "action description", document,
+            declaration.get("description"),
+            "action description",
+            document,
             path + ("description",),
         )
         request = _string(
@@ -1398,15 +1483,25 @@ def compile_project(
     for name, (declaration, document, path, _) in raw_streams.items():
         _check_keys(
             declaration,
-            {"id", "version", "renamed-from", "type", "direction", "maximum-rate", "exclusive-group",
-             "description"},
+            {
+                "id",
+                "version",
+                "renamed-from",
+                "type",
+                "direction",
+                "maximum-rate",
+                "exclusive-group",
+                "description",
+            },
             f"stream {name}",
             document,
             path,
         )
         version = _version(declaration, document, path)
         description = _optional_string(
-            declaration.get("description"), "stream description", document,
+            declaration.get("description"),
+            "stream description",
+            document,
             path + ("description",),
         )
         type_name = _string(
@@ -1453,8 +1548,11 @@ def compile_project(
             ),
         )
         maximum_rate = declaration.get("maximum-rate", 100)
-        if (isinstance(maximum_rate, bool) or not isinstance(maximum_rate, int) or
-                not 1 <= maximum_rate <= 0xFFFFFFFF):
+        if (
+            isinstance(maximum_rate, bool)
+            or not isinstance(maximum_rate, int)
+            or not 1 <= maximum_rate <= 0xFFFFFFFF
+        ):
             raise CompileError(
                 "stream maximum-rate must be an integer from 1 through 4294967295",
                 _location(document, path + ("maximum-rate",)),
@@ -1563,7 +1661,18 @@ def compile_project(
         "application": {
             "name": app_name,
             "namespace": namespace,
+            "cpp_type": cpp_type,
+            "cpp_header": cpp_header,
             "python_package": python_package,
+        },
+        "requirements": {
+            "parameters": bool(parameters),
+            "remote": "remote" in modules,
+            "remote_source": (
+                _source(project_document, ("modules", "remote"), project_path.parent)
+                if "remote" in modules
+                else None
+            ),
         },
         "limits": limits,
         "types": list(types.values()),
@@ -1624,11 +1733,29 @@ def _generated_header(*includes: str) -> list[str]:
     ]
 
 
+def _cpp_alias(
+    application_namespace: str,
+    domain: str,
+    path: list[str],
+    alias: str,
+    target: str,
+) -> list[str]:
+    namespaces = "::".join(
+        [application_namespace, "contract", domain]
+        + [_identifier(part) for part in path]
+    )
+    return [
+        f"namespace {namespaces}",
+        "{",
+        f"using {alias} = {application_namespace}::generated::{target};",
+        f"}} // namespace {namespaces}",
+        "",
+    ]
+
+
 def generate_types_cpp(ir: dict[str, Any]) -> str:
     namespace = ir["application"]["namespace"]
-    lines = _generated_header(
-        "array", "cstdint", "optional", "solar/core/bounded.hpp"
-    )
+    lines = _generated_header("array", "cstdint", "optional", "solar/core/bounded.hpp")
     lines.extend([f"namespace {namespace}::generated", "{", ""])
     for item in ir["types"]:
         if item["kind"] == "enum":
@@ -1646,13 +1773,23 @@ def generate_types_cpp(ir: dict[str, Any]) -> str:
                 lines.append(f"    {cpp} {_identifier(field['name'])}{{}};")
             lines.extend(["};", ""])
     lines.extend([f"}} // namespace {namespace}::generated", ""])
+    for item in ir["types"]:
+        pieces = item["name"].split(".")
+        lines.extend(
+            _cpp_alias(
+                namespace, "types", pieces[:-1], item["cpp_name"], item["cpp_name"]
+            )
+        )
     return "\n".join(lines)
 
 
 def generate_parameters_cpp(ir: dict[str, Any]) -> str:
     namespace = ir["application"]["namespace"]
     lines = _generated_header(
-        "cstdint", "solar/generated/types.hpp", "solar/parameters/store.hpp"
+        "cstdint",
+        "solar/generated/types.hpp",
+        "solar/parameters/store.hpp",
+        "solar/system/endpoints.hpp",
     )
     lines.extend([f"namespace {namespace}::generated", "{", ""])
     for item in ir["parameters"]:
@@ -1665,6 +1802,7 @@ def generate_parameters_cpp(ir: dict[str, Any]) -> str:
                 f'    static constexpr const char* name = "{item["name"]}";',
                 f"    static constexpr std::uint32_t id = 0x{item['id']:08X}U;",
                 f"    static constexpr Value default_value = {_cpp_literal(item['default'], cpp)};",
+                f"    template <typename Store> using Use = solar::endpoint::Use<Store, {item['cpp_name']}>;",
             ]
         )
         if item["minimum"] is not None:
@@ -1685,6 +1823,17 @@ def generate_parameters_cpp(ir: dict[str, Any]) -> str:
             "",
         ]
     )
+    for item in ir["parameters"]:
+        pieces = item["name"].split(".")
+        lines.extend(
+            _cpp_alias(
+                namespace,
+                "parameters",
+                pieces[:-1],
+                _pascal(pieces[-1]),
+                item["cpp_name"],
+            )
+        )
     return "\n".join(lines)
 
 
@@ -1695,6 +1844,7 @@ def generate_contract_cpp(ir: dict[str, Any]) -> str:
         "solar/core/type_list.hpp",
         "solar/generated/parameters.hpp",
         "solar/generated/types.hpp",
+        "solar/system/endpoints.hpp",
     )
     lines.extend([f"namespace {namespace}::generated", "{", ""])
     for item in ir["data_declarations"]:
@@ -1707,6 +1857,24 @@ def generate_contract_cpp(ir: dict[str, Any]) -> str:
                 f"    static constexpr std::uint32_t id = 0x{item['id']:08X}U;",
                 f"    static constexpr bool query = {'true' if item['query'] else 'false'};",
                 f"    static constexpr bool update = {'true' if item['update'] else 'false'};",
+                *(
+                    [
+                        "    template <auto Reader> using Read = solar::endpoint::Read<"
+                        + item["cpp_name"]
+                        + ", Reader>;"
+                    ]
+                    if item["query"]
+                    else []
+                ),
+                *(
+                    [
+                        "    template <auto Reader, auto Writer> using ReadWrite = solar::endpoint::ReadWrite<"
+                        + item["cpp_name"]
+                        + ", Reader, Writer>;"
+                    ]
+                    if item["query"] and item["update"]
+                    else []
+                ),
                 "};",
                 "",
             ]
@@ -1720,6 +1888,7 @@ def generate_contract_cpp(ir: dict[str, Any]) -> str:
                 f"    using Response = {item['response']['cpp']};",
                 f'    static constexpr const char* name = "{item["name"]}";',
                 f"    static constexpr std::uint32_t id = 0x{item['id']:08X}U;",
+                f"    template <auto Handler> using Handle = solar::endpoint::Handle<{item['cpp_name']}, Handler>;",
                 "};",
                 "",
             ]
@@ -1734,6 +1903,15 @@ def generate_contract_cpp(ir: dict[str, Any]) -> str:
                 f"    static constexpr std::uint32_t id = 0x{item['id']:08X}U;",
                 f"    static constexpr bool input = {'true' if item['direction'] == 'in' else 'false'};",
                 f"    static constexpr std::uint32_t maximum_rate_hz = {item['maximum_rate_hz']}U;",
+                *(
+                    [
+                        f"    template <auto Consumer, auto Open = nullptr, auto Close = nullptr> using Input = solar::endpoint::Input<{item['cpp_name']}, Consumer, Open, Close>;"
+                    ]
+                    if item["direction"] == "in"
+                    else [
+                        f"    template <auto Publisher> using Output = solar::endpoint::Output<{item['cpp_name']}, Publisher>;"
+                    ]
+                ),
                 "};",
                 "",
             ]
@@ -1769,17 +1947,131 @@ def generate_contract_cpp(ir: dict[str, Any]) -> str:
             "",
         ]
     )
+    for domain, items in (
+        ("data", ir["data_declarations"]),
+        ("actions", ir["actions"]),
+        ("streams", ir["stream_declarations"]),
+    ):
+        for item in items:
+            pieces = item["name"].split(".")
+            lines.extend(
+                _cpp_alias(
+                    namespace,
+                    domain,
+                    pieces[:-1],
+                    _pascal(pieces[-1]),
+                    item["cpp_name"],
+                )
+            )
     return "\n".join(lines)
 
 
 def generate_app_cpp(ir: dict[str, Any]) -> str:
-    return "\n".join(
-        _generated_header(
-            "solar/generated/types.hpp",
-            "solar/generated/parameters.hpp",
-            "solar/generated/contract.hpp",
-        )
+    namespace = ir["application"]["namespace"]
+    cpp_type = ir["application"]["cpp_type"]
+    requirements = ir["requirements"]
+    lines = _generated_header(
+        "string_view",
+        "solar/application/fwd.hpp",
+        "solar/generated/types.hpp",
+        "solar/generated/parameters.hpp",
+        "solar/generated/contract.hpp",
     )
+    lines.extend(
+        [
+            f"namespace {namespace}",
+            "{",
+            f"struct {cpp_type};",
+            "}",
+            "",
+            f"namespace {namespace}::generated",
+            "{",
+            "struct Project",
+            "{",
+            f'    static constexpr std::string_view name = "{ir["application"]["name"]}";',
+            f"    using Contract = {namespace}::generated::Contract;",
+            "};",
+            f"}} // namespace {namespace}::generated",
+            "",
+            f"template <> struct solar::application::GeneratedTraits<{namespace}::{cpp_type}>",
+            "{",
+            "    static constexpr bool available = true;",
+            f"    static constexpr bool requires_parameters = {'true' if requirements['parameters'] else 'false'};",
+            f"    static constexpr bool requires_remote = {'true' if requirements['remote'] else 'false'};",
+            f'    static constexpr std::string_view project_name = "{ir["application"]["name"]}";',
+            f"    using Project = {namespace}::generated::Project;",
+            f"    using Contract = {namespace}::generated::Contract;",
+            f"    using ParameterSchema = {namespace}::generated::ParameterSchema;",
+            "};",
+            "",
+            f"namespace {namespace}",
+            "{",
+            f"using log = solar::log::For<{cpp_type}>;",
+            "}",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def generate_application_translation_unit(ir: dict[str, Any]) -> str:
+    if not ir["requirements"]["remote"]:
+        return "// Generated Solar application integration; no linked facilities required.\n"
+    namespace = ir["application"]["namespace"]
+    cpp_type = ir["application"]["cpp_type"]
+    return "\n".join(
+        [
+            "// Generated Solar application integration; do not edit.",
+            "#include <type_traits>",
+            f"#include <{ir['application']['cpp_header']}>",
+            "#include <solar/remote/manifest.hpp>",
+            "",
+            "namespace",
+            "{",
+            "using SolarApplicationRuntime =",
+            f"    solar::application::specification_t<{namespace}::{cpp_type}>::RemoteRuntime;",
+            "static_assert(!std::is_void_v<SolarApplicationRuntime>);",
+            "SOLAR_REMOTE_EMIT_MANIFEST(typename SolarApplicationRuntime::Context);",
+            "}",
+            "",
+        ]
+    )
+
+
+def generate_application_explanation(ir: dict[str, Any]) -> tuple[dict[str, Any], str]:
+    """Describe the generated half of the high-level Application expansion."""
+    application = {
+        "format": 1,
+        "application": ir["application"],
+        "requirements": ir["requirements"],
+        "synthesized": {
+            "parameters": "StaticStore" if ir["parameters"] else "elided",
+            "logging": "selected by CONFIG_SOLAR_LOG",
+            "remote": "ByteRuntime" if ir["requirements"]["remote"] else "elided",
+            "python": "selected by CONFIG_SOLAR_APPLICATION_GENERATE_PYTHON",
+            "shipment": "selected by CONFIG_SOLAR_APPLICATION_GENERATE_SHIPMENT",
+        },
+        "endpoints": {
+            "parameters": [item["name"] for item in ir["parameters"]],
+            "data": [item["name"] for item in ir["data_declarations"]],
+            "actions": [item["name"] for item in ir["actions"]],
+            "streams": [item["name"] for item in ir["stream_declarations"]],
+        },
+        "note": (
+            "C++ service owners, platform links, device adapters, and runner policies are "
+            "available through solar::application::specification_t<Application>."
+        ),
+    }
+    lines = [
+        f"Solar application: {ir['application']['name']}",
+        f"C++ identity: {ir['application']['namespace']}::{ir['application']['cpp_type']}",
+        f"Parameters: {application['synthesized']['parameters']}",
+        f"Remote: {application['synthesized']['remote']}",
+        "Endpoints:",
+    ]
+    for domain, entries in application["endpoints"].items():
+        lines.append(f"  {domain}: {', '.join(entries) if entries else '(none)'}")
+    return application, "\n".join(lines) + "\n"
 
 
 def generate_remote_cpp(ir: dict[str, Any]) -> str:
@@ -1802,15 +2094,13 @@ def generate_remote_cpp(ir: dict[str, Any]) -> str:
     def field_expression(cpp: str, field: dict[str, Any]) -> str:
         attributes: list[str] = []
         if field.get("description"):
-            attributes.append(
-                f'remote::Description<"{field["description"]}">'
-            )
+            attributes.append(f'remote::Description<"{field["description"]}">')
         if field.get("unit"):
             attributes.append(f'remote::Unit<"{field["unit"]}">')
         suffix = ", " + ", ".join(attributes) if attributes else ""
         return (
             f'remote::Field<{field["id"]}, "{field["name"]}", '
-            f'&{cpp}::{_identifier(field["name"])}{suffix}>'
+            f"&{cpp}::{_identifier(field['name'])}{suffix}>"
         )
 
     # Parameter wire wrappers are intentionally distinct from scalar storage.
@@ -1875,7 +2165,7 @@ def generate_remote_cpp(ir: dict[str, Any]) -> str:
                 "{",
                 "    static constexpr SchemaDescriptor descriptor{",
                 f'        .id = TypeId{{0x{item["schema"]:08X}U}}, .name = "{next(s["name"] for s in ir["manifest"]["schemas"] if s["id"] == item["schema"])}", .description = "{item["description"]}"}};',
-                f'    using Fields = remote::Fields<{field_expression(wrapper, {"id": 1, "name": "value", "description": item["description"], "unit": item["unit"]})}>;',
+                f"    using Fields = remote::Fields<{field_expression(wrapper, {'id': 1, 'name': 'value', 'description': item['description'], 'unit': item['unit']})}>;",
                 f"    static constexpr std::size_t max_encoded_size = {next(s['max_encoded_size'] for s in ir['manifest']['schemas'] if s['id'] == item['schema'])};",
                 "    static constexpr Codec codec = Codec::Cbor;",
                 "};",
@@ -1950,10 +2240,16 @@ def generate_remote_cpp(ir: dict[str, Any]) -> str:
         )
     for item in ir["stream_declarations"]:
         name = item["cpp_name"] + "Remote"
-        remote_streams.append(name if item["direction"] == "out" else f"{name}<Endpoints>")
+        remote_streams.append(
+            name if item["direction"] == "out" else f"{name}<Endpoints>"
+        )
         lines.extend(
             [
-                *(["template <typename Endpoints>"] if item["direction"] == "in" else []),
+                *(
+                    ["template <typename Endpoints>"]
+                    if item["direction"] == "in"
+                    else []
+                ),
                 f"struct {name}",
                 "{",
                 f"    using Value = {item['type']['cpp']};",
@@ -2050,6 +2346,13 @@ def generate_remote_cpp(ir: dict[str, Any]) -> str:
             "",
             f"}} // namespace {namespace}::generated",
             "",
+            f"template <> struct solar::application::GeneratedRemoteTraits<{namespace}::{ir['application']['cpp_type']}>",
+            "{",
+            "    static constexpr bool available = true;",
+            "    template <typename Parameters, typename Endpoints>",
+            f"    using Contract = {namespace}::generated::RemoteContract<Parameters, Endpoints>;",
+            "};",
+            "",
         ]
     )
     return "\n".join(lines)
@@ -2081,7 +2384,9 @@ def _python_annotation(
         return f"{_python_annotation(optional.group(1).strip(), types, qualified=qualified)} | None"
     collection = re.fullmatch(r"(array|sequence)<(.+),\s*[1-9][0-9]*>", type_name)
     if collection:
-        value = _python_annotation(collection.group(2).strip(), types, qualified=qualified)
+        value = _python_annotation(
+            collection.group(2).strip(), types, qualified=qualified
+        )
         return f"tuple[{value}, ...]"
     name = types[type_name]["cpp_name"]
     return f"models.{name}" if qualified else name
@@ -2089,29 +2394,43 @@ def _python_annotation(
 
 def _python_validation(type_name: str, expression: str, indent: str) -> list[str]:
     integer_bounds = {
-        "u8": (0, 2**8 - 1), "u16": (0, 2**16 - 1),
-        "u32": (0, 2**32 - 1), "u64": (0, 2**64 - 1),
-        "i8": (-(2**7), 2**7 - 1), "i16": (-(2**15), 2**15 - 1),
-        "i32": (-(2**31), 2**31 - 1), "i64": (-(2**63), 2**63 - 1),
+        "u8": (0, 2**8 - 1),
+        "u16": (0, 2**16 - 1),
+        "u32": (0, 2**32 - 1),
+        "u64": (0, 2**64 - 1),
+        "i8": (-(2**7), 2**7 - 1),
+        "i16": (-(2**15), 2**15 - 1),
+        "i32": (-(2**31), 2**31 - 1),
+        "i64": (-(2**63), 2**63 - 1),
     }
     if type_name in integer_bounds:
         minimum, maximum = integer_bounds[type_name]
-        return [f"{indent}if not {minimum} <= {expression} <= {maximum}:",
-                f'{indent}    raise ValueError("{expression} is outside {type_name}")']
+        return [
+            f"{indent}if not {minimum} <= {expression} <= {maximum}:",
+            f'{indent}    raise ValueError("{expression} is outside {type_name}")',
+        ]
     bounded = re.fullmatch(r"(string|bytes)<([1-9][0-9]*)>", type_name)
     if bounded:
-        return [f"{indent}if len({expression}) > {bounded.group(2)}:",
-                f'{indent}    raise ValueError("{expression} exceeds its declared bound")']
+        return [
+            f"{indent}if len({expression}) > {bounded.group(2)}:",
+            f'{indent}    raise ValueError("{expression} exceeds its declared bound")',
+        ]
     optional = re.fullmatch(r"optional<(.+)>", type_name)
     if optional:
-        nested = _python_validation(optional.group(1).strip(), expression, indent + "    ")
+        nested = _python_validation(
+            optional.group(1).strip(), expression, indent + "    "
+        )
         return ([f"{indent}if {expression} is not None:"] + nested) if nested else []
     collection = re.fullmatch(r"(array|sequence)<(.+),\s*([1-9][0-9]*)>", type_name)
     if collection:
         comparison = "!=" if collection.group(1) == "array" else ">"
-        lines = [f"{indent}if len({expression}) {comparison} {collection.group(3)}:",
-                 f'{indent}    raise ValueError("{expression} violates its declared bound")']
-        nested = _python_validation(collection.group(2).strip(), "item", indent + "    ")
+        lines = [
+            f"{indent}if len({expression}) {comparison} {collection.group(3)}:",
+            f'{indent}    raise ValueError("{expression} violates its declared bound")',
+        ]
+        nested = _python_validation(
+            collection.group(2).strip(), "item", indent + "    "
+        )
         if nested:
             lines.append(f"{indent}for item in {expression}:")
             lines.extend(nested)
@@ -2179,13 +2498,25 @@ def generate_python_models(ir: dict[str, Any]) -> str:
                 "",
                 "    def __post_init__(self) -> None:",
                 *(
-                    _python_validation(parameter["type"]["name"], "self.value", "        ")
-                    + ([f"        if self.value < {parameter['minimum']!r}:",
-                        '            raise ValueError("value is below its declared minimum")']
-                       if parameter["minimum"] is not None else [])
-                    + ([f"        if self.value > {parameter['maximum']!r}:",
-                        '            raise ValueError("value exceeds its declared maximum")']
-                       if parameter["maximum"] is not None else [])
+                    _python_validation(
+                        parameter["type"]["name"], "self.value", "        "
+                    )
+                    + (
+                        [
+                            f"        if self.value < {parameter['minimum']!r}:",
+                            '            raise ValueError("value is below its declared minimum")',
+                        ]
+                        if parameter["minimum"] is not None
+                        else []
+                    )
+                    + (
+                        [
+                            f"        if self.value > {parameter['maximum']!r}:",
+                            '            raise ValueError("value exceeds its declared maximum")',
+                        ]
+                        if parameter["maximum"] is not None
+                        else []
+                    )
                     or ["        pass"]
                 ),
                 f"    __solar_schema_id__ = 0x{parameter['schema']:08X}",
@@ -2374,7 +2705,7 @@ def generate_python_package(
         'build-backend = "hatchling.build"\n\n'
         "[project]\n"
         f'name = "{distribution}"\n'
-        'version = "0.1.0"\n'
+        'version = "0.2.0"\n'
         f'description = "Generated Solar client for {ir["application"]["name"]}"\n'
         'requires-python = ">=3.11"\n'
         'dependencies = ["solar-remote>=0.1,<0.2"]\n\n'
@@ -2384,9 +2715,29 @@ def generate_python_package(
 
 
 def write_outputs(
-    project: Path, output: Path, lock_path: Path, *, update_lock: bool
+    project: Path,
+    output: Path,
+    lock_path: Path,
+    *,
+    update_lock: bool,
+    generate_python: bool = True,
+    explain: bool = False,
+    available_features: frozenset[str] = frozenset(),
+    validate_features: bool = False,
 ) -> None:
     ir, lock, compatibility = compile_project(project, lock_path)
+    if (
+        validate_features
+        and ir["requirements"]["remote"]
+        and "remote" not in available_features
+    ):
+        source = ir["requirements"]["remote_source"]
+        raise CompileError(
+            "Remote is required by the authored project; enable CONFIG_SOLAR_REMOTE",
+            SourceLocation(
+                project.parent / source["file"], source["line"], source["column"]
+            ),
+        )
     output.mkdir(parents=True, exist_ok=True)
     cpp_output = output / "solar" / "generated"
     cpp_output.mkdir(parents=True, exist_ok=True)
@@ -2407,36 +2758,68 @@ def write_outputs(
     (cpp_output / "types.hpp").write_text(generate_types_cpp(ir))
     (cpp_output / "parameters.hpp").write_text(generate_parameters_cpp(ir))
     (cpp_output / "contract.hpp").write_text(generate_contract_cpp(ir))
-    (cpp_output / "app.hpp").write_text(generate_app_cpp(ir))
+    (cpp_output / "application.hpp").write_text(generate_app_cpp(ir))
+    (cpp_output / "app.hpp").write_text(
+        "// Generated compatibility include; do not edit.\n#pragma once\n\n"
+        "#include <solar/generated/application.hpp>\n"
+    )
     (cpp_output / "remote.hpp").write_text(generate_remote_cpp(ir))
+    (cpp_output / "application.cpp").write_text(
+        generate_application_translation_unit(ir)
+    )
     build_id = int.from_bytes(
         hashlib.sha256(canonical_ir.encode()).digest()[:8], "little"
     )
-    generate_python_package(ir, output, interface_digest, build_id)
+    if generate_python:
+        generate_python_package(ir, output, interface_digest, build_id)
+    if explain:
+        explanation, rendered = generate_application_explanation(ir)
+        (output / "application.json").write_text(
+            json.dumps(explanation, indent=2, sort_keys=True) + "\n"
+        )
+        (output / "application.txt").write_text(rendered)
     (output / "interface.d").write_text(
         f"{cpp_output / 'app.hpp'}: "
-        + " ".join(str((project.parent / item).resolve()) for item in ir["dependencies"])
+        + " ".join(
+            str((project.parent / item).resolve()) for item in ir["dependencies"]
+        )
         + "\n"
     )
-    if update_lock or not lock_path.exists():
+    if update_lock:
         lock_path.write_text(json.dumps(lock, indent=2, sort_keys=True) + "\n")
 
 
 def main(argv: list[str] | None = None) -> int:
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    explain_command = arguments[:2] == ["explain", "application"]
+    if explain_command:
+        arguments = arguments[2:]
     parser = argparse.ArgumentParser()
-    parser.add_argument("--version", action="version", version=f"solar-codegen {GENERATOR_VERSION}")
+    parser.add_argument(
+        "--version", action="version", version=f"solar-codegen {GENERATOR_VERSION}"
+    )
     parser.add_argument("--project", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--lock", type=Path, required=True)
     parser.add_argument("--update-lock", action="store_true")
-    args = parser.parse_args(argv)
+    parser.add_argument("--no-python", action="store_true")
+    parser.add_argument("--explain", action="store_true")
+    parser.add_argument("--available-feature", action="append", default=[])
+    parser.add_argument("--validate-features", action="store_true")
+    args = parser.parse_args(arguments)
     try:
         write_outputs(
             args.project.resolve(),
             args.output.absolute(),
             args.lock.absolute(),
             update_lock=args.update_lock,
+            generate_python=not args.no_python,
+            explain=args.explain or explain_command,
+            available_features=frozenset(args.available_feature),
+            validate_features=args.validate_features,
         )
+        if explain_command:
+            print((args.output.absolute() / "application.txt").read_text(), end="")
     except (CompileError, OSError, json.JSONDecodeError) as error:
         print(f"solar generation failed: {error}", file=sys.stderr)
         return 2
