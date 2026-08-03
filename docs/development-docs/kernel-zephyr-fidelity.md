@@ -2,7 +2,8 @@
 
 Date: 2026-08-03
 
-Status: problem statement accepted; redesign decisions in progress
+Status: accepted; implementation governed by
+[`kernel-zephyr-fidelity-implementation-plan.md`](kernel-zephyr-fidelity-implementation-plan.md)
 
 ## 1. Purpose
 
@@ -290,4 +291,3 @@ The package is considered faithful only when:
 11. the configuration test matrix covers native simulation, ARM, SMP where
     supported, priority variants, optional facilities, and native
     interoperation.
-
