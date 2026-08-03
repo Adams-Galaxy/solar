@@ -63,6 +63,26 @@ void invalid_native_access(solar::kernel::Timer& timer)
 {
     (void)timer.native_handle();
 }
+#elif SOLAR_FAIL_CASE == 22
+void invalid_native_access(solar::kernel::ConditionVariable& condition)
+{
+    (void)condition.native_handle();
+}
+#elif SOLAR_FAIL_CASE == 23
+void invalid_native_access(solar::kernel::Pipe<16>& pipe)
+{
+    (void)pipe.native_handle();
+}
+#elif SOLAR_FAIL_CASE == 24
+void invalid_native_access(solar::kernel::MemorySlab<16, 2>& slab)
+{
+    (void)slab.native_handle();
+}
+#elif SOLAR_FAIL_CASE == 25
+void invalid_native_access(solar::kernel::SpinLock& lock)
+{
+    (void)lock.native_handle();
+}
 #else
 #error SOLAR_DIAGNOSTIC_UNKNOWN_KERNEL_FAILURE_CASE
 #endif

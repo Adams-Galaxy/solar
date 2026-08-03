@@ -158,7 +158,7 @@ template <std::size_t Capacity> class PollSet
     template <typename Message>
     [[nodiscard]] Result<void> add(MessageQueueRef<Message> queue, std::uint8_t tag = 0) noexcept
     {
-        return add_native(K_POLL_TYPE_MSGQ_DATA_AVAILABLE, queue.native_handle(), tag);
+        return add_native(K_POLL_TYPE_MSGQ_DATA_AVAILABLE, queue.native_queue(), tag);
     }
 
     [[nodiscard]] Result<PollResult> wait(Timeout timeout = Timeout::forever()) noexcept

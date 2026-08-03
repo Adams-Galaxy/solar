@@ -17,6 +17,8 @@
 namespace solar::kernel
 {
 
+template <std::size_t Capacity> class PollSet;
+
 /** Non-owning typed access to an initialized Zephyr message queue. */
 template <typename Message> class MessageQueueRef
 {
@@ -137,18 +139,19 @@ template <typename Message> class MessageQueueRef
         return available() == 0;
     }
 
-    [[nodiscard]] constexpr k_msgq* native_handle() const noexcept
+  private:
+    [[nodiscard]] constexpr k_msgq* native_queue() const noexcept
     {
         return queue_;
     }
 
-  private:
     struct Unchecked
     {};
 
     constexpr MessageQueueRef(k_msgq& queue, Unchecked) noexcept : queue_(&queue) {}
 
     template <typename, std::size_t> friend class MessageQueue;
+    template <std::size_t> friend class PollSet;
 
     k_msgq* queue_;
 };

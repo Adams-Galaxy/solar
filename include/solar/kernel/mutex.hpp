@@ -16,6 +16,7 @@ namespace solar::kernel
 {
 
 class ConditionVariable;
+class ConditionVariableRef;
 
 /** Non-owning access to an initialized recursive Zephyr mutex. */
 class RecursiveMutexRef
@@ -140,6 +141,7 @@ class Mutex
     }
 
     friend class ConditionVariable;
+    friend class ConditionVariableRef;
 
     k_mutex mutex_{};
     std::atomic<k_tid_t> owner_{nullptr};
@@ -324,6 +326,13 @@ template <Lockable MutexType> class UniqueLock
     }
 
   private:
+    void disown_after_native_release() noexcept
+    {
+        owns_ = false;
+    }
+
+    friend class ConditionVariableRef;
+
     MutexType* mutex_{};
     bool owns_ = false;
 };

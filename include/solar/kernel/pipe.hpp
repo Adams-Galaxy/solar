@@ -14,6 +14,84 @@
 namespace solar::kernel
 {
 
+/** Non-owning byte-stream access to an initialized native Zephyr pipe. */
+class PipeRef
+{
+  public:
+    explicit constexpr PipeRef(k_pipe& pipe) noexcept : pipe_(&pipe) {}
+
+    [[nodiscard]] Result<std::size_t> write(std::span<const std::byte> data,
+                                            Timeout timeout = Timeout::forever()) const noexcept
+    {
+        if (in_isr()) {
+            return fail<solar::Error>({.status = solar::Status::Invalid});
+        }
+        const int result = k_pipe_write(pipe_, reinterpret_cast<const std::uint8_t*>(data.data()),
+                                        data.size(), timeout.native_handle());
+        return transfer_result(result, timeout);
+    }
+
+    [[nodiscard]] Result<std::size_t> write(std::span<const std::byte> data,
+                                            const Deadline& deadline) const noexcept
+    {
+        return write(data, deadline.remaining());
+    }
+
+    [[nodiscard]] Result<std::size_t> try_write(std::span<const std::byte> data) const noexcept
+    {
+        return write(data, Timeout::no_wait());
+    }
+
+    [[nodiscard]] Result<std::size_t> read(std::span<std::byte> destination,
+                                           Timeout timeout = Timeout::forever()) const noexcept
+    {
+        if (in_isr()) {
+            return fail<solar::Error>({.status = solar::Status::Invalid});
+        }
+        const int result = k_pipe_read(pipe_, reinterpret_cast<std::uint8_t*>(destination.data()),
+                                       destination.size(), timeout.native_handle());
+        return transfer_result(result, timeout);
+    }
+
+    [[nodiscard]] Result<std::size_t> read(std::span<std::byte> destination,
+                                           const Deadline& deadline) const noexcept
+    {
+        return read(destination, deadline.remaining());
+    }
+
+    [[nodiscard]] Result<std::size_t> try_read(std::span<std::byte> destination) const noexcept
+    {
+        return read(destination, Timeout::no_wait());
+    }
+
+    void reset() const noexcept
+    {
+        k_pipe_reset(pipe_);
+    }
+    void close() const noexcept
+    {
+        k_pipe_close(pipe_);
+    }
+
+  private:
+    [[nodiscard]] static Result<std::size_t> transfer_result(int result, Timeout timeout) noexcept
+    {
+        if (result >= 0) {
+            return static_cast<std::size_t>(result);
+        }
+        if (result == -EAGAIN) {
+            return fail<Error>(
+                {.status = timeout.is_no_wait() ? Status::WouldBlock : Status::Timeout});
+        }
+        if (result == -ECANCELED) {
+            return fail<solar::Error>({.status = solar::Status::Cancelled});
+        }
+        return fail<Error>(error_from_errno(result));
+    }
+
+    k_pipe* pipe_;
+};
+
 template <std::size_t Capacity> class Pipe
 {
     static_assert(Capacity > 0,
@@ -35,12 +113,7 @@ template <std::size_t Capacity> class Pipe
     [[nodiscard]] Result<std::size_t> write(std::span<const std::byte> data,
                                             Timeout timeout = Timeout::forever()) noexcept
     {
-        if (in_isr()) {
-            return fail<solar::Error>({.status = solar::Status::Invalid});
-        }
-        const int result = k_pipe_write(&pipe_, reinterpret_cast<const std::uint8_t*>(data.data()),
-                                        data.size(), timeout.native_handle());
-        return transfer_result(result, timeout);
+        return ref().write(data, timeout);
     }
 
     [[nodiscard]] Result<std::size_t> write(std::span<const std::byte> data,
@@ -57,12 +130,7 @@ template <std::size_t Capacity> class Pipe
     [[nodiscard]] Result<std::size_t> read(std::span<std::byte> destination,
                                            Timeout timeout = Timeout::forever()) noexcept
     {
-        if (in_isr()) {
-            return fail<solar::Error>({.status = solar::Status::Invalid});
-        }
-        const int result = k_pipe_read(&pipe_, reinterpret_cast<std::uint8_t*>(destination.data()),
-                                       destination.size(), timeout.native_handle());
-        return transfer_result(result, timeout);
+        return ref().read(destination, timeout);
     }
 
     [[nodiscard]] Result<std::size_t> read(std::span<std::byte> destination,
@@ -78,40 +146,20 @@ template <std::size_t Capacity> class Pipe
 
     void reset() noexcept
     {
-        k_pipe_reset(&pipe_);
+        ref().reset();
     }
 
     void close() noexcept
     {
-        k_pipe_close(&pipe_);
+        ref().close();
     }
 
-    [[nodiscard]] k_pipe* native_handle() noexcept
+    [[nodiscard]] PipeRef ref() noexcept
     {
-        return &pipe_;
-    }
-
-    [[nodiscard]] const k_pipe* native_handle() const noexcept
-    {
-        return &pipe_;
+        return PipeRef{pipe_};
     }
 
   private:
-    [[nodiscard]] static Result<std::size_t> transfer_result(int result, Timeout timeout) noexcept
-    {
-        if (result >= 0) {
-            return static_cast<std::size_t>(result);
-        }
-        if (result == -EAGAIN) {
-            return fail<Error>(
-                {.status = timeout.is_no_wait() ? Status::WouldBlock : Status::Timeout});
-        }
-        if (result == -ECANCELED) {
-            return fail<solar::Error>({.status = solar::Status::Cancelled});
-        }
-        return fail<Error>(error_from_errno(result));
-    }
-
     std::array<std::uint8_t, Capacity> storage_{};
     k_pipe pipe_{};
 };

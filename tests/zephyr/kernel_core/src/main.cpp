@@ -38,13 +38,21 @@ static_assert(!std::is_copy_constructible_v<kernel::EventFlags>);
 static_assert(!std::is_move_constructible_v<kernel::EventFlags>);
 static_assert(std::is_trivially_copyable_v<kernel::SemaphoreRef>);
 static_assert(std::is_trivially_copyable_v<kernel::RecursiveMutexRef>);
+static_assert(std::is_trivially_copyable_v<kernel::ConditionVariableRef>);
 static_assert(std::is_trivially_copyable_v<kernel::MessageQueueRef<std::uint32_t>>);
 static_assert(std::is_trivially_copyable_v<kernel::TimerRef>);
+static_assert(std::is_trivially_copyable_v<kernel::PipeRef>);
+static_assert(std::is_trivially_copyable_v<kernel::MemorySlabRef<16>>);
+static_assert(std::is_trivially_copyable_v<kernel::SpinLockRef>);
 static_assert(!HasNativeHandle<kernel::Mutex>);
 static_assert(!HasNativeHandle<kernel::RecursiveMutex>);
+static_assert(!HasNativeHandle<kernel::ConditionVariable>);
 static_assert(!HasNativeHandle<kernel::Semaphore>);
 static_assert(!HasNativeHandle<kernel::MessageQueue<std::uint32_t, 2>>);
 static_assert(!HasNativeHandle<kernel::Timer>);
+static_assert(!HasNativeHandle<kernel::Pipe<16>>);
+static_assert(!HasNativeHandle<kernel::MemorySlab<16, 2>>);
+static_assert(!HasNativeHandle<kernel::SpinLock>);
 #if defined(CONFIG_EVENTS)
 static_assert(std::is_trivially_copyable_v<kernel::EventFlagsRef>);
 static_assert(!HasNativeHandle<kernel::EventFlags>);
@@ -193,7 +201,7 @@ ZTEST(solar_kernel_core, test_priority_scheduler_and_current_thread)
     kernel::this_thread::set_priority(original);
 
     zassert_not_null(kernel::this_thread::id());
-    zassert_equal(kernel::this_thread::ref().native_handle(), kernel::this_thread::id());
+    zassert_equal(kernel::this_thread::ref().id(), kernel::this_thread::id());
     zassert_equal(result_status(kernel::this_thread::yield()), solar::Status::Ok);
     zassert_equal(result_status(kernel::this_thread::busy_wait_for(10us)), solar::Status::Ok);
 
@@ -216,6 +224,18 @@ ZTEST(solar_kernel_core, test_borrowed_native_objects)
     zassert_equal(result_status(mutex.lock()), solar::Status::Ok);
     zassert_equal(result_status(mutex.lock()), solar::Status::Ok);
     zassert_equal(result_status(mutex.unlock()), solar::Status::Ok);
+
+    k_condvar native_condition;
+    zassert_equal(k_condvar_init(&native_condition), 0);
+    kernel::ConditionVariableRef condition{native_condition};
+    kernel::Mutex condition_mutex;
+    auto condition_lock = kernel::UniqueLock<kernel::Mutex>::acquire(condition_mutex);
+    zassert_true(condition_lock.has_value());
+    zassert_equal(result_status(condition.wait(*condition_lock, kernel::Timeout::no_wait())),
+                  solar::Status::WouldBlock);
+    zassert_false(condition_lock->owns_lock());
+    zassert_equal(result_status(condition_lock->lock()), solar::Status::Ok);
+    zassert_equal(result_status(condition_lock->unlock()), solar::Status::Ok);
     zassert_equal(result_status(mutex.unlock()), solar::Status::Ok);
 
     alignas(std::uint32_t) std::array<std::byte, sizeof(std::uint32_t) * 2> storage{};
@@ -233,6 +253,35 @@ ZTEST(solar_kernel_core, test_borrowed_native_objects)
     zassert_true(timer.running());
     timer.stop();
     zassert_false(timer.running());
+
+    std::array<std::uint8_t, 8> pipe_storage{};
+    k_pipe native_pipe;
+    k_pipe_init(&native_pipe, pipe_storage.data(), pipe_storage.size());
+    kernel::PipeRef pipe{native_pipe};
+    const std::array<std::byte, 3> outgoing{std::byte{1}, std::byte{2}, std::byte{3}};
+    std::array<std::byte, 3> incoming{};
+    zassert_equal(*pipe.try_write(outgoing), outgoing.size());
+    zassert_equal(*pipe.try_read(incoming), incoming.size());
+    zassert_mem_equal(incoming.data(), outgoing.data(), outgoing.size());
+
+    alignas(void*) std::array<std::byte, 32> slab_storage{};
+    k_mem_slab native_slab;
+    zassert_equal(k_mem_slab_init(&native_slab, slab_storage.data(), 16, 2), 0);
+    kernel::MemorySlabRef<16> slab{native_slab};
+    {
+        auto block = slab.try_allocate();
+        zassert_true(block.has_value());
+        zassert_equal(slab.used(), 1);
+        block->bytes()[0] = std::byte{0x5a};
+    }
+    zassert_equal(slab.used(), 0);
+
+    k_spinlock native_spinlock{};
+    kernel::SpinLockRef spinlock{native_spinlock};
+    {
+        auto guard = spinlock.acquire();
+        (void)guard;
+    }
 
 #if defined(CONFIG_EVENTS)
     k_event native_events;

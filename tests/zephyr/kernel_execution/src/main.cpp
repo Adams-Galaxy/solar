@@ -441,13 +441,13 @@ ZTEST(solar_kernel_execution, test_thread_diagnostics_and_enumeration)
 
     const auto thread_ref = thread.ref();
     zassert_true(thread_ref.has_value());
-    zassert_equal(result_status(kernel::set_stack_warning_margin(thread_ref->native_handle(), 16)),
+    zassert_equal(result_status(kernel::set_stack_warning_margin(thread_ref->id(), 16)),
                   solar::Status::Ok);
-    const auto safety = kernel::check_stack_safety(thread_ref->native_handle(), true);
+    const auto safety = kernel::check_stack_safety(thread_ref->id(), true);
     zassert_true(safety.has_value());
     zassert_true(safety->unused > 0);
 
-    expected_thread = thread_ref->native_handle();
+    expected_thread = thread_ref->id();
     enumerated_threads.store(0, std::memory_order_relaxed);
     found_thread.store(false, std::memory_order_relaxed);
     zassert_equal(result_status(kernel::for_each_thread_locked(&count_thread)), solar::Status::Ok);

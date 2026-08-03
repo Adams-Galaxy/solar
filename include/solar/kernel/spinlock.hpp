@@ -8,6 +8,8 @@
 namespace solar::kernel
 {
 
+class SpinLockRef;
+
 class SpinLock
 {
   public:
@@ -33,6 +35,7 @@ class SpinLock
         Guard(k_spinlock& lock, k_spinlock_key_t key) noexcept : lock_(&lock), key_(key) {}
 
         friend class SpinLock;
+        friend class SpinLockRef;
 
         k_spinlock* lock_{};
         k_spinlock_key_t key_{};
@@ -45,32 +48,58 @@ class SpinLock
     SpinLock(SpinLock&&) = delete;
     SpinLock& operator=(SpinLock&&) = delete;
 
-    [[nodiscard]] Guard acquire() noexcept
-    {
-        return Guard{lock_, k_spin_lock(&lock_)};
-    }
+    [[nodiscard]] Guard acquire() noexcept;
 
-    [[nodiscard]] std::optional<Guard> try_acquire() noexcept
-    {
-        k_spinlock_key_t key{};
-        if (k_spin_trylock(&lock_, &key) != 0) {
-            return std::nullopt;
-        }
-        return Guard{lock_, key};
-    }
+    [[nodiscard]] std::optional<Guard> try_acquire() noexcept;
 
-    [[nodiscard]] k_spinlock* native_handle() noexcept
-    {
-        return &lock_;
-    }
-
-    [[nodiscard]] const k_spinlock* native_handle() const noexcept
-    {
-        return &lock_;
-    }
+    [[nodiscard]] SpinLockRef ref() noexcept;
 
   private:
     k_spinlock lock_{};
 };
+
+/** Non-owning access to an initialized native Zephyr spinlock. */
+class SpinLockRef
+{
+  public:
+    explicit constexpr SpinLockRef(k_spinlock& lock) noexcept : lock_(&lock) {}
+
+    [[nodiscard]] SpinLock::Guard acquire() const noexcept
+    {
+        return SpinLock::Guard{*lock_, k_spin_lock(lock_)};
+    }
+
+    [[nodiscard]] std::optional<SpinLock::Guard> try_acquire() const noexcept
+    {
+        k_spinlock_key_t key{};
+        if (k_spin_trylock(lock_, &key) != 0) {
+            return std::nullopt;
+        }
+        return SpinLock::Guard{*lock_, key};
+    }
+
+    [[nodiscard]] constexpr k_spinlock* native_handle() const noexcept
+    {
+        return lock_;
+    }
+
+  private:
+    k_spinlock* lock_;
+};
+
+inline SpinLockRef SpinLock::ref() noexcept
+{
+    return SpinLockRef{lock_};
+}
+
+inline SpinLock::Guard SpinLock::acquire() noexcept
+{
+    return ref().acquire();
+}
+
+inline std::optional<SpinLock::Guard> SpinLock::try_acquire() noexcept
+{
+    return ref().try_acquire();
+}
 
 } // namespace solar::kernel

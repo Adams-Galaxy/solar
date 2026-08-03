@@ -252,8 +252,7 @@ template <std::size_t StackBytes>
     if (!reference) {
         return fail<Error>(reference.error());
     }
-    auto diagnostics =
-        thread_diagnostics(reference->native_handle(), Thread<StackBytes>::stack_size());
+    auto diagnostics = thread_diagnostics(reference->id(), Thread<StackBytes>::stack_size());
     if (diagnostics) {
         diagnostics->state = thread.state();
     }

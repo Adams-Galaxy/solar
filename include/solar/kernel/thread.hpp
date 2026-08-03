@@ -24,7 +24,8 @@ class ThreadRef
   public:
     explicit constexpr ThreadRef(k_thread& thread) noexcept : thread_(&thread) {}
 
-    [[nodiscard]] constexpr ThreadId native_handle() const noexcept
+    /** Return the native thread identity; lifecycle mutation remains wrapped. */
+    [[nodiscard]] constexpr ThreadId id() const noexcept
     {
         return thread_;
     }

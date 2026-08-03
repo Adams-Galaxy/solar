@@ -44,45 +44,38 @@ test ABI:
 
 ## 2. Current Wrapper Interoperation
 
-This is the initial matrix. “Mutable handle” describes the API before the
-corresponding ownership phase is completed.
+This matrix records the Phase 2 boundary. A raw handle appears only on a value
+type or transparent borrowed reference whose invariants survive native calls.
 
-| Solar surface | Owns native storage | Solar-only state | Mutable handle | Final direction |
-| --- | ---: | --- | ---: | --- |
-| `Priority` | no | validated signed value | n/a | exact value type |
-| `Timeout`, `Deadline` | no | typed time value | n/a | exact value types |
-| `Thread<N>` | yes | entry, argument, ID, lifecycle state | yes | owner plus `ThreadRef`; no mutating owner handle |
-| `Mutex` | yes | non-recursive owner tracking | yes | retain owner invariant; no mutable handle |
-| `RecursiveMutex` | yes | none | yes | transparent owner plus `RecursiveMutexRef` |
-| `ConditionVariable` | yes | none | yes | transparent owner/reference where useful |
-| `Semaphore` | yes | none | yes | transparent owner plus `SemaphoreRef` |
-| `EventFlags` | yes | none | yes | transparent owner plus `EventFlagsRef` |
-| `MessageQueue<T, N>` | yes | owned byte buffer | yes | owner plus typed `MessageQueueRef<T>` |
-| `Pipe<N>` | yes | owned byte buffer | yes | owner plus `PipeRef` |
-| `MemorySlab<B, N>` | yes | owned aligned blocks | yes | owner plus slab reference and explicit block lifetime |
-| `Timer` | yes | callback pointers | yes | owner/reference split without callback mutation holes |
-| `SpinLock` | yes | none | yes | transparent exact owner/reference |
-| `InterruptLock` | no | saved architecture key | n/a | companion RAII capability |
-| `SchedulerLock` | no | acquisition ownership | n/a | companion RAII capability |
-| `PollSignal` | yes | none | yes | transparent owner plus reference |
-| `PollSet<N>` | yes | count and tag metadata | event array | retain controlled event storage; broaden sources |
-| `Work` | yes | handler and running handler ID | yes | owner; focused queue submission capability |
-| `DelayableWork` | yes | handler and running handler ID | yes | owner; focused queue submission capability |
-| `TriggeredWork` | yes | handler, event pointer/count, armed state | yes | redesign arm/replacement ownership |
-| `WorkQueue<N>` | yes | stack and `started_` | yes | owner plus `WorkQueueTarget`; remove abort |
-| `SystemWorkQueue` | no | none | yes | non-owning `WorkQueueTarget` |
-| `StopSource`, `StopToken` | companion | shared stop generation | n/a | one-shot generations; not called native Zephyr |
-| diagnostics/fatal | no | normalized snapshots/latched fatal state | thread IDs | public Zephyr API boundary only |
+| Solar surface | Solar-only state | Borrowing/interoperation | Owner raw handle |
+| --- | --- | --- | ---: |
+| `Priority`, `Timeout`, `Deadline` | validated typed value | exact native value conversion | value |
+| `Thread<N>` | entry, argument, ID, lifecycle state | `ThreadRef`; observable native ID only | no |
+| `Mutex` | non-recursive owner tracking | deliberately none; condition wait is a private capability | no |
+| `RecursiveMutex` | none | `RecursiveMutexRef`, including native handle | no |
+| `ConditionVariable` | none | `ConditionVariableRef`, including native handle | no |
+| `Semaphore` | none | `SemaphoreRef`, including native handle | no |
+| `EventFlags` | none | `EventFlagsRef`, including native handle | no |
+| `MessageQueue<T, N>` | owned typed buffer and capacity | `MessageQueueRef<T>` typed operations; no reinitialization handle | no |
+| `Pipe<N>` | owned byte buffer and capacity | `PipeRef` operations; no reinitialization handle | no |
+| `MemorySlab<B, N>` | owned aligned storage | `MemorySlabRef<B>` and native-backed RAII block | no |
+| `Timer` | callback pointers and user data | `TimerRef` operations; no reinitialization handle | no |
+| `SpinLock` | none | `SpinLockRef`, including native handle | no |
+| `InterruptLock`, `SchedulerLock` | acquisition ownership | focused RAII capability | n/a |
+| `PollSignal` | none | `PollSignalRef`, including native handle | no |
+| `PollSet<N>` | event storage, count, and tags | private triggered-work capability only | no |
+| `Work`, `DelayableWork` | handler and running handler ID | submission APIs only | no |
+| `TriggeredWork` | handler, event lifetime, armed state | submission APIs only | no |
+| `WorkQueue<N>` | stack and lifecycle state | `WorkQueueTarget` submission capability | no |
+| system workqueue | Zephyr-owned | `system_work_queue` submission capability | n/a |
+| `StopSource`, `StopToken` | companion stop generation | no native claim | n/a |
+| diagnostics/fatal | normalized snapshots/latched fatal state | observable thread identity and public Zephyr APIs | n/a |
 
-No new mutable native handle is permitted until its row has a native mutation
-test showing that Solar lifecycle and destruction remain correct.
-
-Phase 2 has introduced `ThreadRef`, `SemaphoreRef`, `RecursiveMutexRef`,
-`EventFlagsRef`, `MessageQueueRef<T>`, `TimerRef`, and `PollSignalRef`.
-`WorkQueueTarget` now carries submission authority without exposing a queue
-handle. Mutable native access has been removed from `Mutex`, owned `Thread`,
-`Timer`, `Work`, `DelayableWork`, `TriggeredWork`, `WorkQueue`, and `PollSet`.
-The remaining rows are still under audit, so Phase 2 remains in progress.
+Borrowed references never initialize or own the native object. `MemorySlabBlock`
+stores the native slab identity rather than a Solar owner pointer, so the same
+RAII block type works for Solar-owned and Zephyr-owned slabs. All references
+retain the ordinary requirement that the native object outlive the reference
+and any outstanding wait or allocation.
 
 ## 3. Zephyr Kernel Coverage
 
@@ -165,18 +158,23 @@ Teensy: optimized/LTO application built; text 201276, data 99524, bss 131749
 Documentation audit: 18 aggregates, 9 subsystems, 67 Kconfig symbols passed
 ```
 
-### 2026-08-03 — ownership/reference foundation
+### 2026-08-03 — ownership/reference boundary
 
 ```text
-Solar worktree after Phase 1: Phase 2 partial implementation
+Solar worktree after Phase 1: Phase 2 implementation
 Host: 68/68 passed
 Native: kernel core, kernel execution, and Remote protocol all passed;
         21/21 runtime cases
 Borrowing: native semaphore, recursive mutex, message queue, event, timer,
-           poll signal, and current thread exercised through typed references
-Compile-fail: mutable owner handles rejected for Mutex, Thread, WorkQueue, Timer
-Teensy: optimized/LTO application built; FLASH 303300 B, RAM 198040 B
+           poll signal, condition variable, pipe, memory slab, spinlock, and
+           current thread exercised through typed references
+Compile-fail: mutable owner handles rejected for every shadow-state owner,
+              including Mutex, Thread, WorkQueue, Timer, ConditionVariable,
+              Pipe, MemorySlab, and SpinLock
+Condition wait: failed Zephyr 4.4 waits correctly disown UniqueLock because the
+                native mutex is not reacquired on -EAGAIN
+Teensy: optimized/LTO application built; FLASH 301492 B, RAM 198040 B
 Documentation audit: 18 aggregates, 9 subsystems, 67 Kconfig symbols passed
-Known limitations: Phase 2 remains active for the remaining transparent owners
-                   and final interoperation audit
+Known limitations: context rejection and errno preservation are assigned to
+                   Phase 3
 ```

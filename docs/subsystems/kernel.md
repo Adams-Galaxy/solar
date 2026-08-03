@@ -34,6 +34,11 @@ Blocking operations return `Result<T>`. A no-wait miss is normally
 `Status::Timeout`. Check each primitive's typed error where it carries richer
 native detail.
 
+Zephyr 4.4 reacquires a condition-variable mutex only when the wait succeeds.
+After a timeout or no-wait miss, Solar therefore marks the accompanying
+`UniqueLock` as not owning the mutex; call `lock()` again before accessing the
+protected state.
+
 ## Interrupt context
 
 Only methods explicitly named for ISR use, or documented as no-wait ISR-safe,
@@ -46,7 +51,8 @@ in thread context.
 Owning wrappers use stable native storage and do not expose mutable handles when
 a native call could invalidate their lifecycle or callback state. Use
 `owner.ref()` to borrow transparent primitives such as semaphores, recursive
-mutexes, events, message queues, timers, poll signals, and initialized threads.
+mutexes, condition variables, events, message queues, pipes, memory slabs,
+timers, spinlocks, poll signals, and initialized threads.
 The matching `FooRef` can also borrow a Zephyr-owned object without taking over
 its initialization or lifetime.
 
