@@ -6,16 +6,17 @@ digraph execution_boundary {
   "Zephyr kernel" -> "solar::kernel";
   "solar::kernel" -> "Direct application mechanisms";
   "solar::kernel" -> "solar::execution";
-  "Blueprint registrations" -> "solar::execution";
+  "Generated roles and adapters" -> "solar::execution";
   "solar::execution" -> "System lifecycle and records";
 }
 ```
 
 Kernel wrappers own native storage and preserve Zephyr state-machine semantics.
-Execution owns registration metadata, target resolution, System state slots,
-activation, quiescence, and containment. A direct Kernel work item remains the
-responsibility of its application owner; Solar does not discover it.
+Execution provides bounded task queues and service runners. Registration
+metadata and target selection belong to the module or adapter using them. A
+direct Kernel work item remains the responsibility of its application owner;
+Solar does not discover it.
 
 The system workqueue is Zephyr-owned. Application workqueue executors and
-service threads are Solar-owned components. This distinction controls what
-Solar may stop, drain, join, or abort during shutdown.
+service threads are explicitly owned modules. This distinction controls what an
+application may stop, drain, join, or abort during shutdown.

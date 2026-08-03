@@ -1,98 +1,74 @@
-#include <atomic>
-
-#include <zephyr/kernel.h>
 #include <zephyr/sys/printk.h>
 
-#include <solar/solar.hpp>
+#include <solar/system.hpp>
 
 namespace app
 {
+struct Application;
 
-// [components]
 struct Platform
 {
-    static constexpr solar::component::Descriptor descriptor{.name = "composition.platform"};
-    inline static bool ready{};
-
-    static solar::Result<void> init() noexcept
+    static constexpr std::string_view name = "composition.platform";
+    using Dependencies = solar::TypeList<>;
+    static solar::Result<void> initialize() noexcept
     {
         ready = true;
         return {};
     }
-
-    static solar::Result<void> deinit() noexcept
+    static solar::Result<void> deinitialize() noexcept
     {
         ready = false;
         return {};
     }
+    inline static bool ready{};
 };
 
 struct Sensor
 {
-    static constexpr solar::component::Descriptor descriptor{.name = "composition.sensor"};
-    using Dependencies = solar::Dependencies<Platform>;
-
-    static solar::Result<void> init() noexcept
+    static constexpr std::string_view name = "composition.sensor";
+    using Dependencies = solar::TypeList<Platform>;
+    static solar::Result<void> initialize() noexcept
     {
-        return Platform::ready
-                   ? solar::Result<void>{}
-                   : solar::Result<void>{
-                         solar::fail<solar::Error>({.status = solar::Status::NotReady})};
+        initialized = Platform::ready;
+        return initialized ? solar::Result<void>{}
+                           : solar::Result<void>{
+                                 solar::fail<solar::Error>({.status = solar::Status::NotReady})};
     }
-};
-// [components]
-
-// [contribution]
-inline std::atomic_uint sample_count{};
-
-struct SampleBehavior
-{
-    static void execute() noexcept
+    static solar::Result<void> deinitialize() noexcept
     {
-        sample_count.fetch_add(1, std::memory_order_release);
+        initialized = false;
+        return {};
     }
+    inline static bool initialized{};
 };
 
-using SampleWork = solar::execution::OnDemand<
-    "composition.sample", SampleBehavior, solar::execution::SystemWorkQueue,
-    solar::execution::DependsOn<Sensor>>;
-
-struct Controller
+struct DiagnosticsAdapter
 {
-    static constexpr solar::component::Descriptor descriptor{.name = "composition.controller"};
-    using Dependencies = solar::Dependencies<Sensor>;
-    using Tasks = solar::execution::Tasks<SampleWork>;
+    template <typename Endpoint> static solar::Result<void> connect() noexcept
+    {
+        static_assert(std::same_as<Endpoint, Sensor>);
+        connected = Endpoint::initialized;
+        return connected ? solar::Result<void>{}
+                         : solar::Result<void>{
+                               solar::fail<solar::Error>({.status = solar::Status::NotReady})};
+    }
+    template <typename> static solar::Result<void> disconnect() noexcept
+    {
+        connected = false;
+        return {};
+    }
+    inline static bool connected{};
 };
-// [contribution]
 
-// [blueprint]
-using Blueprint = solar::Blueprint<solar::Devices<Sensor>,
-                                   solar::Facilities<Platform, Controller>>;
-using System = solar::System<Blueprint>;
-
+using Composition =
+    solar::Compose<solar::Own<Platform, Sensor>, solar::Connect<DiagnosticsAdapter, Sensor>>;
+using System = solar::system::System<Application, Composition>;
 } // namespace app
-
-SOLAR_BIND_SYSTEM(app::System);
-// [blueprint]
 
 int main()
 {
-    if (!solar::boot()) {
-        return -1;
-    }
-
-    if (!solar::execution::submit<app::SampleWork>()) {
-        return -2;
-    }
-    for (int attempt = 0; attempt < 20 && app::sample_count.load(std::memory_order_acquire) == 0;
-         ++attempt) {
-        k_sleep(K_MSEC(1));
-    }
-
-    const auto sensor = solar::lifecycle::record<app::Sensor>();
-    const bool passed = sensor && app::sample_count.load(std::memory_order_acquire) == 1;
+    const bool passed =
+        app::System::boot() && app::Sensor::initialized && app::DiagnosticsAdapter::connected;
     printk("Solar system composition %s\n", passed ? "passed" : "failed");
-
-    const auto stopped = solar::stop();
-    return passed && stopped ? 0 : -3;
+    return passed && app::System::shutdown() ? 0 : -1;
 }

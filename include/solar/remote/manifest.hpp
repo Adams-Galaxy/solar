@@ -986,12 +986,10 @@ template <typename... Policies> struct FirstExclusivePolicy
     using type = void;
 };
 
-template <typename Head, typename... Tail>
-struct FirstExclusivePolicy<Head, Tail...>
+template <typename Head, typename... Tail> struct FirstExclusivePolicy<Head, Tail...>
 {
-    using type =
-        std::conditional_t<remote::detail::IsExclusive<Head>::value, Head,
-                           typename FirstExclusivePolicy<Tail...>::type>;
+    using type = std::conditional_t<remote::detail::IsExclusive<Head>::value, Head,
+                                    typename FirstExclusivePolicy<Tail...>::type>;
 };
 
 template <typename... Policies> struct InStreamMetadata
@@ -999,7 +997,8 @@ template <typename... Policies> struct InStreamMetadata
     static constexpr std::size_t open_count =
         (std::size_t{} + ... + static_cast<std::size_t>(remote::detail::IsOnOpen<Policies>::value));
     static constexpr std::size_t close_count =
-        (std::size_t{} + ... + static_cast<std::size_t>(remote::detail::IsOnClose<Policies>::value));
+        (std::size_t{} + ... +
+         static_cast<std::size_t>(remote::detail::IsOnClose<Policies>::value));
     static constexpr std::size_t exclusive_count =
         (std::size_t{} + ... +
          static_cast<std::size_t>(remote::detail::IsExclusive<Policies>::value));
@@ -1021,22 +1020,21 @@ template <typename... Policies> struct InStreamMetadata
                            typename remote::detail::IsExclusive<ExclusivePolicy>::Behavior>;
 
     static constexpr InStreamFlags flags = static_cast<InStreamFlags>(
-        bits(InStreamFlags::ExplicitOpen) |
-        (open_count != 0 ? bits(InStreamFlags::OnOpen) : 0U) |
+        bits(InStreamFlags::ExplicitOpen) | (open_count != 0 ? bits(InStreamFlags::OnOpen) : 0U) |
         (close_count != 0 ? bits(InStreamFlags::OnClose) : 0U) |
         (exclusive_count != 0 ? bits(InStreamFlags::Exclusive) : 0U));
     static constexpr ReplacementKind replacement =
-        exclusive_count == 0
-            ? ReplacementKind::None
-            : (std::same_as<Behavior, Replace> ? ReplacementKind::Replace
-                                               : ReplacementKind::Reject);
+        exclusive_count == 0 ? ReplacementKind::None
+                             : (std::same_as<Behavior, Replace> ? ReplacementKind::Replace
+                                                                : ReplacementKind::Reject);
     static constexpr std::uint32_t group_id = [] {
         if constexpr (exclusive_count == 0) {
             return std::uint32_t{};
         } else {
-            static_assert(requires { Group::descriptor; },
-                          "SOLAR_DIAGNOSTIC_REMOTE_IN_STREAM_GROUP_DESCRIPTOR: exclusive group "
-                          "requires an InStreamGroupDescriptor");
+            static_assert(
+                requires { Group::descriptor; },
+                "SOLAR_DIAGNOSTIC_REMOTE_IN_STREAM_GROUP_DESCRIPTOR: exclusive group "
+                "requires an InStreamGroupDescriptor");
             static_assert(
                 std::convertible_to<decltype(Group::descriptor), InStreamGroupDescriptor>,
                 "SOLAR_DIAGNOSTIC_REMOTE_IN_STREAM_GROUP_DESCRIPTOR: exclusive group descriptor "
@@ -1269,7 +1267,23 @@ consteval void emit_topic_capabilities(Writer& writer, TypeList<TopicTypes...>)
 
 template <typename StreamT> consteval void emit_stream_capability(Writer& writer)
 {
-    emit_capability<EndpointDomain::Stream, StreamT, StreamPublication>(writer);
+    if constexpr (requires { StreamT::input; } && StreamT::input) {
+        static_assert(
+            requires { typename StreamT::Capabilities; },
+            "SOLAR_DIAGNOSTIC_REMOTE_INPUT_STREAM_CAPABILITY: an input Stream requires "
+            "an InStream capability");
+        []<typename... CapabilityTypes>(Writer& output,
+                                        Capabilities<CapabilityTypes...>) consteval {
+            using Sorted = sort_t<TypeList<CapabilityTypes...>, CapabilityKindLess>;
+            []<typename... SortedCapabilities>(Writer& destination,
+                                               TypeList<SortedCapabilities...>) consteval {
+                (emit_capability<EndpointDomain::Stream, StreamT, SortedCapabilities>(destination),
+                 ...);
+            }(output, Sorted{});
+        }(writer, typename StreamT::Capabilities{});
+    } else {
+        emit_capability<EndpointDomain::Stream, StreamT, StreamPublication>(writer);
+    }
 }
 
 template <typename... StreamTypes>
@@ -1299,17 +1313,15 @@ template <typename CapabilitiesT> struct CapabilityListInStreamGroups;
 template <typename... CapabilityTypes>
 struct CapabilityListInStreamGroups<Capabilities<CapabilityTypes...>>
 {
-    using type =
-        unique_t<concat_t<typename CapabilityInStreamGroups<CapabilityTypes>::type...>>;
+    using type = unique_t<concat_t<typename CapabilityInStreamGroups<CapabilityTypes>::type...>>;
 };
 
 template <typename DataListT> struct DataInStreamGroups;
 
 template <typename... DataTypes> struct DataInStreamGroups<TypeList<DataTypes...>>
 {
-    using type =
-        unique_t<concat_t<typename CapabilityListInStreamGroups<
-            typename DataTypes::Capabilities>::type...>>;
+    using type = unique_t<
+        concat_t<typename CapabilityListInStreamGroups<typename DataTypes::Capabilities>::type...>>;
 };
 
 template <typename... GroupTypes> consteval bool unique_group_ids(TypeList<GroupTypes...>)
@@ -1404,8 +1416,10 @@ template <typename System> struct Image
     using Links = detail::sort_t<
         typename detail::Declarations<typename System::RemoteLinkCatalog::EntryTypes>::type,
         detail::EndpointIdLess>;
-    using InStreamGroups = detail::sort_t<typename detail::DataInStreamGroups<Data>::type,
-                                          detail::EndpointIdLess>;
+    using InStreamGroups =
+        detail::sort_t<unique_t<concat_t<typename detail::DataInStreamGroups<Data>::type,
+                                         typename detail::DataInStreamGroups<Streams>::type>>,
+                       detail::EndpointIdLess>;
     using InitialCandidateSchemas =
         unique_t<concat_t<AuthoredSchemas, typename detail::DataSchemas<Data>::type,
                           typename detail::ActionSchemas<Actions>::type,
@@ -1454,21 +1468,19 @@ template <typename System> struct Image
         detail::SchemaEnumValueCount<EnumSchemas>::value;
     static constexpr std::size_t capability_count =
         detail::DataCapabilityCount<Data>::value + topic_count + stream_count;
-    static constexpr std::size_t record_count = schema_count + field_count + enum_value_count +
-                                                data_count + action_count + topic_count +
-                                                stream_count + capability_count + link_count +
-                                                in_stream_group_count;
+    static constexpr std::size_t record_count =
+        schema_count + field_count + enum_value_count + data_count + action_count + topic_count +
+        stream_count + capability_count + link_count + in_stream_group_count;
 
     static constexpr std::size_t byte_count =
         image_header_size + schema_count * 24 + field_count * 34 + enum_value_count * 24 +
         data_count * 20 + action_count * 28 + topic_count * 20 + stream_count * 20 +
         capability_count * detail::capability_record_size + link_count * 16 +
-        in_stream_group_count * 16 +
-        detail::schema_text_size(Schemas{}) + detail::field_text_size(ObjectSchemas{}) +
-        detail::enum_text_size(EnumSchemas{}) + detail::endpoint_text_size(Data{}) +
-        detail::endpoint_text_size(Actions{}) + detail::endpoint_text_size(Topics{}) +
-        detail::endpoint_text_size(Streams{}) + detail::endpoint_text_size(Links{}) +
-        detail::in_stream_group_text_size(InStreamGroups{});
+        in_stream_group_count * 16 + detail::schema_text_size(Schemas{}) +
+        detail::field_text_size(ObjectSchemas{}) + detail::enum_text_size(EnumSchemas{}) +
+        detail::endpoint_text_size(Data{}) + detail::endpoint_text_size(Actions{}) +
+        detail::endpoint_text_size(Topics{}) + detail::endpoint_text_size(Streams{}) +
+        detail::endpoint_text_size(Links{}) + detail::in_stream_group_text_size(InStreamGroups{});
 
     static_assert(record_count <= UINT16_MAX,
                   "SOLAR_DIAGNOSTIC_REMOTE_MANIFEST_RECORD_CEILING: manifest record count exceeds "

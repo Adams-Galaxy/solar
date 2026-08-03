@@ -370,7 +370,7 @@ template <typename DataT> consteval auto in_stream_registration_name()
 
 } // namespace detail
 
-template <typename ArchitectureT> struct Service
+template <typename ArchitectureT, typename RuntimeContextT> struct Service
 {
     static_assert(CONFIG_SOLAR_REMOTE_OUTPUT_LANES == 5,
                   "SOLAR_DIAGNOSTIC_REMOTE_OUTPUT_LANES: the initial scheduler requires five "
@@ -379,20 +379,15 @@ template <typename ArchitectureT> struct Service
         CONFIG_SOLAR_REMOTE_MAX_FRAME_BYTES - protocol::envelope_size - protocol::crc_size;
     static_assert(max_frame_payload > 0);
     using Architecture = ArchitectureT;
+    using RuntimeContext = RuntimeContextT;
     using FacilityType = Facility<Architecture>;
     using Links = typename Architecture::Links;
-    using Dependencies = solar::Dependencies<FacilityType>;
-    using Execution =
-        execution::Service<execution::StackSize<CONFIG_SOLAR_REMOTE_SERVICE_STACK_SIZE>,
-                           execution::Priority<CONFIG_SOLAR_REMOTE_SERVICE_PRIORITY>>;
-
+    using Dependencies = solar::TypeList<FacilityType>;
     template <typename DataT> struct DataWork
     {
         [[nodiscard]] static Result<void> execute() noexcept
         {
-            return FacilityType::process_action_work != nullptr
-                       ? FacilityType::process_action_work(DataT::descriptor.id.value, false)
-                       : Result<void>{fail<solar::Error>({.status = solar::Status::NotReady})};
+            return detail::process_action_work<RuntimeContext>(DataT::descriptor.id.value, false);
         }
     };
 
@@ -400,9 +395,7 @@ template <typename ArchitectureT> struct Service
     {
         [[nodiscard]] static Result<void> execute() noexcept
         {
-            return FacilityType::process_action_work != nullptr
-                       ? FacilityType::process_action_work(ActionT::descriptor.id.value, true)
-                       : Result<void>{fail<solar::Error>({.status = solar::Status::NotReady})};
+            return detail::process_action_work<RuntimeContext>(ActionT::descriptor.id.value, true);
         }
     };
 
@@ -452,9 +445,7 @@ template <typename ArchitectureT> struct Service
     {
         [[nodiscard]] static Result<void> execute() noexcept
         {
-            return FacilityType::process_poll_work != nullptr
-                       ? FacilityType::process_poll_work(DataT::descriptor.id.value)
-                       : Result<void>{fail<solar::Error>({.status = solar::Status::NotReady})};
+            return detail::process_poll_work<RuntimeContext>(DataT::descriptor.id.value);
         }
     };
 
@@ -462,9 +453,7 @@ template <typename ArchitectureT> struct Service
     {
         [[nodiscard]] static Result<void> execute() noexcept
         {
-            return FacilityType::process_in_stream_work != nullptr
-                       ? FacilityType::process_in_stream_work(DataT::descriptor.id.value)
-                       : Result<void>{fail<solar::Error>({.status = solar::Status::NotReady})};
+            return detail::process_in_stream_work<RuntimeContext>(DataT::descriptor.id.value);
         }
     };
 
@@ -589,7 +578,8 @@ template <typename ArchitectureT> struct Service
     using DataRegistrationTypes = typename DataRegistrations<typename Architecture::Data>::type;
     using PollRegistrationTypes = typename PollRegistrations<typename Architecture::Data>::type;
     using InStreamRegistrationTypes =
-        typename InStreamRegistrations<typename Architecture::Data>::type;
+        concat_t<typename InStreamRegistrations<typename Architecture::Data>::type,
+                 typename InStreamRegistrations<typename Architecture::Streams>::type>;
     using Tasks =
         typename AsTasks<concat_t<ActionRegistrationTypes, DataRegistrationTypes,
                                   PollRegistrationTypes, InStreamRegistrationTypes>>::type;
@@ -1043,25 +1033,18 @@ template <typename ArchitectureT> struct Service
                                       | 0x40U
 #endif
 #endif
-#if defined(CONFIG_SOLAR_INSPECTION_REMOTE)
-                                      | 0x20U
-#endif
         );
         return payload;
     }
 
     [[nodiscard]] static auto introspection_summary_payload() noexcept
     {
-        return protocol::encode(FacilityType::introspection_summary != nullptr
-                                    ? FacilityType::introspection_summary()
-                                    : protocol::IntrospectionSummary{});
+        return protocol::encode(detail::introspection_summary<RuntimeContext>());
     }
 
     [[nodiscard]] static auto server_information_payload() noexcept
     {
-        return protocol::encode(FacilityType::server_information != nullptr
-                                    ? FacilityType::server_information()
-                                    : protocol::ServerInformation{});
+        return protocol::encode(detail::server_information<RuntimeContext>());
     }
 
     template <typename LinkT, std::uint16_t Index>
@@ -1110,10 +1093,10 @@ template <typename ArchitectureT> struct Service
         }
 #if defined(CONFIG_SOLAR_REMOTE_MANIFEST_RETRIEVAL)
         if (decoded.envelope.target ==
-                static_cast<std::uint32_t>(protocol::IntrospectionTarget::Manifest) &&
-            FacilityType::manifest_chunk != nullptr) {
+            static_cast<std::uint32_t>(protocol::IntrospectionTarget::Manifest)) {
             static std::array<std::byte, CONFIG_SOLAR_REMOTE_MAX_FRAME_BYTES> manifest_payload{};
-            auto encoded = FacilityType::manifest_chunk(decoded.payload, manifest_payload);
+            auto encoded =
+                detail::manifest_chunk<RuntimeContext>(decoded.payload, manifest_payload);
             if (!encoded) {
                 (void)protocol_error<LinkT, Index>(
                     decoded.envelope.request_id, decoded.envelope.target,
@@ -1123,65 +1106,6 @@ template <typename ArchitectureT> struct Service
             }
             (void)transmit<LinkT, Index>(protocol::Kind::Introspection,
                                          std::span{manifest_payload}.first(*encoded),
-                                         decoded.envelope.request_id, decoded.envelope.target);
-            return;
-        }
-#endif
-#if defined(CONFIG_SOLAR_INSPECTION_REMOTE)
-        static std::array<std::byte, CONFIG_SOLAR_INSPECTION_REMOTE_RESPONSE_BYTES>
-            inspection_payload{};
-        if (decoded.envelope.target ==
-                static_cast<std::uint32_t>(protocol::IntrospectionTarget::Collections) &&
-            FacilityType::inspection_collections != nullptr) {
-            auto encoded =
-                FacilityType::inspection_collections(decoded.payload, inspection_payload);
-            if (!encoded) {
-                const auto code = encoded.error().reason == Reason::Malformed
-                                      ? protocol::ErrorCode::DecodeFailure
-                                      : protocol::ErrorCode::NoCapacity;
-                (void)protocol_error<LinkT, Index>(decoded.envelope.request_id,
-                                                   decoded.envelope.target, code);
-                return;
-            }
-            (void)transmit<LinkT, Index>(protocol::Kind::Introspection,
-                                         std::span{inspection_payload}.first(*encoded),
-                                         decoded.envelope.request_id, decoded.envelope.target);
-            return;
-        }
-        if (decoded.envelope.target ==
-                static_cast<std::uint32_t>(protocol::IntrospectionTarget::CollectionQuery) &&
-            FacilityType::inspection_query != nullptr) {
-            auto encoded = FacilityType::inspection_query(decoded.payload, inspection_payload);
-            if (!encoded) {
-                auto code = protocol::ErrorCode::InternalFailure;
-                switch (encoded.error().status) {
-                case Status::NotFound:
-                    code = protocol::ErrorCode::UnknownTarget;
-                    break;
-                case Status::NotReady:
-                    code = protocol::ErrorCode::NotReady;
-                    break;
-                case Status::Busy:
-                case Status::WouldBlock:
-                    code = protocol::ErrorCode::Busy;
-                    break;
-                case Status::NoSpace:
-                case Status::NoBuffer:
-                    code = protocol::ErrorCode::NoCapacity;
-                    break;
-                case Status::Invalid:
-                case Status::ProtocolError:
-                    code = protocol::ErrorCode::DecodeFailure;
-                    break;
-                default:
-                    break;
-                }
-                (void)protocol_error<LinkT, Index>(decoded.envelope.request_id,
-                                                   decoded.envelope.target, code);
-                return;
-            }
-            (void)transmit<LinkT, Index>(protocol::Kind::Introspection,
-                                         std::span{inspection_payload}.first(*encoded),
                                          decoded.envelope.request_id, decoded.envelope.target);
             return;
         }
@@ -1316,9 +1240,7 @@ template <typename ArchitectureT> struct Service
             State::session.store(SessionState::Active, std::memory_order_release);
             const auto hello = hello_payload();
             (void)transmit<LinkT, Index>(protocol::Kind::ServerHello, hello);
-            if (FacilityType::open_session != nullptr) {
-                FacilityType::open_session(Index);
-            }
+            detail::open_session<RuntimeContext>(Index);
             break;
         }
         case protocol::Kind::Keepalive:
@@ -1352,10 +1274,10 @@ template <typename ArchitectureT> struct Service
                 .remote_receive_us = static_cast<std::uint64_t>(received),
                 .remote_send_us = static_cast<std::uint64_t>(sending),
             });
-            const auto transmitted = transmit<LinkT, Index>(
-                protocol::Kind::Pong, response, complete.envelope.request_id);
-            if (transmitted && FacilityType::pong_responded != nullptr) {
-                FacilityType::pong_responded();
+            const auto transmitted = transmit<LinkT, Index>(protocol::Kind::Pong, response,
+                                                            complete.envelope.request_id);
+            if (transmitted) {
+                detail::pong_responded<RuntimeContext>();
             }
             break;
         }
@@ -1367,9 +1289,7 @@ template <typename ArchitectureT> struct Service
             process_introspection<LinkT, Index>(complete);
             break;
         case protocol::Kind::SessionReset: {
-            if (FacilityType::reset_session != nullptr) {
-                FacilityType::reset_session(Index, InStreamCloseReason::Reset);
-            }
+            detail::reset_session<RuntimeContext>(Index, InStreamCloseReason::Reset);
             {
                 auto guard = State::response_lock.acquire();
                 State::responses = {};
@@ -1390,12 +1310,11 @@ template <typename ArchitectureT> struct Service
         case protocol::Kind::Credit:
         case protocol::Kind::Data:
         case protocol::Kind::Pong:
-            if (State::session.load(std::memory_order_acquire) != SessionState::Active ||
-                FacilityType::process_application_frame == nullptr) {
+            if (State::session.load(std::memory_order_acquire) != SessionState::Active) {
                 State::protocol_errors.fetch_add(1, std::memory_order_relaxed);
                 return;
             }
-            FacilityType::process_application_frame(Index, complete);
+            detail::process_application_frame<RuntimeContext>(Index, complete);
             break;
         default:
             State::protocol_errors.fetch_add(1, std::memory_order_relaxed);
@@ -1441,11 +1360,9 @@ template <typename ArchitectureT> struct Service
     template <std::size_t... Indices>
     static void reset_sessions(std::index_sequence<Indices...>) noexcept
     {
-        if (FacilityType::reset_session != nullptr) {
-            (FacilityType::reset_session(static_cast<std::uint16_t>(Indices),
-                                         InStreamCloseReason::Reset),
-             ...);
-        }
+        (detail::reset_session<RuntimeContext>(static_cast<std::uint16_t>(Indices),
+                                               InStreamCloseReason::Reset),
+         ...);
     }
 
     [[nodiscard]] static Result<void> stop() noexcept
@@ -1468,9 +1385,7 @@ template <typename ArchitectureT> struct Service
         using State = detail::LinkState<Service, LinkT, Index>;
         switch (event.kind) {
         case LinkEventKind::Connected:
-            if (FacilityType::reset_session != nullptr) {
-                FacilityType::reset_session(Index, InStreamCloseReason::Disconnect);
-            }
+            detail::reset_session<RuntimeContext>(Index, InStreamCloseReason::Disconnect);
             {
                 auto guard = State::output_lock.acquire();
                 State::lanes = {};
@@ -1505,12 +1420,9 @@ template <typename ArchitectureT> struct Service
             break;
         case LinkEventKind::Disconnected:
         case LinkEventKind::Fault:
-            if (FacilityType::reset_session != nullptr) {
-                FacilityType::reset_session(
-                    Index, event.kind == LinkEventKind::Fault
-                               ? InStreamCloseReason::Fault
-                               : InStreamCloseReason::Disconnect);
-            }
+            detail::reset_session<RuntimeContext>(Index, event.kind == LinkEventKind::Fault
+                                                             ? InStreamCloseReason::Fault
+                                                             : InStreamCloseReason::Disconnect);
             State::connected.store(false, std::memory_order_release);
             State::session.store(event.kind == LinkEventKind::Fault ? SessionState::Faulted
                                                                     : SessionState::Disconnected,
@@ -1621,9 +1533,8 @@ template <typename ArchitectureT> struct Service
             return;
         }
         if (event.kind != detail::ServiceEvent::Kind::Link) {
-            if (event.kind == detail::ServiceEvent::Kind::Publication &&
-                FacilityType::process_publication != nullptr) {
-                FacilityType::process_publication(event.subject);
+            if (event.kind == detail::ServiceEvent::Kind::Publication) {
+                detail::process_publication<RuntimeContext>(event.subject);
             }
             return;
         }
@@ -1700,10 +1611,8 @@ template <typename ArchitectureT> struct Service
             drain_outputs(Links{}, std::make_index_sequence<list_size_v<Links>>{});
             expire_reassemblies(Links{}, std::make_index_sequence<list_size_v<Links>>{});
             wait_ticks = maintenance;
-            if (FacilityType::process_poll_releases != nullptr) {
-                const auto requested = FacilityType::process_poll_releases();
-                wait_ticks = (std::max)(kernel::Tick{1}, (std::min)(maintenance, requested));
-            }
+            const auto requested = detail::process_poll_releases<RuntimeContext>();
+            wait_ticks = (std::max)(kernel::Tick{1}, (std::min)(maintenance, requested));
         }
         return {};
     }
@@ -1711,11 +1620,12 @@ template <typename ArchitectureT> struct Service
 
 #else
 
-template <typename ArchitectureT> struct Service
+template <typename ArchitectureT, typename RuntimeContextT> struct Service
 {
     using Architecture = ArchitectureT;
+    using RuntimeContext = RuntimeContextT;
     using FacilityType = Facility<Architecture>;
-    using Dependencies = solar::Dependencies<FacilityType>;
+    using Dependencies = solar::TypeList<FacilityType>;
 
     static constexpr component::Descriptor descriptor{
         .name = "solar.remote.service",

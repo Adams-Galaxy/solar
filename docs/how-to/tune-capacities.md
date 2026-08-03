@@ -8,5 +8,5 @@
 6. reduce or increase Kconfig maxima from evidence;
 7. verify target RAM, stack, and binary size.
 
-Catalog maxima must fit the effective Blueprint. Runtime depths must fit bursts,
-not merely steady-state throughput.
+Generated declaration counts and typed capacities must fit the application
+contract. Runtime depths must fit bursts, not merely steady-state throughput.

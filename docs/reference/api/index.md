@@ -9,17 +9,13 @@ rendered into authored pages with Breathe.
 core
 composition
 system
-lifecycle
 kernel
 execution
 hardware
-bus
 parameters
 events
 metrics
 logging
 remote
-inspection
-health
 supervisor
 ```

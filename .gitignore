@@ -8,6 +8,8 @@ Makefile
 cmake_install.cmake
 
 # Compiled artifacts
+__pycache__/
+*.py[cod]
 *.o
 *.a
 *.so

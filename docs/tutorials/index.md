@@ -1,12 +1,10 @@
 # Tutorials
 
-Tutorials build complete applications and introduce Solar progressively.
+The compile-tested repository examples are the canonical tutorials.
 
 ```{toctree}
 :maxdepth: 1
 
-system-foundations
-data-pipeline
-remote-control
-supervised-device
+../getting-started/first-application
+../examples/index
 ```

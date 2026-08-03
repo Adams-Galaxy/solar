@@ -53,6 +53,7 @@ template <std::size_t StackBytes> class Thread
     {
         const auto id = id_.load(std::memory_order_acquire);
         __ASSERT_NO_MSG(id == nullptr || k_thread_join(&thread_, K_NO_WAIT) == 0);
+        (void)id;
     }
 
     Thread(const Thread&) = delete;

@@ -1,25 +1,13 @@
 # Execution API
 
-Include `<solar/execution.hpp>` with `CONFIG_SOLAR_EXECUTION=y`.
+Include `<solar/execution.hpp>`.
 
 ```cpp
-template <fixed_string Name, typename Behavior, typename Target, typename... Policies>
-struct OnDemand;
-template <fixed_string Name, typename Behavior, typename Target, typename... Policies>
-struct Delayable;
-template <fixed_string Name, typename Behavior, auto Period, typename Target,
-          typename... Policies>
-struct Periodic;
-template <fixed_string Name, typename Behavior, typename PollSet, typename Target,
-          typename... Policies>
-struct PollTriggered;
-
-template <typename Registration> auto submit();
-template <typename Registration> auto try_submit_isr();
-template <typename Registration> auto cancel();
-template <typename Registration> auto cancel_sync();
-template <typename Registration> auto flush();
+template <std::size_t Capacity> class TaskQueue;
+template <typename Service, std::size_t StackBytes, int Priority>
+class ServiceRunner;
 ```
 
-Focused queries expose registration, service, executor, and target records
-without a universal runtime snapshot. See {doc}`../../subsystems/execution`.
+`TaskQueue` is bounded and explicitly pumped. `ServiceRunner` owns the Zephyr
+thread and stop/join lifecycle for one static service. See
+{doc}`../../subsystems/execution`.

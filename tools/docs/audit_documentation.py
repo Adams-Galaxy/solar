@@ -11,20 +11,18 @@ import kconfiglib
 
 
 AGGREGATE_PAGES = {
-    "bus": "reference/api/bus.md",
     "catalog": "reference/api/composition.md",
     "component": "reference/api/composition.md",
     "core": "reference/api/core.md",
     "events": "reference/api/events.md",
     "execution": "reference/api/execution.md",
     "hardware": "reference/api/hardware.md",
-    "health": "reference/api/health.md",
-    "inspection": "reference/api/inspection.md",
     "kernel": "reference/api/kernel.md",
-    "lifecycle": "reference/api/lifecycle.md",
     "log": "reference/api/logging.md",
     "metrics": "reference/api/metrics.md",
+    "module": "reference/api/composition.md",
     "parameters": "reference/api/parameters.md",
+    "persistence": "reference/api/parameters.md",
     "remote": "reference/api/remote.md",
     "solar": "reference/api/index.md",
     "supervisor": "reference/api/supervisor.md",
@@ -33,13 +31,12 @@ AGGREGATE_PAGES = {
 }
 
 SUBSYSTEMS = {
-    "bus", "events", "execution", "hardware", "health", "inspection", "kernel",
+    "events", "execution", "hardware", "kernel",
     "logging", "metrics", "parameters", "remote", "supervisor",
 }
 
 EXAMPLES = {
-    "first-application", "system-composition", "data-pipeline", "remote-control",
-    "supervised-device",
+    "first-application", "system-composition",
 }
 
 
@@ -73,6 +70,11 @@ def main() -> int:
             require((directory / relative).is_file(),
                     f"example {example} missing {relative}", failures)
 
+    generated_client = root / "examples/generated-client"
+    for relative in ("README.md", "client.py"):
+        require((generated_client / relative).is_file(),
+                f"generated-client example missing {relative}", failures)
+
     kconfig = kconfiglib.Kconfig(str(root / "zephyr/Kconfig"), warn=False)
     symbols = {
         symbol.name for symbol in kconfig.unique_defined_syms
@@ -99,7 +101,7 @@ def main() -> int:
 
     print(f"Documentation audit passed: {len(aggregates)} aggregate headers, "
           f"{len(SUBSYSTEMS)} subsystem pages, {len(symbols)} Kconfig symbols, "
-          f"{len(EXAMPLES)} canonical examples")
+          f"{len(EXAMPLES) + 1} canonical examples")
     return 0
 
 

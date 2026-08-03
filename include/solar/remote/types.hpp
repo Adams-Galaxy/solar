@@ -6,6 +6,8 @@
 #include <optional>
 #include <span>
 #include <string_view>
+
+#include "solar/core/bounded.hpp"
 #include <utility>
 
 #include "solar/catalog/catalog.hpp"
@@ -69,7 +71,7 @@ enum class InStreamCloseReason : std::uint8_t
 
 struct InStreamOpenContext
 {
-    DataId endpoint{};
+    std::uint32_t endpoint{};
     std::uint16_t link{};
     std::uint32_t token{};
     std::uint32_t minimum_interval_us{};
@@ -78,7 +80,7 @@ struct InStreamOpenContext
 
 struct InStreamCloseContext
 {
-    DataId endpoint{};
+    std::uint32_t endpoint{};
     std::uint16_t link{};
     std::uint32_t token{};
     InStreamCloseReason reason{InStreamCloseReason::Closed};
@@ -229,27 +231,8 @@ enum class StatusCode : std::uint8_t
     return std::nullopt;
 }
 
-template <std::size_t Capacity> struct BoundedText
-{
-    std::array<char, Capacity> storage{};
-    std::uint16_t size{};
-
-    [[nodiscard]] constexpr std::string_view view() const noexcept
-    {
-        return {storage.data(), size};
-    }
-};
-
-template <std::size_t Capacity> struct BoundedBytes
-{
-    std::array<std::byte, Capacity> storage{};
-    std::uint16_t size{};
-
-    [[nodiscard]] constexpr std::span<const std::byte> view() const noexcept
-    {
-        return {storage.data(), size};
-    }
-};
+template <std::size_t Capacity> using BoundedText = solar::BoundedText<Capacity>;
+template <std::size_t Capacity> using BoundedBytes = solar::BoundedBytes<Capacity>;
 
 enum class Operation : std::uint8_t
 {

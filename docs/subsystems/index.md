@@ -9,13 +9,10 @@ capacity, configuration, and testing contracts.
 kernel
 execution
 hardware
-bus
 parameters
 events
 metrics
 logging
 remote
-inspection
-health
 supervisor
 ```

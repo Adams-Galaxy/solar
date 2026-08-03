@@ -1,19 +1,13 @@
 # Supervisor API
 
-Include `<solar/supervisor.hpp>` with `CONFIG_SOLAR_SUPERVISOR=y`.
+Include `<solar/supervisor.hpp>`.
 
 ```cpp
-template <typename... Rules> struct Policy;
-template <typename... Policies> using Configuration = /* Blueprint section */;
-template <typename Provider> struct Watchdog;
-
-auto state();
-auto watchdog();
-template <typename Subject> auto record();
-auto responses(ResponseCursor, std::span<ResponseRecord>);
-void wake();
+enum class Condition { Unknown, Healthy, Degraded, Fault };
+template <typename... Checks> struct Schema;
+template <typename Schema> class Monitor;
+template <typename Application, typename Schema> struct StaticMonitor;
 ```
 
-Rules select `OnFault`, `OnDegraded`, `OnStall`, or `OnRecoveryFailure` and a
-bounded sequence of response action types. See
-{doc}`../../subsystems/supervisor`.
+`Monitor` owns typed condition slots. Recovery policy and application restart
+behavior remain explicit adapters or services. See {doc}`../../subsystems/supervisor`.

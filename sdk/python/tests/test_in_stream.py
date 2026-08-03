@@ -47,10 +47,10 @@ class _Session:
         self.core = _Core()
         self.codec = _Codec()
         self.manifest = SimpleNamespace(
-            data=[{"id": 10, "name": "drive", "schema": 7}],
+            streams=[{"id": 10, "name": "drive", "schema": 7}],
             capabilities=[
                 {
-                    "domain": "data",
+                    "domain": "stream",
                     "endpoint": 10,
                     "kind": "in_stream",
                     "explicit_open": True,
@@ -62,8 +62,8 @@ class _Session:
         self._closed = False
 
     def _endpoint(self, collection: str, endpoint: int | str) -> dict:
-        assert collection == "data"
-        return self.manifest.data[0]
+        assert collection == "streams"
+        return self.manifest.streams[0]
 
     async def _exchange(self, request: int) -> Message:
         if request == 1:

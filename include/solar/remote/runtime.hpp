@@ -16,17 +16,7 @@
 #include "solar/remote/packed.hpp"
 #include "solar/remote/protocol.hpp"
 
-#if defined(CONFIG_SOLAR_LOG)
-#include "solar/log/api.hpp"
-#endif
-
-#if defined(CONFIG_SOLAR_INSPECTION_REMOTE)
-#include "solar/inspection/api.hpp"
-#include "solar/inspection/cbor.hpp"
-#endif
-
 #if defined(__ZEPHYR__) && defined(CONFIG_SOLAR_REMOTE)
-#include "solar/execution/runtime.hpp"
 #include "solar/kernel/semaphore.hpp"
 #include "solar/kernel/spinlock.hpp"
 #include "solar/remote/service.hpp"
@@ -35,11 +25,15 @@
 namespace solar::remote::detail
 {
 
+template <typename System, typename Registration>
+[[nodiscard]] Result<void> submit_remote_work() noexcept
+{
+    return System::RemoteArchitecture::Scheduler::template submit<Registration>();
+}
+
 template <typename System> void pong_responded() noexcept
 {
-#if defined(CONFIG_SOLAR_LOG)
-    (void)log::info<typename System::RemoteService, log::domain::Transport>("pong responded");
-#endif
+    (void)sizeof(System);
 }
 
 template <typename T> struct IsPushOutStream : std::false_type
@@ -361,8 +355,7 @@ template <> struct FirstInStreamExclusive<TypeList<>>
     using Behavior = void;
 };
 
-template <typename Head, typename... Tail>
-struct FirstInStreamExclusive<TypeList<Head, Tail...>>
+template <typename Head, typename... Tail> struct FirstInStreamExclusive<TypeList<Head, Tail...>>
 {
   private:
     using Remaining = FirstInStreamExclusive<TypeList<Tail...>>;
@@ -824,6 +817,14 @@ template <typename System, typename TopicT>
         System::RemoteTopicCatalog::template Entry<TopicT>::local_id.value);
 }
 
+template <typename System, typename StreamT>
+[[nodiscard]] consteval std::uint16_t stream_subscription_slot()
+{
+    return static_cast<std::uint16_t>(
+        System::RemoteDataCatalog::size * 2 + System::RemoteTopicCatalog::size +
+        System::RemoteStreamCatalog::template Entry<StreamT>::local_id.value);
+}
+
 template <typename DeclarationT, typename PublicationT> struct DiscreteState
 {
     using Policies = typename IsWatch<PublicationT>::PolicyTypes;
@@ -843,6 +844,8 @@ template <typename DataT> struct WatchStateKey
 {};
 template <typename TopicT> struct TopicStateKey
 {};
+template <typename StreamT> struct StreamStateKey
+{};
 
 template <typename System, typename DataT> [[nodiscard]] auto& watch_state() noexcept
 {
@@ -856,6 +859,13 @@ template <typename System, typename TopicT> [[nodiscard]] auto& topic_state() no
     using Publication = typename TopicPublication<TopicT>::type;
     using State = DiscreteState<TopicT, Publication>;
     return System::template StateSlot<TopicT, TopicStateKey<TopicT>, State>::value;
+}
+
+template <typename System, typename StreamT> [[nodiscard]] auto& stream_state() noexcept
+{
+    using Publication = Watch<Latest, MultipleProducers>;
+    using State = DiscreteState<StreamT, Publication>;
+    return System::template StateSlot<StreamT, StreamStateKey<StreamT>, State>::value;
 }
 
 template <typename System, typename DeclarationT, typename StateT>
@@ -935,6 +945,14 @@ template <typename System, typename TopicT>
     auto& state = topic_state<System, TopicT>();
     return write_discrete<System, TopicT>(state, topic_subscription_slot<System, TopicT>(),
                                           std::move(value));
+}
+
+template <typename System, typename StreamT>
+[[nodiscard]] Result<WriteReceipt, Error> publish_stream(typename StreamT::Value value) noexcept
+{
+    auto& state = stream_state<System, StreamT>();
+    return write_discrete<System, StreamT>(state, stream_subscription_slot<System, StreamT>(),
+                                           std::move(value));
 }
 
 template <typename DeclarationT, typename PublicationT>
@@ -1059,8 +1077,9 @@ void publish_data_value(typename DataT::Value value) noexcept
 }
 
 template <typename System, typename DeclarationT, typename StateT>
-void publish_discrete_value(StateT& state, std::uint16_t subscription_slot,
-                            std::uint32_t target) noexcept
+void publish_discrete_value(
+    StateT& state, std::uint16_t subscription_slot, std::uint32_t target,
+    std::optional<protocol::SubscriptionKind> authored_kind = std::nullopt) noexcept
 {
     using Value = typename DeclarationT::Value;
     auto value = take_discrete(state);
@@ -1079,12 +1098,12 @@ void publish_discrete_value(StateT& state, std::uint16_t subscription_slot,
         constexpr auto flags = Schema<Value>::codec == Codec::Packed
                                    ? protocol::Flags::PackedPayload
                                    : protocol::Flags::None;
+        const auto kind =
+            authored_kind.value_or(subscription_slot < System::RemoteDataCatalog::size * 2
+                                       ? protocol::SubscriptionKind::DataWatch
+                                       : protocol::SubscriptionKind::Topic);
         publish_subscription_payload<System>(std::span{buffer}.first(*encoded), subscription_slot,
-                                             target,
-                                             subscription_slot < System::RemoteDataCatalog::size * 2
-                                                 ? protocol::SubscriptionKind::DataWatch
-                                                 : protocol::SubscriptionKind::Topic,
-                                             flags);
+                                             target, kind, flags);
     }
     rearm_discrete<System>(state, subscription_slot);
 }
@@ -1266,19 +1285,42 @@ void process_topic_publication_for(std::uint16_t endpoint, TypeList<TopicTypes..
      ...);
 }
 
+template <typename System, typename... StreamTypes>
+void process_stream_endpoint_publication_for(std::uint16_t endpoint,
+                                             TypeList<StreamTypes...>) noexcept
+{
+    std::uint16_t index{};
+    ((endpoint == index++ ? (
+                                [&] {
+                                    auto& state = stream_state<System, StreamTypes>();
+                                    publish_discrete_value<System, StreamTypes>(
+                                        state, stream_subscription_slot<System, StreamTypes>(),
+                                        StreamTypes::descriptor.id.value,
+                                        protocol::SubscriptionKind::Stream);
+                                }(),
+                                void())
+                          : void()),
+     ...);
+}
+
 template <typename System> void process_publication(std::uint16_t endpoint) noexcept
 {
     using DataTypes = declarations_of_t<typename System::RemoteDataCatalog::EntryTypes>;
     using TopicTypes = declarations_of_t<typename System::RemoteTopicCatalog::EntryTypes>;
+    using StreamTypes = declarations_of_t<typename System::RemoteStreamCatalog::EntryTypes>;
     constexpr auto data_count = System::RemoteDataCatalog::size;
+    constexpr auto topic_count = System::RemoteTopicCatalog::size;
     if (endpoint < data_count) {
         process_stream_publication_for<System>(endpoint, DataTypes{});
     } else if (endpoint < data_count * 2) {
         process_watch_publication_for<System>(static_cast<std::uint16_t>(endpoint - data_count),
                                               DataTypes{});
-    } else {
+    } else if (endpoint < data_count * 2 + topic_count) {
         process_topic_publication_for<System>(static_cast<std::uint16_t>(endpoint - data_count * 2),
                                               TopicTypes{});
+    } else {
+        process_stream_endpoint_publication_for<System>(
+            static_cast<std::uint16_t>(endpoint - data_count * 2 - topic_count), StreamTypes{});
     }
 }
 
@@ -1435,10 +1477,15 @@ template <typename System, typename DataT>
             if (state.in_flight.exchange(true, std::memory_order_acq_rel)) {
                 state.skipped.fetch_add(1, std::memory_order_relaxed);
             } else {
-                using Registration =
-                    typename System::RemoteService::template PollRegistration<DataT>;
-                auto submitted =
-                    execution::detail::submit_registration<System, Registration>(false);
+                const auto submitted = [&] {
+                    if constexpr (requires { System::standalone_byte_runtime; }) {
+                        return execute_poll<System, DataT>();
+                    } else {
+                        using Registration =
+                            typename System::RemoteService::template PollRegistration<DataT>;
+                        return submit_remote_work<System, Registration>();
+                    }
+                }();
                 if (submitted) {
                     state.releases.fetch_add(1, std::memory_order_relaxed);
                 } else {
@@ -1618,12 +1665,64 @@ update_topic_subscription(std::uint32_t target, bool enable, protocol::Subscript
     return true;
 }
 
+template <typename System, typename LinkT, std::uint16_t LinkIndex, typename StreamT>
+Result<bool, protocol::ErrorCode>
+update_stream_subscription(std::uint32_t target, bool enable, protocol::SubscriptionKind kind,
+                           const protocol::SubscriptionRequest& request,
+                           protocol::SubscriptionPolicy& effective) noexcept
+{
+    if (kind != protocol::SubscriptionKind::Stream || target != StreamT::descriptor.id.value) {
+        return false;
+    }
+    constexpr auto codec = Schema<typename StreamT::Value>::codec;
+    if (request.flags != 0 || request.batch_size > 1 ||
+        (request.codec != 0 && request.codec != static_cast<std::uint8_t>(codec))) {
+        return fail<protocol::ErrorCode>(protocol::ErrorCode::UnsupportedCapability);
+    }
+    constexpr auto minimum_interval = [] {
+        if constexpr (requires { StreamT::maximum_rate_hz; }) {
+            return StreamT::maximum_rate_hz == 0 ? 0U : 1'000'000U / StreamT::maximum_rate_hz;
+        }
+        return 0U;
+    }();
+    effective = {
+        .minimum_interval_us = (std::max)(request.minimum_interval_us, minimum_interval),
+        .batch_size = 1,
+        .codec = codec,
+        .flags = 0,
+    };
+    using State = LinkState<typename System::RemoteService, LinkT, LinkIndex>;
+    constexpr auto endpoint = stream_subscription_slot<System, StreamT>();
+    bool changed{};
+    {
+        auto guard = State::output_lock.acquire();
+        auto& subscription = State::subscriptions[endpoint];
+        changed = subscription.active != enable;
+        if (enable) {
+            subscription.active = true;
+            subscription.minimum_interval_us = effective.minimum_interval_us;
+            subscription.next_delivery = 0;
+        } else if (changed) {
+            subscription = {};
+        }
+        if (changed) {
+            enable ? ++State::subscription_count : --State::subscription_count;
+        }
+    }
+    if (changed) {
+        auto& state = stream_state<System, StreamT>();
+        enable ? state.interested_sessions.fetch_add(1, std::memory_order_acq_rel)
+               : state.interested_sessions.fetch_sub(1, std::memory_order_acq_rel);
+    }
+    return true;
+}
+
 template <typename System, typename LinkT, std::uint16_t LinkIndex, typename... DataTypes>
 Result<bool, protocol::ErrorCode>
 update_subscription(std::uint32_t target, bool enable, protocol::SubscriptionKind kind,
                     const protocol::SubscriptionRequest& request,
                     protocol::SubscriptionPolicy& effective, TypeList<DataTypes...>,
-                    auto topic_types) noexcept
+                    auto topic_types, auto stream_types) noexcept
 {
     Result<bool, protocol::ErrorCode> result{false};
     ((result&& !* result ? result = update_data_subscription<System, LinkT, LinkIndex, DataTypes>(
@@ -1637,6 +1736,13 @@ update_subscription(std::uint32_t target, bool enable, protocol::SubscriptionKin
               : result),
          ...);
     }(topic_types);
+    [&]<typename... StreamTypes>(TypeList<StreamTypes...>) {
+        ((result&& !* result
+              ? result = update_stream_subscription<System, LinkT, LinkIndex, StreamTypes>(
+                    target, enable, kind, request, effective)
+              : result),
+         ...);
+    }(stream_types);
     return result;
 }
 
@@ -1666,17 +1772,31 @@ void reset_link_topic_subscriptions(TypeList<TopicTypes...>) noexcept
      ...);
 }
 
+template <typename System, typename LinkT, std::uint16_t LinkIndex, typename... StreamTypes>
+void reset_link_stream_subscriptions(TypeList<StreamTypes...>) noexcept
+{
+    protocol::SubscriptionRequest request{};
+    protocol::SubscriptionPolicy effective{};
+    (static_cast<void>(update_stream_subscription<System, LinkT, LinkIndex, StreamTypes>(
+         StreamTypes::descriptor.id.value, false, protocol::SubscriptionKind::Stream, request,
+         effective)),
+     ...);
+}
+
 template <typename System, typename... LinkTypes, std::size_t... Indices>
 void reset_session_link(std::uint16_t link, TypeList<LinkTypes...>,
                         std::index_sequence<Indices...>) noexcept
 {
     using DataTypes = declarations_of_t<typename System::RemoteDataCatalog::EntryTypes>;
     using TopicTypes = declarations_of_t<typename System::RemoteTopicCatalog::EntryTypes>;
+    using StreamTypes = declarations_of_t<typename System::RemoteStreamCatalog::EntryTypes>;
     ((link == Indices
           ? (reset_link_subscriptions<System, LinkTypes, static_cast<std::uint16_t>(Indices)>(
                  DataTypes{}),
              reset_link_topic_subscriptions<System, LinkTypes, static_cast<std::uint16_t>(Indices)>(
                  TopicTypes{}),
+             reset_link_stream_subscriptions<System, LinkTypes,
+                                             static_cast<std::uint16_t>(Indices)>(StreamTypes{}),
              void())
           : void()),
      ...);
@@ -1748,9 +1868,8 @@ struct InStreamTokenStateKey
 
 template <typename System> [[nodiscard]] std::uint32_t next_in_stream_token() noexcept
 {
-    auto& state =
-        System::template StateSlot<InStreamTokenStateKey, InStreamTokenStateKey,
-                                   InStreamTokenState>::value;
+    auto& state = System::template StateSlot<InStreamTokenStateKey, InStreamTokenStateKey,
+                                             InStreamTokenState>::value;
     auto token = state.next.fetch_add(1, std::memory_order_relaxed);
     if (token == 0) {
         token = state.next.fetch_add(1, std::memory_order_relaxed);
@@ -1810,8 +1929,7 @@ void send_in_stream_credit(std::uint16_t credits, std::uint32_t correlation = 0)
     });
     (void)System::RemoteService::template transmit<LinkT, LinkIndex>(
         protocol::Kind::Credit, payload, correlation, DataT::descriptor.id.value,
-        protocol::Flags::None,
-        static_cast<std::uint8_t>(protocol::OperationKind::InStream));
+        protocol::Flags::None, static_cast<std::uint8_t>(protocol::OperationKind::InStream));
 }
 
 template <typename System, typename DataT, typename LinkT, std::uint16_t LinkIndex>
@@ -1860,8 +1978,7 @@ template <typename Policy>
     } else {
         constexpr auto callback = remote::detail::IsOnOpen<Policy>::callback;
         if constexpr (std::is_invocable_v<decltype(callback), const InStreamOpenContext&>) {
-            using Return =
-                std::invoke_result_t<decltype(callback), const InStreamOpenContext&>;
+            using Return = std::invoke_result_t<decltype(callback), const InStreamOpenContext&>;
             if constexpr (std::same_as<Return, void>) {
                 callback(context);
                 return true;
@@ -1909,14 +2026,12 @@ void invoke_in_stream_close_policy(const InStreamCloseContext& context) noexcept
 }
 
 template <typename... Policies>
-void invoke_in_stream_close(TypeList<Policies...>,
-                            const InStreamCloseContext& context) noexcept
+void invoke_in_stream_close(TypeList<Policies...>, const InStreamCloseContext& context) noexcept
 {
     (invoke_in_stream_close_policy<Policies>(context), ...);
 }
 
-template <typename System, typename DataT>
-[[nodiscard]] bool run_in_stream_lifecycle() noexcept
+template <typename System, typename DataT> [[nodiscard]] bool run_in_stream_lifecycle() noexcept
 {
     if constexpr (!has_in_stream_v<DataT>) {
         return false;
@@ -1937,11 +2052,10 @@ template <typename System, typename DataT>
         }
         bool result{true};
         if (operation == InStreamLifecycleOperation::Open) {
-            result = invoke_in_stream_open(
-                typename InStreamTraits<DataT>::Policies{}, open_context);
+            result =
+                invoke_in_stream_open(typename InStreamTraits<DataT>::Policies{}, open_context);
         } else {
-            invoke_in_stream_close(
-                typename InStreamTraits<DataT>::Policies{}, close_context);
+            invoke_in_stream_close(typename InStreamTraits<DataT>::Policies{}, close_context);
         }
         {
             auto guard = state.lock.acquire();
@@ -1953,8 +2067,7 @@ template <typename System, typename DataT>
 }
 
 template <typename System, typename DataT>
-[[nodiscard]] bool execute_in_stream_open_lifecycle(
-    const InStreamOpenContext& context) noexcept
+[[nodiscard]] bool execute_in_stream_open_lifecycle(const InStreamOpenContext& context) noexcept
 {
     using Traits = InStreamTraits<DataT>;
     if constexpr (Traits::Lifecycle::open_count == 0) {
@@ -1972,9 +2085,8 @@ template <typename System, typename DataT>
             state.open_context = context;
             state.lifecycle_operation = InStreamLifecycleOperation::Open;
         }
-        auto submission = execution::detail::submit_registration<
-            System,
-            typename System::RemoteService::template InStreamRegistration<DataT>>(false);
+        auto submission = submit_remote_work<
+            System, typename System::RemoteService::template InStreamRegistration<DataT>>();
         if (!submission || !state.lifecycle_done.take()) {
             auto guard = state.lock.acquire();
             state.lifecycle_operation = InStreamLifecycleOperation::None;
@@ -2004,9 +2116,8 @@ void execute_in_stream_close_lifecycle(const InStreamCloseContext& context) noex
             state.close_context = context;
             state.lifecycle_operation = InStreamLifecycleOperation::Close;
         }
-        auto submission = execution::detail::submit_registration<
-            System,
-            typename System::RemoteService::template InStreamRegistration<DataT>>(false);
+        auto submission = submit_remote_work<
+            System, typename System::RemoteService::template InStreamRegistration<DataT>>();
         if (!submission || !state.lifecycle_done.take()) {
             auto guard = state.lock.acquire();
             state.lifecycle_operation = InStreamLifecycleOperation::None;
@@ -2032,16 +2143,15 @@ void send_in_stream_closed_on_link(std::uint16_t link, std::uint32_t token,
                                    std::index_sequence<Indices...>) noexcept
 {
     ((link == Indices
-          ? (send_in_stream_closed<System, DataT, LinkTypes,
-                                   static_cast<std::uint16_t>(Indices)>(token, reason),
+          ? (send_in_stream_closed<System, DataT, LinkTypes, static_cast<std::uint16_t>(Indices)>(
+                 token, reason),
              void())
           : void()),
      ...);
 }
 
 template <typename System, typename DataT>
-[[nodiscard]] std::uint32_t close_in_stream_link(std::uint16_t link,
-                                                 InStreamCloseReason reason,
+[[nodiscard]] std::uint32_t close_in_stream_link(std::uint16_t link, InStreamCloseReason reason,
                                                  bool notify) noexcept
 {
     if constexpr (has_in_stream_v<DataT>) {
@@ -2067,18 +2177,16 @@ template <typename System, typename DataT>
                 }
             }
         }
-        execute_in_stream_close_lifecycle<System, DataT>(
-            InStreamCloseContext{
-                .endpoint = DataT::descriptor.id,
-                .link = link,
-                .token = token,
-                .reason = reason,
-            });
+        execute_in_stream_close_lifecycle<System, DataT>(InStreamCloseContext{
+            .endpoint = DataT::descriptor.id.value,
+            .link = link,
+            .token = token,
+            .reason = reason,
+        });
         if (notify) {
             using Links = typename System::RemoteArchitecture::Links;
             send_in_stream_closed_on_link<System, DataT>(
-                link, token, reason, Links{},
-                std::make_index_sequence<list_size_v<Links>>{});
+                link, token, reason, Links{}, std::make_index_sequence<list_size_v<Links>>{});
         }
         return token;
     } else {
@@ -2105,6 +2213,11 @@ void reset_session(std::uint16_t link, InStreamCloseReason reason) noexcept
                           TypeList<Types...>) {
         (reset_in_stream_link<System, Types>(session_link, close_reason), ...);
     }(link, reason, DataTypes{});
+    using StreamTypes = declarations_of_t<typename System::RemoteStreamCatalog::EntryTypes>;
+    []<typename... Types>(std::uint16_t session_link, InStreamCloseReason close_reason,
+                          TypeList<Types...>) {
+        (reset_in_stream_link<System, Types>(session_link, close_reason), ...);
+    }(link, reason, StreamTypes{});
     using Links = typename System::RemoteArchitecture::Links;
     reset_session_link<System>(link, Links{}, std::make_index_sequence<list_size_v<Links>>{});
 }
@@ -2402,11 +2515,11 @@ void return_in_stream_credit_on_link(std::uint16_t link, std::uint32_t token,
                                      std::uint32_t generation, TypeList<LinkTypes...>,
                                      std::index_sequence<Indices...>) noexcept
 {
-    ((link == Indices ? (return_in_stream_credit<System, DataT, LinkTypes,
-                                                 static_cast<std::uint16_t>(Indices)>(
-                              token, generation),
-                         void())
-                      : void()),
+    ((link == Indices
+          ? (return_in_stream_credit<System, DataT, LinkTypes, static_cast<std::uint16_t>(Indices)>(
+                 token, generation),
+             void())
+          : void()),
      ...);
 }
 
@@ -2463,8 +2576,7 @@ template <typename System, typename DataT> bool run_pending_in_stream() noexcept
             }
             using Links = typename System::RemoteArchitecture::Links;
             return_in_stream_credit_on_link<System, DataT>(
-                link, token, generation, Links{},
-                std::make_index_sequence<list_size_v<Links>>{});
+                link, token, generation, Links{}, std::make_index_sequence<list_size_v<Links>>{});
             ran = true;
         }
         return ran;
@@ -3036,7 +3148,12 @@ template <typename System>
 [[nodiscard]] Result<void> process_in_stream_work(std::uint32_t target) noexcept
 {
     using DataTypes = declarations_of_t<typename System::RemoteDataCatalog::EntryTypes>;
-    return process_in_stream_work_for<System>(target, DataTypes{});
+    auto result = process_in_stream_work_for<System>(target, DataTypes{});
+    if (result) {
+        return result;
+    }
+    using StreamTypes = declarations_of_t<typename System::RemoteStreamCatalog::EntryTypes>;
+    return process_in_stream_work_for<System>(target, StreamTypes{});
 }
 
 template <typename System, typename LinkT, std::uint16_t LinkIndex, typename ActionT>
@@ -3123,8 +3240,8 @@ void execute_action_request(const frame::Decoded& decoded) noexcept
             pending.envelope = decoded.envelope;
             pending.link = LinkIndex;
         }
-        auto submission = execution::detail::submit_registration<
-            System, typename ServiceT::template ActionRegistration<ActionT>>(false);
+        auto submission =
+            submit_remote_work<System, typename ServiceT::template ActionRegistration<ActionT>>();
         if (!submission) {
             auto guard = pending.lock.acquire();
             pending.request.reset();
@@ -3195,8 +3312,8 @@ void execute_query_request(const frame::Decoded& decoded) noexcept
                 pending.envelope = decoded.envelope;
                 pending.link = LinkIndex;
             }
-            auto submission = execution::detail::submit_registration<
-                System, typename ServiceT::template DataRegistration<DataT>>(false);
+            auto submission =
+                submit_remote_work<System, typename ServiceT::template DataRegistration<DataT>>();
             if (!submission) {
                 auto guard = pending.lock.acquire();
                 pending.pending = false;
@@ -3276,8 +3393,8 @@ void execute_update_request(const frame::Decoded& decoded) noexcept
                 pending.envelope = decoded.envelope;
                 pending.link = LinkIndex;
             }
-            auto submission = execution::detail::submit_registration<
-                System, typename ServiceT::template DataRegistration<DataT>>(false);
+            auto submission =
+                submit_remote_work<System, typename ServiceT::template DataRegistration<DataT>>();
             if (!submission) {
                 auto guard = pending.lock.acquire();
                 pending.value.reset();
@@ -3335,8 +3452,7 @@ void execute_in_stream_frame(const frame::Decoded& decoded) noexcept
             const auto now = kernel::now_ticks();
             const auto interval = kernel::to_ticks_ceil(
                 std::chrono::microseconds{state.minimum_interval_us[LinkIndex]});
-            if (!state.active[LinkIndex] || token == 0 ||
-                state.token[LinkIndex] != token) {
+            if (!state.active[LinkIndex] || token == 0 || state.token[LinkIndex] != token) {
                 token_violation = true;
                 ++state.rejected;
             } else if (state.credits[LinkIndex] == 0) {
@@ -3382,11 +3498,10 @@ void execute_in_stream_frame(const frame::Decoded& decoded) noexcept
             }
             (void)ServiceT::template protocol_error<LinkT, LinkIndex>(
                 0, decoded.envelope.target,
-                rate_violation
-                    ? protocol::ErrorCode::RateRejected
-                    : ((sequence_violation || token_violation)
-                           ? protocol::ErrorCode::RequestExpired
-                           : protocol::ErrorCode::CreditViolation));
+                rate_violation ? protocol::ErrorCode::RateRejected
+                               : ((sequence_violation || token_violation)
+                                      ? protocol::ErrorCode::RequestExpired
+                                      : protocol::ErrorCode::CreditViolation));
             return;
         }
 
@@ -3394,8 +3509,9 @@ void execute_in_stream_frame(const frame::Decoded& decoded) noexcept
         if constexpr (std::same_as<Execution, Inline>) {
             (void)run_pending_in_stream<System, DataT>();
         } else {
-            auto submission = execution::detail::submit_registration<
-                System, typename ServiceT::template InStreamRegistration<DataT>>(false);
+            auto submission =
+                submit_remote_work<System,
+                                   typename ServiceT::template InStreamRegistration<DataT>>();
             if (!submission) {
                 auto& ingress = in_stream_state<System, DataT>();
                 {
@@ -3488,16 +3604,15 @@ template <typename System, typename Group, typename... DataTypes>
     return (in_stream_group_is_active_for<System, Group, DataTypes>() || ...);
 }
 
-template <typename System, typename Group, typename DataT>
-void close_in_stream_group_for() noexcept
+template <typename System, typename Group, typename DataT> void close_in_stream_group_for() noexcept
 {
     if constexpr (has_in_stream_v<DataT>) {
         if constexpr (InStreamTraits<DataT>::exclusive &&
                       std::same_as<typename InStreamTraits<DataT>::ExclusiveGroup, Group>) {
             auto& state = in_stream_state<System, DataT>();
             for (std::uint16_t link{}; link < state.link_count; ++link) {
-                (void)close_in_stream_link<System, DataT>(
-                    link, InStreamCloseReason::Replaced, true);
+                (void)close_in_stream_link<System, DataT>(link, InStreamCloseReason::Replaced,
+                                                          true);
             }
         }
     }
@@ -3519,7 +3634,9 @@ open_in_stream(std::uint16_t link, const protocol::SubscriptionRequest& request)
         return fail<protocol::ErrorCode>(protocol::ErrorCode::UnsupportedCapability);
     }
 
-    using DataTypes = declarations_of_t<typename System::RemoteDataCatalog::EntryTypes>;
+    using DataTypes =
+        unique_t<concat_t<declarations_of_t<typename System::RemoteDataCatalog::EntryTypes>,
+                          declarations_of_t<typename System::RemoteStreamCatalog::EntryTypes>>>;
     if constexpr (InStreamTraits<DataT>::exclusive) {
         using Group = typename InStreamTraits<DataT>::ExclusiveGroup;
         if constexpr (std::same_as<typename InStreamTraits<DataT>::ExclusiveBehavior,
@@ -3531,8 +3648,7 @@ open_in_stream(std::uint16_t link, const protocol::SubscriptionRequest& request)
             close_in_stream_group<System, Group>(DataTypes{});
         }
     } else {
-        (void)close_in_stream_link<System, DataT>(
-            link, InStreamCloseReason::Replaced, true);
+        (void)close_in_stream_link<System, DataT>(link, InStreamCloseReason::Replaced, true);
     }
 
     auto& state = in_stream_state<System, DataT>();
@@ -3562,17 +3678,16 @@ open_in_stream(std::uint16_t link, const protocol::SubscriptionRequest& request)
         state.credits[link] = credits;
     }
 
-    if (!execute_in_stream_open_lifecycle<System, DataT>(
-            InStreamOpenContext{
-                .endpoint = DataT::descriptor.id,
-                .link = link,
-                .token = token,
-                .minimum_interval_us = minimum_interval,
-                .window = static_cast<std::uint16_t>(state.window),
-            })) {
+    if (!execute_in_stream_open_lifecycle<System, DataT>(InStreamOpenContext{
+            .endpoint = DataT::descriptor.id.value,
+            .link = link,
+            .token = token,
+            .minimum_interval_us = minimum_interval,
+            .window = static_cast<std::uint16_t>(state.window),
+        })) {
         (void)generation;
-        (void)close_in_stream_link<System, DataT>(
-            link, InStreamCloseReason::ConfigurationFailed, true);
+        (void)close_in_stream_link<System, DataT>(link, InStreamCloseReason::ConfigurationFailed,
+                                                  true);
         return fail<protocol::ErrorCode>(protocol::ErrorCode::InternalFailure);
     }
 
@@ -3605,8 +3720,7 @@ bool process_in_stream_subscription_for(const frame::Decoded& decoded, bool enab
         if (!decoded.payload.empty()) {
             auto decoded_request = protocol::decode_subscription_request(decoded.payload);
             if (!decoded_request) {
-                ServiceT::template release_response<LinkT, LinkIndex>(
-                    decoded.envelope.request_id);
+                ServiceT::template release_response<LinkT, LinkIndex>(decoded.envelope.request_id);
                 (void)ServiceT::template protocol_error<LinkT, LinkIndex>(
                     decoded.envelope.request_id, decoded.envelope.target,
                     protocol::ErrorCode::DecodeFailure);
@@ -3625,10 +3739,8 @@ bool process_in_stream_subscription_for(const frame::Decoded& decoded, bool enab
         auto response = ServiceT::template respond<LinkT, LinkIndex>(
             decoded.envelope.request_id, decoded.envelope.target, payload);
         if (!response) {
-            (void)close_in_stream_link<System, DataT>(
-                LinkIndex, InStreamCloseReason::Fault, true);
-            ServiceT::template release_response<LinkT, LinkIndex>(
-                decoded.envelope.request_id);
+            (void)close_in_stream_link<System, DataT>(LinkIndex, InStreamCloseReason::Fault, true);
+            ServiceT::template release_response<LinkT, LinkIndex>(decoded.envelope.request_id);
             (void)ServiceT::template protocol_error<LinkT, LinkIndex>(
                 decoded.envelope.request_id, decoded.envelope.target,
                 protocol::ErrorCode::InternalFailure);
@@ -3641,8 +3753,8 @@ bool process_in_stream_subscription_for(const frame::Decoded& decoded, bool enab
             auto guard = state.lock.acquire();
             credits = state.credits[LinkIndex];
         }
-        send_in_stream_credit<System, DataT, LinkT, LinkIndex>(
-            credits, decoded.envelope.request_id);
+        send_in_stream_credit<System, DataT, LinkT, LinkIndex>(credits,
+                                                               decoded.envelope.request_id);
         return true;
     } else {
         auto request = protocol::decode_in_stream_close_request(decoded.payload);
@@ -3657,22 +3769,18 @@ bool process_in_stream_subscription_for(const frame::Decoded& decoded, bool enab
         bool token_matches{};
         {
             auto guard = state.lock.acquire();
-            token_matches =
-                state.active[LinkIndex] && state.token[LinkIndex] == request->token;
+            token_matches = state.active[LinkIndex] && state.token[LinkIndex] == request->token;
         }
         if (!token_matches) {
-            ServiceT::template release_response<LinkT, LinkIndex>(
-                decoded.envelope.request_id);
+            ServiceT::template release_response<LinkT, LinkIndex>(decoded.envelope.request_id);
             (void)ServiceT::template protocol_error<LinkT, LinkIndex>(
                 decoded.envelope.request_id, decoded.envelope.target,
                 protocol::ErrorCode::RequestExpired);
             return true;
         }
-        (void)close_in_stream_link<System, DataT>(
-            LinkIndex, InStreamCloseReason::Closed, false);
+        (void)close_in_stream_link<System, DataT>(LinkIndex, InStreamCloseReason::Closed, false);
         (void)ServiceT::template respond<LinkT, LinkIndex>(
-            decoded.envelope.request_id, decoded.envelope.target,
-            std::span<const std::byte>{});
+            decoded.envelope.request_id, decoded.envelope.target, std::span<const std::byte>{});
         return true;
     }
 }
@@ -3681,9 +3789,9 @@ template <typename System, typename LinkT, std::uint16_t LinkIndex, typename... 
 bool process_in_stream_subscription_target(const frame::Decoded& decoded, bool enable,
                                            TypeList<DataTypes...>) noexcept
 {
-    return (process_in_stream_subscription_for<System, LinkT, LinkIndex, DataTypes>(
-                decoded, enable) ||
-            ...);
+    return (
+        process_in_stream_subscription_for<System, LinkT, LinkIndex, DataTypes>(decoded, enable) ||
+        ...);
 }
 
 template <typename System, typename LinkT, std::uint16_t LinkIndex>
@@ -3735,18 +3843,17 @@ void process_subscription(const frame::Decoded& decoded, bool enable) noexcept
         if (!admit_request_id<System, LinkT, LinkIndex>(decoded)) {
             return;
         }
-        if (!ServiceT::template reserve_response<LinkT, LinkIndex>(
-                decoded.envelope.request_id, decoded.envelope.target)) {
+        if (!ServiceT::template reserve_response<LinkT, LinkIndex>(decoded.envelope.request_id,
+                                                                   decoded.envelope.target)) {
             (void)ServiceT::template protocol_error<LinkT, LinkIndex>(
                 decoded.envelope.request_id, decoded.envelope.target,
                 protocol::ErrorCode::NoCapacity);
             return;
         }
-        using DataTypes = declarations_of_t<typename System::RemoteDataCatalog::EntryTypes>;
-        if (!process_in_stream_subscription_target<System, LinkT, LinkIndex>(
-                decoded, enable, DataTypes{})) {
-            ServiceT::template release_response<LinkT, LinkIndex>(
-                decoded.envelope.request_id);
+        using DataTypes = declarations_of_t<typename System::RemoteStreamCatalog::EntryTypes>;
+        if (!process_in_stream_subscription_target<System, LinkT, LinkIndex>(decoded, enable,
+                                                                             DataTypes{})) {
+            ServiceT::template release_response<LinkT, LinkIndex>(decoded.envelope.request_id);
             (void)ServiceT::template protocol_error<LinkT, LinkIndex>(
                 decoded.envelope.request_id, decoded.envelope.target,
                 protocol::ErrorCode::UnknownTarget);
@@ -3790,9 +3897,10 @@ void process_subscription(const frame::Decoded& decoded, bool enable) noexcept
     protocol::SubscriptionPolicy effective{};
     using DataTypes = declarations_of_t<typename System::RemoteDataCatalog::EntryTypes>;
     using TopicTypes = declarations_of_t<typename System::RemoteTopicCatalog::EntryTypes>;
+    using StreamTypes = declarations_of_t<typename System::RemoteStreamCatalog::EntryTypes>;
     auto updated = update_subscription<System, LinkT, LinkIndex>(
         decoded.envelope.target, enable, decoded.envelope.subscription(), request, effective,
-        DataTypes{}, TopicTypes{});
+        DataTypes{}, TopicTypes{}, StreamTypes{});
     if (!updated || !*updated) {
         ServiceT::template release_response<LinkT, LinkIndex>(decoded.envelope.request_id);
         (void)ServiceT::template protocol_error<LinkT, LinkIndex>(
@@ -3815,7 +3923,7 @@ void process_link_application_frame(const frame::Decoded& decoded) noexcept
     }
     if (decoded.envelope.kind == protocol::Kind::Cancel) {
         using Actions = declarations_of_t<typename System::RemoteActionCatalog::EntryTypes>;
-        using DataTypes = declarations_of_t<typename System::RemoteDataCatalog::EntryTypes>;
+        using DataTypes = declarations_of_t<typename System::RemoteStreamCatalog::EntryTypes>;
         const bool cancelled = cancel_pending_request<System>(
             LinkIndex, decoded.envelope.request_id, Actions{}, DataTypes{});
         if (cancelled) {
@@ -3838,8 +3946,8 @@ void process_link_application_frame(const frame::Decoded& decoded) noexcept
                 0, decoded.envelope.target, protocol::ErrorCode::UnsupportedOperation);
             return;
         }
-        using DataTypes = declarations_of_t<typename System::RemoteDataCatalog::EntryTypes>;
-        if (!dispatch_in_stream<System, LinkT, LinkIndex>(decoded, DataTypes{})) {
+        using StreamTypes = declarations_of_t<typename System::RemoteStreamCatalog::EntryTypes>;
+        if (!dispatch_in_stream<System, LinkT, LinkIndex>(decoded, StreamTypes{})) {
             (void)ServiceT::template protocol_error<LinkT, LinkIndex>(
                 0, decoded.envelope.target, protocol::ErrorCode::UnknownTarget);
         }
@@ -3931,9 +4039,6 @@ template <typename System> [[nodiscard]] protocol::ServerInformation server_info
 #if defined(CONFIG_SOLAR_REMOTE_RUNTIME_INTROSPECTION)
                          | 0x02U
 #endif
-#if defined(CONFIG_SOLAR_INSPECTION_REMOTE)
-                         | 0x04U
-#endif
         ,
     };
 }
@@ -3961,155 +4066,6 @@ template <typename System>
                 output.begin() + protocol::manifest_chunk_header_size);
     return protocol::manifest_chunk_header_size + count;
 }
-
-#if defined(CONFIG_SOLAR_INSPECTION_REMOTE)
-template <typename System>
-[[nodiscard]] Result<std::size_t, Error>
-inspection_collections(std::span<const std::byte> request_bytes,
-                       std::span<std::byte> output) noexcept
-{
-    auto request = protocol::decode_collection_request(request_bytes);
-    if (!request || request->limit == 0) {
-        return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::Decode});
-    }
-    constexpr auto descriptors = System::InspectionCatalog::descriptors();
-    if (request->offset > descriptors.size()) {
-        return fail<Error>({Status::Invalid, Reason::InvalidValue, Operation::Decode});
-    }
-    const auto limit =
-        (std::min)(static_cast<std::size_t>(request->limit),
-                   static_cast<std::size_t>(CONFIG_SOLAR_INSPECTION_REMOTE_MAX_PAGE_RECORDS));
-    const auto count = (std::min)(limit, descriptors.size() - request->offset);
-    if (output.size() < protocol::collection_page_header_size) {
-        return fail<Error>({Status::NoSpace, Reason::NoSpace, Operation::Encode});
-    }
-    output[0] = std::byte{1};
-    output[1] = static_cast<std::byte>(count);
-    protocol::detail::put_u16(output, 2, static_cast<std::uint16_t>(descriptors.size()));
-    protocol::detail::put_u16(output, 4, static_cast<std::uint16_t>(request->offset + count));
-    output[6] = static_cast<std::byte>(request->offset + count < descriptors.size());
-    output[7] = std::byte{};
-    std::size_t written = protocol::collection_page_header_size;
-    for (std::size_t index{}; index < count; ++index) {
-        const auto& view = descriptors[request->offset + index];
-        const auto& descriptor = view.descriptor;
-        const auto name_size = (std::min)(descriptor.name.size(), std::size_t{UINT8_MAX});
-        const auto required = protocol::collection_descriptor_header_size + name_size;
-        if (written + required > output.size()) {
-            return fail<Error>({Status::NoSpace, Reason::NoSpace, Operation::Encode});
-        }
-        protocol::detail::put_u16(output, written, view.local_id.value);
-        protocol::detail::put_u32(output, written + 2, descriptor.stable_id.value);
-        protocol::detail::put_u16(output, written + 6, descriptor.version);
-        output[written + 8] = static_cast<std::byte>(descriptor.subsystem);
-        output[written + 9] = static_cast<std::byte>(descriptor.capabilities);
-        output[written + 10] = static_cast<std::byte>(descriptor.consistency_modes);
-        output[written + 11] = static_cast<std::byte>(descriptor.synchronization);
-        output[written + 12] = static_cast<std::byte>(descriptor.context);
-        output[written + 13] = static_cast<std::byte>(descriptor.cost);
-        protocol::detail::put_u16(output, written + 14, descriptor.maximum_page);
-        protocol::detail::put_u16(output, written + 16, descriptor.record_size);
-        protocol::detail::put_u16(output, written + 18, descriptor.query_size);
-        output[written + 20] = static_cast<std::byte>((descriptor.may_block ? 1U : 0U) |
-                                                      (descriptor.expensive ? 2U : 0U) |
-                                                      (descriptor.values_may_be_stale ? 4U : 0U));
-        output[written + 21] = static_cast<std::byte>(name_size);
-        std::copy_n(reinterpret_cast<const std::byte*>(descriptor.name.data()), name_size,
-                    output.begin() + written + protocol::collection_descriptor_header_size);
-        written += required;
-    }
-    return written;
-}
-
-template <typename System, inspection::CollectionType Collection>
-inline static std::array<typename Collection::Record,
-                         CONFIG_SOLAR_INSPECTION_REMOTE_MAX_PAGE_RECORDS>
-    inspection_remote_records{};
-
-template <typename System, inspection::CollectionType Collection>
-[[nodiscard]] Result<std::size_t, Error>
-encode_inspection_query(const protocol::CollectionQueryRequest& request,
-                        std::span<std::byte> output) noexcept
-{
-    if constexpr (!inspection::CborEncodable<typename Collection::Record> ||
-                  !std::is_same_v<typename Collection::Query, inspection::BasicQuery>) {
-        return fail<Error>({Status::NotSupported, Reason::UnsupportedOperation, Operation::Encode});
-    } else {
-        if (request.limit > Collection::descriptor.maximum_page) {
-            return fail<Error>({Status::Invalid, Reason::InvalidValue, Operation::Query});
-        }
-        constexpr auto collection = System::InspectionCatalog::template Entry<Collection>::local_id;
-        auto& records = inspection_remote_records<System, Collection>;
-        const auto limit =
-            (std::min)(static_cast<std::size_t>(request.limit),
-                       static_cast<std::size_t>(CONFIG_SOLAR_INSPECTION_REMOTE_MAX_PAGE_RECORDS));
-        typename Collection::Query query{.page = {.cursor = {.collection = collection,
-                                                             .offset = request.offset,
-                                                             .revision = request.revision},
-                                                  .limit = limit}};
-        auto page = inspection::detail::query_provider<System, Collection>(
-            query, std::span{records}.first(limit), collection);
-        if (!page) {
-            return fail<Error>({page.error().status, Reason::InternalInvariant, Operation::Query});
-        }
-        inspection::CborWriter writer{output};
-        bool encoded = writer.map(10) && writer.unsigned_integer(0) &&
-                       writer.unsigned_integer(Collection::descriptor.stable_id.value) &&
-                       writer.unsigned_integer(1) && writer.unsigned_integer(page->written) &&
-                       writer.unsigned_integer(2) && writer.unsigned_integer(page->next.offset) &&
-                       writer.unsigned_integer(3) && writer.boolean(page->has_more) &&
-                       writer.unsigned_integer(4) && writer.unsigned_integer(page->revision) &&
-                       writer.unsigned_integer(5) &&
-                       writer.unsigned_integer(static_cast<std::uint8_t>(page->consistency)) &&
-                       writer.unsigned_integer(6) &&
-                       writer.unsigned_integer(static_cast<std::uint8_t>(page->freshness)) &&
-                       writer.unsigned_integer(7) && writer.unsigned_integer(page->loss.count) &&
-                       writer.unsigned_integer(8) && writer.array(page->written) &&
-                       writer.unsigned_integer(9) && writer.boolean(page->loss.known);
-        for (std::size_t index{}; encoded && index < page->written; ++index) {
-            encoded = inspection::CborEncoder<typename Collection::Record>::encode(records[index],
-                                                                                   writer);
-        }
-        if (!encoded || !writer.good()) {
-            return fail<Error>({Status::NoSpace, Reason::NoSpace, Operation::Encode});
-        }
-        return writer.size();
-    }
-}
-
-template <typename System>
-[[nodiscard]] Result<std::size_t, Error> inspection_query(std::span<const std::byte> request_bytes,
-                                                          std::span<std::byte> output) noexcept
-{
-    auto request = protocol::decode_collection_query_request(request_bytes);
-    if (!request || request->limit == 0 ||
-        request->limit > CONFIG_SOLAR_INSPECTION_REMOTE_MAX_PAGE_RECORDS) {
-        return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::Decode});
-    }
-    const auto descriptors = System::InspectionCatalog::descriptors();
-    const auto found = std::find_if(descriptors.begin(), descriptors.end(), [&](const auto& value) {
-        return value.descriptor.stable_id.value == request->stable_id &&
-               (value.descriptor.capabilities &
-                inspection::capability(inspection::OperationCapability::Remote)) != 0;
-    });
-    if (found == descriptors.end()) {
-        return fail<Error>({Status::NotFound, Reason::NotRegistered, Operation::Query});
-    }
-    Result<std::size_t, Error> result =
-        fail<Error>({Status::NotFound, Reason::NotRegistered, Operation::Query});
-    auto visited = inspection::detail::visit_entry<System>(
-        found->local_id,
-        [&](auto identity) {
-            using Collection = typename decltype(identity)::type;
-            result = encode_inspection_query<System, Collection>(*request, output);
-        },
-        typename System::InspectionCatalog::EntryTypes{});
-    if (!visited) {
-        return fail<Error>({Status::NotFound, Reason::NotRegistered, Operation::Query});
-    }
-    return result;
-}
-#endif
 
 #endif
 

@@ -1,8 +1,0 @@
-tests:
-  solar.health.disabled:
-    platform_allow:
-      - native_sim/native/64
-    tags:
-      - solar
-      - health
-      - disabled

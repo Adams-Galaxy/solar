@@ -41,15 +41,12 @@ PREDEFINED             = CONFIG_SOLAR=1 \
                          CONFIG_SOLAR_HARDWARE_COUNTER=1 \
                          CONFIG_SOLAR_HARDWARE_WATCHDOG=1 \
                          CONFIG_SOLAR_HARDWARE_RTIO=1 \
-                         CONFIG_SOLAR_BUS=1 \
                          CONFIG_SOLAR_PARAMETERS=1 \
                          CONFIG_SOLAR_PARAMETERS_PERSISTENCE=1 \
                          CONFIG_SOLAR_EVENTS=1 \
                          CONFIG_SOLAR_METRICS=1 \
                          CONFIG_SOLAR_LOG=1 \
                          CONFIG_SOLAR_REMOTE=1 \
-                         CONFIG_SOLAR_INSPECTION=1 \
-                         CONFIG_SOLAR_HEALTH=1 \
                          CONFIG_SOLAR_SUPERVISOR=1
 
 QUIET                  = YES

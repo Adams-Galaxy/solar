@@ -3,7 +3,6 @@
 #define CONFIG_SOLAR_REMOTE_MAX_ENDPOINTS 16
 
 #include <solar/remote.hpp>
-#include <solar/system.hpp>
 
 struct Value
 {
@@ -24,10 +23,9 @@ struct Data
     using Capabilities =
         solar::remote::Capabilities<solar::remote::Watch<>, solar::remote::Watch<>>;
 };
-struct Component
-{
-    static constexpr solar::component::Descriptor descriptor{.name = "bad.component"};
-    using RemoteData = solar::remote::ContributeData<Data>;
-};
-using BadSystem = solar::System<solar::Blueprint<solar::Facilities<Component>>>;
-constexpr auto bad_manifest = solar::remote::manifest::Image<BadSystem>::bytes;
+using BadArchitecture =
+    solar::remote::Architecture<solar::TypeList<Value>, solar::TypeList<Data>, solar::TypeList<>,
+                                solar::TypeList<>, solar::TypeList<>, solar::TypeList<>,
+                                solar::TypeList<>, solar::TypeList<>>;
+using BadRemote = solar::remote::RuntimeContext<BadArchitecture>;
+constexpr auto bad_manifest = solar::remote::manifest::Image<BadRemote>::bytes;

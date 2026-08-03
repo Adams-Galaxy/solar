@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import queue
 import struct
 
 from solar_remote import AsyncSession
@@ -22,38 +21,34 @@ from solar_remote.protocol import (
     decode_frame,
     encode_frame,
 )
-from solar_remote.transports import SerialTransport
 
 
-class FakeTransport:
+class FakeChannel:
+    """Already-open byte channel owned by the host test."""
+
     def __init__(self):
         self.incoming: asyncio.Queue[bytes | None] = asyncio.Queue()
-        self.closed = False
         self.epoch = 7
         self.image = b"SLRM" + struct.pack("<HBBHHI", 2, 1, 0, 0, 0, 16)
         self.requests: list[Envelope] = []
         self.acknowledged: list[int] = []
         self.cancelled: list[int] = []
+        self.incoming.put_nowait(self._hello_frame())
 
-    async def open(self) -> None:
-        await self._hello()
-
-    async def _hello(self) -> None:
+    def _hello_frame(self) -> bytes:
         payload = Hello(1, 0, 1024, 4096, 0x50).encode()
-        await self.incoming.put(
-            encode_frame(
-                Envelope(kind=KIND_SERVER_HELLO, session_epoch=self.epoch), payload
-            )
+        return encode_frame(
+            Envelope(kind=KIND_SERVER_HELLO, session_epoch=self.epoch), payload
         )
 
-    async def read(self, maximum: int) -> bytes:
+    async def receive(self, maximum: int) -> bytes:
         value = await self.incoming.get()
         return b"" if value is None else value
 
-    async def write(self, data: bytes) -> None:
+    async def send(self, data: bytes) -> None:
         envelope, payload = decode_frame(data)
         if envelope.kind == KIND_CLIENT_HELLO:
-            await self._hello()
+            await self.incoming.put(self._hello_frame())
         elif envelope.kind == KIND_INTROSPECTION:
             if envelope.target == INTROSPECTION_SERVER_INFORMATION:
                 information = (
@@ -110,57 +105,25 @@ class FakeTransport:
         elif envelope.kind == KIND_CANCEL:
             self.cancelled.append(envelope.request_id)
 
-    async def close(self) -> None:
-        self.closed = True
-        await self.incoming.put(None)
 
-
-class FakeSerial:
+class SilentChannel:
     def __init__(self):
-        self.incoming: queue.Queue[bytes | None] = queue.Queue()
-        self.written = bytearray()
-
-    def read(self, _: int) -> bytes:
-        value = self.incoming.get(timeout=1)
-        return b"" if value is None else value
-
-    def write(self, data: bytes) -> int:
-        count = min(2, len(data))
-        self.written.extend(data[:count])
-        return count
-
-    def close(self) -> None:
-        self.incoming.put(None)
-
-
-class SilentTransport:
-    def __init__(self):
-        self.closed = False
         self.incoming: asyncio.Queue[bytes | None] = asyncio.Queue()
 
-    async def open(self) -> None:
-        return None
-
-    async def read(self, maximum: int) -> bytes:
+    async def receive(self, maximum: int) -> bytes:
         value = await self.incoming.get()
         return b"" if value is None else value
 
-    async def write(self, data: bytes) -> None:
+    async def send(self, data: bytes) -> None:
         return None
-
-    async def close(self) -> None:
-        self.closed = True
-        await self.incoming.put(None)
 
 
 async def exercise() -> None:
-    transport = FakeTransport()
-    async with AsyncSession(transport) as session:
+    channel = FakeChannel()
+    async with AsyncSession(channel) as session:
         assert session.server_information is not None
         assert session.server_information.build_id == 0x301
-        assert (
-            session.manifest is not None and session.manifest.image == transport.image
-        )
+        assert session.manifest is not None and session.manifest.image == channel.image
 
         async def raw_request(target: int) -> bytes:
             request = session.core.request(target)
@@ -168,7 +131,7 @@ async def exercise() -> None:
 
         first, second = await asyncio.gather(raw_request(10), raw_request(20))
         assert first == b"10" and second == b"20"
-        assert len(transport.acknowledged) == 2
+        assert len(channel.acknowledged) == 2
         session.timeout = 0.01
         try:
             await raw_request(99)
@@ -176,35 +139,16 @@ async def exercise() -> None:
             pass
         else:
             raise AssertionError("unanswered request did not time out")
-        assert transport.cancelled
-    assert transport.closed
+        assert channel.cancelled
 
-    device = FakeSerial()
-    serial_transport = SerialTransport(
-        "/dev/fake", serial_factory=lambda *_args, **_kwargs: device
-    )
-    await serial_transport.open()
-    device.incoming.put(b"abcdef")
-    assert await serial_transport.read(3) == b"abc"
-    assert await serial_transport.read(3) == b"def"
-    await serial_transport.write(b"partial")
-    assert device.written == b"partial"
-    await serial_transport.close()
+    # Sessions consume an already-open channel and deliberately do not own it.
+    silent = SilentChannel()
     try:
-        SerialTransport("/dev/fake", baudrate=134)
-    except ValueError:
-        pass
-    else:
-        raise AssertionError("reserved Teensy reboot baud was accepted")
-
-    silent = SilentTransport()
-    try:
-        await AsyncSession(silent, timeout=0.01).open()
+        await AsyncSession(silent, timeout=0.01).start()
     except TimeoutError:
         pass
     else:
-        raise AssertionError("silent transport did not time out")
-    assert silent.closed
+        raise AssertionError("silent channel did not time out")
 
 
 def main() -> int:

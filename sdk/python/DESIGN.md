@@ -116,9 +116,9 @@ sdk/python/
 └── tests/
 ```
 
-The existing prototype under `tools/remote/solar_remote` is an implementation
-input, not a second supported runtime. It should be migrated or replaced so
-there is one protocol implementation in the SDK.
+The production `solar_remote` package is the sole protocol implementation.
+Generated application packages depend on it and add typed application APIs;
+they do not carry a second transport, framing, or session runtime.
 
 ## 5. Generated And Dynamic Manifests
 

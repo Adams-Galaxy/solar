@@ -8,7 +8,6 @@
 #include "solar/core/type_list.hpp"
 #include "solar/remote/link.hpp"
 #include "solar/remote/protocol.hpp"
-#include "solar/system/sections.hpp"
 
 namespace solar::remote
 {
@@ -25,7 +24,7 @@ struct ServerInformation;
 } // namespace protocol
 
 template <typename Architecture> struct Facility;
-template <typename Architecture> struct Service;
+template <typename Architecture, typename RuntimeContext = void> struct Service;
 
 namespace detail
 {
@@ -51,13 +50,6 @@ template <typename System> [[nodiscard]] protocol::ServerInformation server_info
 template <typename System>
 [[nodiscard]] Result<std::size_t, Error> manifest_chunk(std::span<const std::byte> request,
                                                         std::span<std::byte> output) noexcept;
-template <typename System>
-[[nodiscard]] Result<std::size_t, Error>
-inspection_collections(std::span<const std::byte> request, std::span<std::byte> output) noexcept;
-template <typename System>
-[[nodiscard]] Result<std::size_t, Error> inspection_query(std::span<const std::byte> request,
-                                                          std::span<std::byte> output) noexcept;
-
 template <typename Entries> struct DeclarationsOf;
 
 template <typename... Entries> struct DeclarationsOf<TypeList<Entries...>>
@@ -69,8 +61,18 @@ template <typename Entries> using declarations_of_t = typename DeclarationsOf<En
 
 } // namespace detail
 
+/** Default scheduler for Remote work; applications may supply an explicit adapter. */
+struct InlineScheduler
+{
+    template <typename Registration> [[nodiscard]] static Result<void> submit() noexcept
+    {
+        return Registration::BehaviorType::execute();
+    }
+};
+
 template <typename SchemasT, typename DataT, typename ActionsT, typename TopicsT, typename StreamsT,
-          typename LinksT, typename ComponentsT, typename ConfigurationT>
+          typename LinksT, typename ComponentsT, typename ConfigurationT,
+          typename SchedulerT = InlineScheduler>
 struct Architecture
 {
     using Schemas = SchemasT;
@@ -81,6 +83,7 @@ struct Architecture
     using Links = LinksT;
     using ComponentTypes = ComponentsT;
     using ConfigurationPolicies = ConfigurationT;
+    using Scheduler = SchedulerT;
 
     static constexpr bool demanded = list_size_v<Links> != 0;
     static_assert([]<typename... LinkTypes>(
@@ -102,53 +105,10 @@ template <typename ArchitectureT> struct Facility
     inline static std::atomic_bool ready{};
     inline static std::atomic_bool accepting{};
     inline static std::atomic_uint32_t active_requests{};
-    using ProcessPublication = void (*)(std::uint16_t) noexcept;
-    using ProcessApplicationFrame = void (*)(std::uint16_t, const frame::Decoded&) noexcept;
-    using ProcessActionWork = Result<void> (*)(std::uint32_t, bool) noexcept;
-    using ProcessPollWork = Result<void> (*)(std::uint32_t) noexcept;
-    using ProcessInStreamWork = Result<void> (*)(std::uint32_t) noexcept;
-    using ProcessPollReleases = std::int64_t (*)() noexcept;
-    using ResetSession = void (*)(std::uint16_t, InStreamCloseReason) noexcept;
-    using OpenSession = void (*)(std::uint16_t) noexcept;
-    using PongResponded = void (*)() noexcept;
-    using IntrospectionSummary = protocol::IntrospectionSummary (*)() noexcept;
-    using ServerInformation = protocol::ServerInformation (*)() noexcept;
-    using InspectionCollections = Result<std::size_t, Error> (*)(std::span<const std::byte>,
-                                                                 std::span<std::byte>) noexcept;
-    using InspectionQuery = InspectionCollections;
-    inline static ProcessPublication process_publication{};
-    inline static ProcessApplicationFrame process_application_frame{};
-    inline static ProcessActionWork process_action_work{};
-    inline static ProcessPollWork process_poll_work{};
-    inline static ProcessInStreamWork process_in_stream_work{};
-    inline static ProcessPollReleases process_poll_releases{};
-    inline static ResetSession reset_session{};
-    inline static OpenSession open_session{};
-    inline static PongResponded pong_responded{};
-    inline static IntrospectionSummary introspection_summary{};
-    inline static ServerInformation server_information{};
-    inline static InspectionCollections manifest_chunk{};
-    inline static InspectionCollections inspection_collections{};
-    inline static InspectionQuery inspection_query{};
-
     [[nodiscard]] static Result<void> init() noexcept
     {
         accepting.store(false, std::memory_order_relaxed);
         active_requests.store(0, std::memory_order_relaxed);
-        process_publication = nullptr;
-        process_application_frame = nullptr;
-        process_action_work = nullptr;
-        process_poll_work = nullptr;
-        process_in_stream_work = nullptr;
-        process_poll_releases = nullptr;
-        reset_session = nullptr;
-        open_session = nullptr;
-        pong_responded = nullptr;
-        introspection_summary = nullptr;
-        server_information = nullptr;
-        manifest_chunk = nullptr;
-        inspection_collections = nullptr;
-        inspection_query = nullptr;
         ready.store(true, std::memory_order_release);
         return {};
     }
@@ -168,52 +128,8 @@ template <typename ArchitectureT> struct Facility
     [[nodiscard]] static Result<void> deinit() noexcept
     {
         ready.store(false, std::memory_order_release);
-        process_publication = nullptr;
-        process_application_frame = nullptr;
-        process_action_work = nullptr;
-        process_poll_work = nullptr;
-        process_in_stream_work = nullptr;
-        process_poll_releases = nullptr;
-        reset_session = nullptr;
-        open_session = nullptr;
-        pong_responded = nullptr;
-        introspection_summary = nullptr;
-        server_information = nullptr;
-        manifest_chunk = nullptr;
-        inspection_collections = nullptr;
-        inspection_query = nullptr;
         return {};
-    }
-
-    template <typename System> static void activate_runtime() noexcept
-    {
-        detail::initialize_in_stream_runtime<System>();
-        process_publication = &detail::process_publication<System>;
-        process_application_frame = &detail::process_application_frame<System>;
-        process_action_work = &detail::process_action_work<System>;
-        process_poll_work = &detail::process_poll_work<System>;
-        process_in_stream_work = &detail::process_in_stream_work<System>;
-        process_poll_releases = &detail::process_poll_releases<System>;
-        reset_session = &detail::reset_session<System>;
-        open_session = &detail::open_session<System>;
-        pong_responded = &detail::pong_responded<System>;
-        introspection_summary = &detail::introspection_summary<System>;
-        server_information = &detail::server_information<System>;
-        manifest_chunk = &detail::manifest_chunk<System>;
-#if defined(CONFIG_SOLAR_INSPECTION_REMOTE)
-        inspection_collections = &detail::inspection_collections<System>;
-        inspection_query = &detail::inspection_query<System>;
-#endif
     }
 };
 
 } // namespace solar::remote
-
-template <typename Architecture> struct solar::builtin_traits<solar::remote::Facility<Architecture>>
-{
-    static constexpr bool enabled = solar::remote::available;
-    static constexpr bool always_present = false;
-    using Requirements = solar::TypeList<>;
-
-    template <typename> static constexpr bool demanded = Architecture::demanded;
-};

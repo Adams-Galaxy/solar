@@ -1,0 +1,14 @@
+solar: 1
+application:
+  name: robot-fixture
+  namespace: fixture_app
+interfaces:
+  - robot.solar.yaml
+generation:
+  maximum-types: 32
+  maximum-parameters: 32
+  maximum-actions: 32
+  maximum-streams: 32
+modules:
+  parameters:
+  remote:

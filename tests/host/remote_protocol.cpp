@@ -10,7 +10,6 @@
 #include <span>
 
 #include <solar/remote.hpp>
-#include <solar/system.hpp>
 
 namespace fixture
 {
@@ -73,15 +72,11 @@ struct Reset
     using Access = solar::remote::Requires<solar::remote::permission::Control>;
 };
 
-struct Component
-{
-    static constexpr solar::component::Descriptor descriptor{.name = "fixture.component"};
-    using RemoteData = solar::remote::ContributeData<Telemetry>;
-    using RemoteActions = solar::remote::ContributeActions<Reset>;
-    using RemoteSchemas = solar::remote::ContributeSchemas<Mode, OpenMode>;
-};
-
-using System = solar::System<solar::Blueprint<solar::Facilities<Component>>>;
+using Architecture =
+    solar::remote::Architecture<solar::TypeList<Mode, OpenMode>, solar::TypeList<Telemetry>,
+                                solar::TypeList<Reset>, solar::TypeList<>, solar::TypeList<>,
+                                solar::TypeList<>, solar::TypeList<>, solar::TypeList<>>;
+using Remote = solar::remote::RuntimeContext<Architecture>;
 
 } // namespace fixture
 
@@ -155,15 +150,15 @@ template <> struct solar::remote::Schema<fixture::PackedSample>
     static constexpr Codec codec = Codec::Packed;
 };
 
-SOLAR_REMOTE_EMIT_MANIFEST(fixture::System);
+SOLAR_REMOTE_EMIT_MANIFEST(fixture::Remote);
 
 static_assert(solar::remote::validate_schema<fixture::Sample>());
 static_assert(solar::remote::validate_enum_schema<fixture::Mode>());
 static_assert(solar::remote::detail::enum_openness<fixture::OpenMode>() ==
               solar::remote::EnumOpenness::Open);
 static_assert(solar::remote::packed::encoded_size<fixture::PackedSample> == 6);
-static_assert(fixture::System::RemoteDataCatalog::contains<fixture::Telemetry>);
-static_assert(fixture::System::RemoteActionCatalog::contains<fixture::Reset>);
+static_assert(fixture::Remote::RemoteDataCatalog::contains<fixture::Telemetry>);
+static_assert(fixture::Remote::RemoteActionCatalog::contains<fixture::Reset>);
 static constexpr std::array sha_input{std::byte{'a'}, std::byte{'b'}, std::byte{'c'}};
 static_assert(solar::remote::detail::sha256(std::span<const std::byte>{sha_input}) ==
               std::array<std::byte, 32>{
@@ -211,9 +206,9 @@ int main()
         .maximum_frame_bytes = 1024,
         .maximum_message_bytes = 4096,
         .build_id = 0x12345678,
-        .manifest_digest = solar::remote::manifest::Image<fixture::System>::digest,
+        .manifest_digest = solar::remote::manifest::Image<fixture::Remote>::digest,
         .manifest_size =
-            static_cast<std::uint32_t>(solar::remote::manifest::Image<fixture::System>::byte_count),
+            static_cast<std::uint32_t>(solar::remote::manifest::Image<fixture::Remote>::byte_count),
         .feature_flags = 1,
     };
     const auto information_bytes = protocol::encode(information);
@@ -255,17 +250,15 @@ int main()
         .remote_receive_us = 100,
         .remote_send_us = 104,
     };
-    static_assert(protocol::decode_ping_response(protocol::encode(ping_response)) ==
-                  ping_response);
+    static_assert(protocol::decode_ping_response(protocol::encode(ping_response)) == ping_response);
     constexpr protocol::InStreamOpenResponse opened{
         .policy = subscription_policy,
         .token = 0x11223344,
     };
     static_assert(protocol::encode(opened) ==
-                  std::array{std::byte{0x20}, std::byte{0x4e}, std::byte{0x00},
-                             std::byte{0x00}, std::byte{0x01}, std::byte{0x00},
-                             std::byte{0x01}, std::byte{0x00}, std::byte{0x44},
-                             std::byte{0x33}, std::byte{0x22}, std::byte{0x11}});
+                  std::array{std::byte{0x20}, std::byte{0x4e}, std::byte{0x00}, std::byte{0x00},
+                             std::byte{0x01}, std::byte{0x00}, std::byte{0x01}, std::byte{0x00},
+                             std::byte{0x44}, std::byte{0x33}, std::byte{0x22}, std::byte{0x11}});
     static_assert(protocol::decode_in_stream_open_response(protocol::encode(opened)) == opened);
     constexpr protocol::CreditGrant credit{
         .token = opened.token,
@@ -273,9 +266,8 @@ int main()
         .window = 8,
     };
     static_assert(protocol::encode(credit) ==
-                  std::array{std::byte{0x44}, std::byte{0x33}, std::byte{0x22},
-                             std::byte{0x11}, std::byte{0x03}, std::byte{0x00},
-                             std::byte{0x08}, std::byte{0x00}});
+                  std::array{std::byte{0x44}, std::byte{0x33}, std::byte{0x22}, std::byte{0x11},
+                             std::byte{0x03}, std::byte{0x00}, std::byte{0x08}, std::byte{0x00}});
     static_assert(protocol::decode_credit_grant(protocol::encode(credit)) == credit);
     constexpr protocol::InStreamCloseRequest close{.token = opened.token};
     static_assert(protocol::decode_in_stream_close_request(protocol::encode(close)) == close);
@@ -355,7 +347,7 @@ int main()
     auto open_value = packed::decode<fixture::OpenModeValue>(open_unknown);
     assert(open_value && static_cast<std::uint8_t>(open_value->mode) == 7);
 
-    constexpr auto& manifest = solar::remote::manifest::Image<fixture::System>::bytes;
+    constexpr auto& manifest = solar::remote::manifest::Image<fixture::Remote>::bytes;
     static_assert(manifest.size() > 16);
     assert(manifest[0] == std::byte{'S'} && manifest[3] == std::byte{'M'});
 }

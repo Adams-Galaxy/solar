@@ -1,6 +1,5 @@
 #pragma once
 
-#include "solar/catalog/builtins.hpp"
 #include "solar/catalog/catalog.hpp"
 #include "solar/catalog/collection.hpp"
 #include "solar/catalog/contribution.hpp"

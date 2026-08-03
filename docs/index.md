@@ -1,11 +1,11 @@
 # Solar
 
-Solar is a C++23 firmware framework and Zephyr module for building statically
-composed, bounded, observable embedded systems.
+Solar is a modular C++23 framework over Zephyr for typed hardware, bounded
+facilities, generated interfaces, and optional static application composition.
 
 Solar works with Zephyr's Kconfig, devicetree, kernel, drivers, workqueues, and
-build system. It adds typed C++ application composition, lifecycle, execution,
-data facilities, Remote host integration, health, and supervision.
+build system. Each facility works alone; `solar::system` can compose those same
+modules without a runtime context object or global binding.
 
 ::::{grid} 1 2 2 2
 :gutter: 2
@@ -13,7 +13,7 @@ data facilities, Remote host integration, health, and supervision.
 :::{grid-item-card} Build your first application
 :link: getting-started/index
 :link-type: doc
-Install Solar, bind a System, boot on `native_sim`, and understand the result.
+Install Solar, own modules, compose an application, and boot on `native_sim`.
 :::
 
 :::{grid-item-card} Find a subsystem

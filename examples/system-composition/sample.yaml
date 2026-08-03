@@ -1,6 +1,6 @@
 sample:
   name: Solar system composition
-  description: Dependencies, contributed work, lifecycle records, and binding modes
+  description: Explicit module ownership, dependencies, and typed adapters
 common:
   platform_allow:
     - native_sim/native/64
@@ -13,7 +13,4 @@ common:
     regex:
       - "Solar system composition passed"
 tests:
-  sample.solar.system_composition.relaxed: {}
-  sample.solar.system_composition.strict:
-    extra_configs:
-      - CONFIG_SOLAR_STRICT_CATALOG_BINDING=y
+  sample.solar.system_composition: {}

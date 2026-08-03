@@ -1,8 +1,8 @@
 # Configuration Reference
 
-Kconfig selects compiled capabilities, platform integration, global defaults,
-and hard storage ceilings. Typed Blueprint policy selects application structure
-and may override documented defaults within those ceilings.
+Kconfig selects platform integration and hard storage ceilings. C++ type
+parameters and the application `Compose` expression select owned modules and
+their bounded capacities.
 
 ```{toctree}
 :maxdepth: 1

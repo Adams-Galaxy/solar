@@ -150,6 +150,22 @@ class StopSource
         return true;
     }
 
+    /** Re-arm a stopped source after every user of its previous token exited. */
+    [[nodiscard]] Result<void> reset() noexcept
+    {
+        if (in_isr()) {
+            return fail<solar::Error>({.status = solar::Status::Invalid});
+        }
+        const int lock_result = k_mutex_lock(&state_.mutex, K_FOREVER);
+        if (lock_result != 0) {
+            return fail<Error>(error_from_errno(lock_result));
+        }
+        state_.requested.store(false, std::memory_order_release);
+        const int unlock_result = k_mutex_unlock(&state_.mutex);
+        return unlock_result == 0 ? Result<void>{}
+                                  : Result<void>{fail<Error>(error_from_errno(unlock_result))};
+    }
+
   private:
     detail::StopState state_{};
 };

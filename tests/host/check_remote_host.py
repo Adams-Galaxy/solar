@@ -106,8 +106,7 @@ def main() -> int:
     assert in_stream["rejected_open_error_hex"] == struct.pack("<H", 14).hex()
     assert in_stream["malformed_token_error_hex"] == struct.pack("<H", 18).hex()
     assert (
-        in_stream["unsupported_configuration_error_hex"]
-        == struct.pack("<H", 2).hex()
+        in_stream["unsupported_configuration_error_hex"] == struct.pack("<H", 2).hex()
     )
     batch = [b"one", b"two", b""]
     assert decode_batch(encode_batch(batch, codec=1)) == (1, batch)
@@ -198,10 +197,7 @@ def main() -> int:
     stream_fragments = []
     while (queued := client.take_outgoing()) is not None:
         stream_fragments.append(decode_frame(queued))
-    assert (
-        len(stream_fragments) > 1
-        and client.credits[(0x44, 0xAABBCCDD)].credits == 1
-    )
+    assert len(stream_fragments) > 1 and client.credits[(0x44, 0xAABBCCDD)].credits == 1
     assert all(item[0].operation == 3 for item in stream_fragments)
     assert all(item[0].request_id == 0xAABBCCDD for item in stream_fragments)
     assert all(item[0].flags & FLAG_FRAGMENTED for item in stream_fragments)
@@ -247,7 +243,7 @@ def main() -> int:
     assert manifest_envelope.target == 4
     assert manifest_payload == struct.pack("<IHH", 128, 256, 0)
     collection_payload = (
-        bytes((1, 2))
+        bytes((1, 1))
         + (1).to_bytes(2, "little")
         + (1).to_bytes(2, "little")
         + bytes((0, 0))

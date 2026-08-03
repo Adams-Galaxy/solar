@@ -1,0 +1,77 @@
+solar-interface: 1
+package: robot.fixture
+types:
+  OperatingMode:
+    kind: enum
+    underlying: u8
+    open: false
+    values:
+      manual: 0
+      autonomous: 1
+  DiagnosticCode:
+    kind: enum
+    underlying: u16
+    open: true
+    values:
+      ok: 0
+      degraded: 1
+  Empty:
+    kind: struct
+    fields:
+  PingResponse:
+    kind: struct
+    fields:
+      sequence: u32
+  Euler:
+    kind: struct
+    fields:
+      roll:
+        type: f32
+        unit: rad
+      pitch:
+        type: f32
+        unit: rad
+      yaw:
+        type: f32
+        unit: rad
+  DriveCommand:
+    kind: struct
+    fields:
+      throttle: f32
+      differential: f32
+      mode: OperatingMode
+  RobotState:
+    kind: struct
+    fields:
+      enabled: bool
+parameters:
+  drive.kp:
+    type: f32
+    default: 1.0
+    minimum: 0.0
+    maximum: 10.0
+    unit: gain
+data:
+  system.state:
+    type: RobotState
+    access:
+      - query
+      - update
+actions:
+  system.ping:
+    request: Empty
+    response: PingResponse
+stream-groups:
+  drive.inputs:
+    replacement: replace
+    description: Mutually exclusive drive inputs
+streams:
+  imu.euler:
+    type: Euler
+    direction: out
+    maximum-rate: 100
+  drive.command:
+    type: DriveCommand
+    direction: in
+    maximum-rate: 50
+    exclusive-group: drive.inputs

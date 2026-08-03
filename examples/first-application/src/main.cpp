@@ -1,19 +1,18 @@
 #include <zephyr/sys/printk.h>
 
-#include <solar/solar.hpp>
+#include <solar/system.hpp>
 
-// [component]
+namespace app
+{
+struct Application;
+
+/** Small explicitly owned module; it can also be used without System. */
 struct Platform
 {
-    static constexpr solar::component::Descriptor descriptor{
-        .name = "example.platform",
-        .description = "Minimal lifecycle-aware facility",
-    };
+    static constexpr std::string_view name = "example.platform";
+    using Dependencies = solar::TypeList<>;
 
-    inline static bool initialized{};
-    inline static bool running{};
-
-    static solar::Result<void> init() noexcept
+    static solar::Result<void> initialize() noexcept
     {
         initialized = true;
         return {};
@@ -34,36 +33,25 @@ struct Platform
         return {};
     }
 
-    static solar::Result<void> deinit() noexcept
+    static solar::Result<void> deinitialize() noexcept
     {
         initialized = false;
         return {};
     }
+
+    inline static bool initialized{};
+    inline static bool running{};
 };
-// [component]
 
-// [system]
-using ApplicationBlueprint = solar::Blueprint<solar::Facilities<Platform>>;
-using ApplicationSystem = solar::System<ApplicationBlueprint>;
+using Composition = solar::Compose<solar::Own<Platform>>;
+using System = solar::system::System<Application, Composition>;
+} // namespace app
 
-SOLAR_BIND_SYSTEM(ApplicationSystem);
-// [system]
-
-// [main]
 int main()
 {
-    const auto boot = solar::boot();
-    if (!boot) {
-        return -solar::to_errno(solar::status_of(boot.error()));
-    }
-
-    if (!Platform::running) {
+    if (!app::System::boot() || !app::Platform::running) {
         return -1;
     }
-
     printk("Solar first application passed\n");
-
-    const auto stopped = solar::stop();
-    return stopped ? 0 : -solar::to_errno(solar::status_of(stopped.error()));
+    return app::System::shutdown() ? 0 : -2;
 }
-// [main]

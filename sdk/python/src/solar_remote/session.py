@@ -179,12 +179,12 @@ class InboundStream(AbstractAsyncContextManager["InboundStream"]):
             raise SessionClosed(
                 "firmware does not support explicit inbound-stream activation"
             )
-        item = self.session._endpoint("data", self.endpoint)
+        item = self.session._endpoint("streams", self.endpoint)
         capability = next(
             (
                 value
                 for value in self.session.manifest.capabilities  # type: ignore[union-attr]
-                if value["domain"] == "data"
+                if value["domain"] == "stream"
                 and value["endpoint"] == item["id"]
                 and value["kind"] == "in_stream"
             ),

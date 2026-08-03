@@ -4,38 +4,33 @@ The composition API is template-only. The declarations below show its public
 shape without exposing normalization internals from generated documentation.
 
 ```cpp
-template <typename... Sections>
-struct Blueprint;
+template <typename... Entries> struct Compose;
+template <typename... Modules> struct Own;
+template <typename... Components> struct Components;
+template <typename Adapter, typename... Modules> struct Connect;
+template <typename GeneratedContract> struct Contract;
 
-template <typename BlueprintT>
-struct System {
-    using Blueprint = BlueprintT;
-    using Effective = effective_blueprint_t<BlueprintT>;
-    using Components = typename Effective::Components;
-    using Graph = typename Effective::Graph;
-    using Catalogs = typename Effective::Catalogs;
-
-    template <typename Application = DefaultApplication>
-    [[nodiscard]] static auto boot() noexcept;
-
-    [[nodiscard]] static auto stop() noexcept;
+template <typename Application, typename Composition>
+struct system::System {
+    [[nodiscard]] static Result<void> boot() noexcept;
+    [[nodiscard]] static Result<void> shutdown() noexcept;
 };
 ```
 
-## Component sections
+## Composition entries
 
 ```cpp
-template <typename... Types> struct Devices;
-template <typename... Types> struct Facilities;
-template <typename... Types> struct Services;
-template <typename... Types> struct Executors;
-template <typename... Types> struct Execution;
-template <typename... Types> struct Dependencies;
+using Composition = solar::Compose<
+    solar::Own<Parameters, Logging, Remote>,
+    solar::Components<Cockpit>,
+    solar::Connect<ExportMetrics, Metrics, Remote>,
+    solar::Contract<generated::Contract>>;
 ```
 
-`Devices`, `Facilities`, `Services`, and `Executors` place components in the
-System graph. `Execution` registers jobs with executors. A component's
-optional `Dependencies` alias controls graph and lifecycle ordering.
+Each owned module or component may declare `using Dependencies =
+solar::TypeList<...>`. The composer validates ownership, dependency presence,
+cycles, adapter signatures, and contract participation at compile time.
 
 See {doc}`../../concepts/system-and-blueprint` for the complete composition
-model and {doc}`../../tutorials/system-foundations` for a working application.
+model and {doc}`../../getting-started/first-application` for a working
+application.

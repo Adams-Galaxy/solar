@@ -6,12 +6,12 @@ optional lifecycle hooks:
 ```cpp
 struct Imu {
     static constexpr solar::component::Descriptor descriptor{.name = "imu"};
-    using Dependencies = solar::Dependencies<SpiBus>;
+    using Dependencies = solar::TypeList<SpiBus>;
 
     static solar::Result<void, ImuError> init() noexcept;
 };
 ```
 
-Place the type in exactly one component category in the Blueprint. Add
-declaration aliases such as `Events`, `Metrics`, or `Tasks` directly to the type
-that owns those contributions.
+Own the type once in a `solar::Compose` expression. Put generated declaration
+roles in a `solar::Contributes<Component, Role>` entry, keeping contract
+existence separate from behavior ownership.

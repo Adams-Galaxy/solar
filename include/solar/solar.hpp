@@ -1,6 +1,6 @@
 #pragma once
 
-#include "solar/catalog.hpp"
+#include "solar/component.hpp"
 #include "solar/core.hpp"
 #include "solar/remote.hpp"
 #include "solar/system.hpp"
@@ -12,33 +12,13 @@
 #if defined(CONFIG_SOLAR_HARDWARE)
 #include "solar/hardware.hpp"
 #endif
-#if defined(CONFIG_SOLAR_HEALTH)
-#include "solar/health.hpp"
-#endif
-#if defined(CONFIG_SOLAR_SUPERVISOR)
-#include "solar/supervisor.hpp"
-#endif
-#include "solar/lifecycle.hpp"
-#if defined(CONFIG_SOLAR_EXECUTION)
-#include "solar/execution.hpp"
-#endif
-#if defined(CONFIG_SOLAR_BUS)
-#include "solar/bus.hpp"
-#endif
-#if defined(CONFIG_SOLAR_PARAMETERS)
-#include "solar/parameters.hpp"
-#endif
-#if defined(CONFIG_SOLAR_EVENTS)
 #include "solar/events.hpp"
-#endif
-#if defined(CONFIG_SOLAR_METRICS)
-#include "solar/metrics.hpp"
-#endif
-#if defined(CONFIG_SOLAR_LOG)
+#include "solar/execution.hpp"
 #include "solar/log.hpp"
-#endif
-#if defined(CONFIG_SOLAR_INSPECTION)
-#include "solar/inspection.hpp"
-#endif
+#include "solar/metrics.hpp"
+#include "solar/module.hpp"
+#include "solar/parameters.hpp"
+#include "solar/persistence.hpp"
+#include "solar/supervisor.hpp"
 #endif
 #endif

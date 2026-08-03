@@ -8,7 +8,7 @@ west build -b your_board path/to/application
 west build -t menuconfig
 ```
 
-Enable only the subsystems the application owns. Set catalog and buffer maxima
-from expected declarations and bursts, then use typed Blueprint configuration
-for per-declaration policy. Regenerate the build after changing Kconfig because
-feature inclusion changes the effective System type.
+Enable only the platform integrations the application needs. Set buffer maxima
+from expected declarations and bursts, then use module type parameters and the
+application composition for per-module policy. Regenerate after changing
+Kconfig because limits affect the compiled runtime.
