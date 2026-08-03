@@ -46,7 +46,7 @@ struct Application
     using Services = solar::Services<
         solar::Run<services::Cockpit,
                    solar::Stack<3072>,
-                   solar::Priority<solar::PriorityLevel::High>>>;
+                   solar::PreemptivePriority<2>>>;
 
     using Configuration = solar::Configure<
         solar::Logging<solar::Retain<24>>,

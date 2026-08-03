@@ -70,12 +70,14 @@ struct Application
 {
     using Contract = fixture::Contract;
     using Devices = solar::Devices<ConventionalDevice>;
-    using Services = solar::Services<solar::Run<Service, solar::Stack<4096>, solar::Priority<3>>>;
+    using Services =
+        solar::Services<solar::Run<Service, solar::Stack<4096>, solar::PreemptivePriority<3>>>;
 };
 
 using Specification = solar::application::Specification<Application>;
 using DeviceModule = solar::AsModule<ConventionalDevice>;
-using Runner = solar::execution::ServiceRunner<Application, Service, 4096, 3>;
+using Runner =
+    solar::execution::ServiceRunner<Application, Service, 4096, solar::PreemptivePriority<3>>;
 using Expected = solar::Compose<solar::Contract<Contract>, solar::Own<DeviceModule, Runner>,
                                 solar::Components<Service>>;
 static_assert(std::is_same_v<solar::application::Composition<Application>, Expected>);

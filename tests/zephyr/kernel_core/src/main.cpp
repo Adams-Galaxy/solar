@@ -15,13 +15,14 @@ namespace kernel = solar::kernel;
 static_assert(
     std::is_same_v<decltype(kernel::MessageQueue<std::uint32_t, 4>::capacity), const std::size_t>);
 static_assert(kernel::MessageQueue<std::uint32_t, 4>::capacity == 4);
+static_assert(!std::is_default_constructible_v<kernel::Priority>);
 static_assert(kernel::Priority::preemptive<0>().native_handle() == K_PRIO_PREEMPT(0));
-static_assert(kernel::Priority::semantic<kernel::PriorityLevel::Realtime>().native_handle() ==
-              K_PRIO_PREEMPT(0));
-static_assert(kernel::Priority::semantic<kernel::PriorityLevel::Background>().native_handle() ==
-              K_PRIO_PREEMPT(CONFIG_NUM_PREEMPT_PRIORITIES - 1));
-static_assert(kernel::Priority::semantic<kernel::PriorityLevel::High>().native_handle() <
-              kernel::Priority::semantic<kernel::PriorityLevel::Normal>().native_handle());
+static_assert(kernel::Priority::native<K_HIGHEST_APPLICATION_THREAD_PRIO>().native_handle() ==
+              K_HIGHEST_APPLICATION_THREAD_PRIO);
+static_assert(kernel::Priority::native<K_LOWEST_APPLICATION_THREAD_PRIO>().native_handle() ==
+              K_LOWEST_APPLICATION_THREAD_PRIO);
+static_assert(kernel::Priority::preemptive<0>().category() == kernel::PriorityClass::Preemptive);
+static_assert(kernel::Priority::preemptive<0>().level() == 0);
 static_assert(!std::is_copy_constructible_v<kernel::Mutex>);
 static_assert(!std::is_move_constructible_v<kernel::Mutex>);
 static_assert(!std::is_copy_constructible_v<kernel::RecursiveMutex>);
@@ -46,6 +47,12 @@ static_assert(sizeof(kernel::PollSet<3>) >= 3 * sizeof(k_poll_event));
 static_assert(sizeof(kernel::Timer) >= sizeof(k_timer) + 2 * sizeof(kernel::Timer::Callback));
 #if CONFIG_NUM_COOP_PRIORITIES > 0
 static_assert(kernel::Priority::cooperative<0>().native_handle() == K_PRIO_COOP(0));
+static_assert(kernel::Priority::cooperative<0>().category() == kernel::PriorityClass::Cooperative);
+static_assert(kernel::Priority::cooperative<0>().level() == 0);
+static_assert(kernel::Priority::cooperative<0>().higher_than(kernel::Priority::preemptive<0>()));
+#endif
+#if CONFIG_NUM_METAIRQ_PRIORITIES > 0
+static_assert(kernel::Priority::meta_irq<0>().is_meta_irq());
 #endif
 
 namespace
@@ -146,7 +153,19 @@ ZTEST(solar_kernel_core, test_priority_scheduler_and_current_thread)
     const auto preemptive = kernel::Priority::try_preemptive(0);
     zassert_true(preemptive.has_value());
     zassert_true(preemptive->is_preemptive());
+    zassert_equal(preemptive->level(), 0);
     zassert_false(kernel::Priority::try_preemptive(CONFIG_NUM_PREEMPT_PRIORITIES).has_value());
+
+#if CONFIG_NUM_COOP_PRIORITIES > 0
+    const auto cooperative = kernel::Priority::try_cooperative(0);
+    zassert_true(cooperative.has_value());
+    zassert_true(cooperative->is_cooperative());
+    zassert_equal(cooperative->native_handle(), K_PRIO_COOP(0));
+#endif
+    zassert_true(kernel::Priority::from_native(K_HIGHEST_APPLICATION_THREAD_PRIO).has_value());
+    zassert_true(kernel::Priority::from_native(K_LOWEST_APPLICATION_THREAD_PRIO).has_value());
+    zassert_false(kernel::Priority::from_native(K_HIGHEST_APPLICATION_THREAD_PRIO - 1).has_value());
+    zassert_false(kernel::Priority::from_native(K_LOWEST_APPLICATION_THREAD_PRIO + 1).has_value());
 
     const auto original = kernel::this_thread::priority();
     kernel::this_thread::set_priority(*preemptive);

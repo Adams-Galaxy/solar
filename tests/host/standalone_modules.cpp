@@ -311,8 +311,8 @@ int main()
     assert(StaticMonitor::state<fixture::RemoteHealth>().condition ==
            solar::supervisor::Condition::Healthy);
 
-    using Runner =
-        solar::execution::ServiceRunner<fixture::Application, fixture::PassiveService, 1024, 1>;
+    using Runner = solar::execution::ServiceRunner<fixture::Application, fixture::PassiveService,
+                                                   1024, solar::PreemptivePriority<1>>;
     assert(Runner::initialize());
     assert(fixture::PassiveService::initialized);
     assert(Runner::start());

@@ -55,6 +55,12 @@ void controlled_thread(void* argument) noexcept
     (void)context.release.take();
 }
 
+void record_priority(void* argument) noexcept
+{
+    static_cast<std::atomic_int*>(argument)->store(kernel::this_thread::priority().native_handle(),
+                                                   std::memory_order_release);
+}
+
 struct StopContext
 {
     explicit StopContext(solar::StopToken value) : token(value) {}
@@ -182,6 +188,20 @@ ZTEST(solar_kernel_execution, test_thread_prepare_release_join_and_delayed_launc
     delayed_context.release.give();
     zassert_equal(result_status(delayed.join(kernel::Timeout::after(100ms))), solar::Status::Ok);
 }
+
+#if CONFIG_NUM_COOP_PRIORITIES > 0
+ZTEST(solar_kernel_execution, test_cooperative_priority_reaches_native_thread)
+{
+    std::atomic_int observed{K_IDLE_PRIO};
+    kernel::Thread<2048> thread;
+    constexpr auto priority = kernel::Priority::cooperative<0>();
+
+    zassert_equal(result_status(thread.launch(&record_priority, &observed, {.priority = priority})),
+                  solar::Status::Ok);
+    zassert_equal(result_status(thread.join(kernel::Timeout::after(100ms))), solar::Status::Ok);
+    zassert_equal(observed.load(std::memory_order_acquire), K_PRIO_COOP(0));
+}
+#endif
 
 ZTEST(solar_kernel_execution, test_thread_suspend_resume_and_abort)
 {

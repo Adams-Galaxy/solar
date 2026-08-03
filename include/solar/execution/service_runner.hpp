@@ -7,6 +7,7 @@
 #include <string_view>
 #include <type_traits>
 
+#include "solar/application/priority.hpp"
 #include "solar/core/status.hpp"
 #include "solar/core/type_list.hpp"
 
@@ -25,7 +26,7 @@ namespace solar::execution
  * Service behavior stays an ordinary application type; the Zephyr thread,
  * cancellation source, join deadline, and error propagation live here.
  */
-template <typename Application, typename Service, std::size_t StackBytes, auto PriorityValue,
+template <typename Application, typename Service, std::size_t StackBytes, typename PriorityPolicy,
           typename DependenciesT = TypeList<>>
 struct ServiceRunner
 {
@@ -110,13 +111,7 @@ struct ServiceRunner
 #if defined(__ZEPHYR__)
     [[nodiscard]] static consteval kernel::Priority configured_priority()
     {
-        using Value = std::remove_cv_t<decltype(PriorityValue)>;
-        if constexpr (std::is_same_v<Value, kernel::PriorityLevel>) {
-            return kernel::Priority::template semantic<PriorityValue>();
-        } else {
-            return kernel::Priority::template preemptive<static_cast<std::uint32_t>(
-                PriorityValue)>();
-        }
+        return PriorityPolicy::resolve();
     }
 
     static void entry(void*) noexcept

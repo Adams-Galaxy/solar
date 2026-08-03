@@ -32,7 +32,7 @@ enum class ThreadExecutionState : std::uint8_t
 
 struct ThreadConfiguration
 {
-    Priority priority{};
+    Priority priority;
     const char* name{};
     std::uint32_t options{};
 };
@@ -61,14 +61,25 @@ template <std::size_t StackBytes> class Thread
     Thread(Thread&&) = delete;
     Thread& operator=(Thread&&) = delete;
 
-    [[nodiscard]] Result<void> prepare(Entry entry, void* argument = nullptr,
-                                       ThreadConfiguration configuration = {}) noexcept
+    [[nodiscard]] Result<void> prepare(Entry entry, ThreadConfiguration configuration) noexcept
+    {
+        return prepare(entry, nullptr, configuration);
+    }
+
+    [[nodiscard]] Result<void> prepare(Entry entry, void* argument,
+                                       ThreadConfiguration configuration) noexcept
     {
         return create(entry, argument, configuration, Timeout::forever(), true);
     }
 
-    [[nodiscard]] Result<void> launch(Entry entry, void* argument = nullptr,
-                                      ThreadConfiguration configuration = {},
+    [[nodiscard]] Result<void> launch(Entry entry, ThreadConfiguration configuration,
+                                      Timeout delay = Timeout::no_wait()) noexcept
+    {
+        return launch(entry, nullptr, configuration, delay);
+    }
+
+    [[nodiscard]] Result<void> launch(Entry entry, void* argument,
+                                      ThreadConfiguration configuration,
                                       Timeout delay = Timeout::no_wait()) noexcept
     {
         return create(entry, argument, configuration, delay, false);

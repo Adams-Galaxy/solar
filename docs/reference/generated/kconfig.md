@@ -3,7 +3,7 @@
 This page is generated from `zephyr/Kconfig`. Change the Kconfig source or
 help text, then rebuild the documentation; do not edit this page manually.
 
-Solar currently defines 65 configuration symbols.
+Solar currently defines 67 configuration symbols.
 
 ## `CONFIG_SOLAR`
 
@@ -28,15 +28,37 @@ Generate and attach the conventional application contract when the
 configured project manifest exists. The default path is optional so
 standalone Solar modules do not require an application manifest.
 
-## `CONFIG_SOLAR_APPLICATION_DEFAULT_SERVICE_PRIORITY`
+## `CONFIG_SOLAR_APPLICATION_DEFAULT_SERVICE_PRIORITY_COOPERATIVE`
 
-Default service runner preemptive priority
+Cooperative
+
+- Type: `bool`
+- Menu: Main menu / Application integration
+- Depends on: `<choice SOLAR_APPLICATION_DEFAULT_SERVICE_PRIORITY_CLASS>`
+
+No additional help text.
+
+## `CONFIG_SOLAR_APPLICATION_DEFAULT_SERVICE_PRIORITY_LEVEL`
+
+Default service runner priority level
 
 - Type: `int`
 - Menu: Main menu / Application integration
 - Defaults: `2` if `SOLAR_APPLICATION_AUTO_INTEGRATION and SOLAR`
 - Depends on: `SOLAR_APPLICATION_AUTO_INTEGRATION and SOLAR`
-- Range: `0` to `15`
+- Range: `0` to `255`
+
+Zero-based level within the selected Zephyr priority class. Solar validates
+this value against CONFIG_NUM_PREEMPT_PRIORITIES or
+CONFIG_NUM_COOP_PRIORITIES after Kconfig is resolved.
+
+## `CONFIG_SOLAR_APPLICATION_DEFAULT_SERVICE_PRIORITY_PREEMPTIVE`
+
+Preemptive
+
+- Type: `bool`
+- Menu: Main menu / Application integration
+- Depends on: `<choice SOLAR_APPLICATION_DEFAULT_SERVICE_PRIORITY_CLASS>`
 
 No additional help text.
 

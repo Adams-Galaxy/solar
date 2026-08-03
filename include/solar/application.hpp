@@ -4,9 +4,9 @@
 #include <type_traits>
 
 #include "solar/application/fwd.hpp"
+#include "solar/application/priority.hpp"
 #include "solar/core/type_list.hpp"
 #include "solar/execution/service_runner.hpp"
-#include "solar/kernel/priority_level.hpp"
 #include "solar/module.hpp"
 #include "solar/parameters/store.hpp"
 #include "solar/system/composer.hpp"
@@ -26,9 +26,6 @@
 namespace solar
 {
 
-/** Semantic service priority levels for the high-level Application API. */
-using PriorityLevel = kernel::PriorityLevel;
-
 template <typename... Entries> struct Devices
 {
     using EntriesType = TypeList<Entries...>;
@@ -37,24 +34,6 @@ template <typename... Entries> struct Devices
 template <std::size_t Bytes> struct Stack
 {
     static constexpr std::size_t value = Bytes;
-};
-
-template <auto Value> struct Priority
-{
-    using ValueType = std::remove_cv_t<decltype(Value)>;
-    static constexpr bool valid = [] {
-        if constexpr (std::is_same_v<ValueType, kernel::PriorityLevel>) {
-            return true;
-        } else if constexpr (std::is_integral_v<ValueType> && !std::is_same_v<ValueType, bool>) {
-            return Value >= 0;
-        } else {
-            return false;
-        }
-    }();
-    static_assert(valid,
-                  "SOLAR_APPLICATION_INVALID_SERVICE_PRIORITY: use a non-negative native level "
-                  "or solar::kernel::PriorityLevel");
-    static constexpr auto value = Value;
 };
 
 template <typename... Policies> struct Configure
@@ -98,10 +77,17 @@ inline constexpr std::size_t default_service_stack = CONFIG_SOLAR_APPLICATION_DE
 #else
 inline constexpr std::size_t default_service_stack = 2048;
 #endif
-#if defined(CONFIG_SOLAR_APPLICATION_DEFAULT_SERVICE_PRIORITY)
-inline constexpr int default_service_priority = CONFIG_SOLAR_APPLICATION_DEFAULT_SERVICE_PRIORITY;
+#if defined(CONFIG_SOLAR_APPLICATION_DEFAULT_SERVICE_PRIORITY_LEVEL)
+inline constexpr std::uint32_t default_service_priority_level =
+    CONFIG_SOLAR_APPLICATION_DEFAULT_SERVICE_PRIORITY_LEVEL;
 #else
-inline constexpr int default_service_priority = 2;
+inline constexpr std::uint32_t default_service_priority_level = 2;
+#endif
+
+#if defined(CONFIG_SOLAR_APPLICATION_DEFAULT_SERVICE_PRIORITY_COOPERATIVE)
+using DefaultServicePriority = CooperativePriority<default_service_priority_level>;
+#else
+using DefaultServicePriority = PreemptivePriority<default_service_priority_level>;
 #endif
 
 template <typename Application, typename = void> struct ContractOf
@@ -231,12 +217,16 @@ template <std::size_t Bytes> struct IsStack<Stack<Bytes>> : std::true_type
 {};
 template <typename Policy> struct IsPriority : std::false_type
 {};
-template <auto Value> struct IsPriority<Priority<Value>> : std::true_type
+template <int Value> struct IsPriority<Priority<Value>> : std::true_type
+{};
+template <std::uint32_t Level> struct IsPriority<PreemptivePriority<Level>> : std::true_type
+{};
+template <std::uint32_t Level> struct IsPriority<CooperativePriority<Level>> : std::true_type
 {};
 
 template <typename... Policies> struct PriorityPolicyOf
 {
-    using type = Priority<default_service_priority>;
+    using type = DefaultServicePriority;
 };
 template <typename Policy, typename... Policies> struct PriorityPolicyOf<Policy, Policies...>
 {
@@ -264,7 +254,6 @@ template <typename... Policies> struct RunPolicy<TypeList<Policies...>>
         return value;
     }();
     using PriorityPolicy = typename PriorityPolicyOf<Policies...>::type;
-    static constexpr auto priority = PriorityPolicy::value;
 };
 
 template <typename Service, typename = void> struct ServiceDependencies
@@ -283,7 +272,7 @@ struct RunnerOf<Application, Run<Service, Policies...>>
 {
     using Configuration = RunPolicy<TypeList<Policies...>>;
     using type = execution::ServiceRunner<Application, Service, Configuration::stack,
-                                          Configuration::priority,
+                                          typename Configuration::PriorityPolicy,
                                           typename ServiceDependencies<Service>::type>;
 };
 

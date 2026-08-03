@@ -54,10 +54,26 @@ config SOLAR_APPLICATION_DEFAULT_SERVICE_STACK
 	range 512 65536
 	default 2048
 
-config SOLAR_APPLICATION_DEFAULT_SERVICE_PRIORITY
-	int "Default service runner preemptive priority"
-	range 0 15
+choice SOLAR_APPLICATION_DEFAULT_SERVICE_PRIORITY_CLASS
+	prompt "Default service runner priority class"
+	default SOLAR_APPLICATION_DEFAULT_SERVICE_PRIORITY_PREEMPTIVE
+
+config SOLAR_APPLICATION_DEFAULT_SERVICE_PRIORITY_PREEMPTIVE
+	bool "Preemptive"
+
+config SOLAR_APPLICATION_DEFAULT_SERVICE_PRIORITY_COOPERATIVE
+	bool "Cooperative"
+
+endchoice
+
+config SOLAR_APPLICATION_DEFAULT_SERVICE_PRIORITY_LEVEL
+	int "Default service runner priority level"
+	range 0 255
 	default 2
+	help
+	  Zero-based level within the selected Zephyr priority class. Solar validates
+	  this value against CONFIG_NUM_PREEMPT_PRIORITIES or
+	  CONFIG_NUM_COOP_PRIORITIES after Kconfig is resolved.
 
 config SOLAR_APPLICATION_LOG_HISTORY_CAPACITY
 	int "Retained structured log record capacity"

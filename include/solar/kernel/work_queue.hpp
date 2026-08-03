@@ -20,7 +20,7 @@ namespace solar::kernel
 
 struct WorkQueueConfiguration
 {
-    Priority priority{};
+    Priority priority;
     const char* name{};
     bool no_yield{};
     bool essential{};
@@ -66,7 +66,7 @@ template <std::size_t StackBytes> class WorkQueue
     WorkQueue(WorkQueue&&) = delete;
     WorkQueue& operator=(WorkQueue&&) = delete;
 
-    [[nodiscard]] Result<void> start(WorkQueueConfiguration configuration = {}) noexcept
+    [[nodiscard]] Result<void> start(WorkQueueConfiguration configuration) noexcept
     {
         if (in_isr()) {
             return fail<Error>({.status = Status::Invalid});

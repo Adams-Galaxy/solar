@@ -143,3 +143,17 @@ Native result: 2/2 configurations and 17/17 cases passed
 Teensy reference size: text 201280, data 99524, bss 131749, binary 296 KiB
 Known limitations: all non-default configuration and architecture rows above
 ```
+
+### 2026-08-03 — exact priorities
+
+```text
+Solar worktree after baseline: Phase 1 implementation
+Host: 68/68 passed
+Native: 7/7 configurations passed or built; 18/18 runtime cases passed
+Priority matrix: mixed, cooperative-only, preemptive-only, reduced mixed,
+                 and Meta-IRQ configurations built
+Compile-fail: invalid preemptive, cooperative, native-low, native-high,
+              Meta-IRQ, and Application policy values produced focused markers
+Teensy: optimized/LTO application built; text 201276, data 99524, bss 131749
+Documentation audit: 18 aggregates, 9 subsystems, 67 Kconfig symbols passed
+```

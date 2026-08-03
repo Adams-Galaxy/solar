@@ -11,6 +11,7 @@ import kconfiglib
 
 
 AGGREGATE_PAGES = {
+    "application": "reference/api/system.md",
     "catalog": "reference/api/composition.md",
     "component": "reference/api/composition.md",
     "core": "reference/api/core.md",

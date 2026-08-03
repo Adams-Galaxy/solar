@@ -63,7 +63,8 @@ using GainReader = ReusableGainReader<parameters>;
 
 using system = solar::System<Application>;
 
-using runner = solar::execution::ServiceRunner<Application, Cockpit, 2048, 2>;
+using runner =
+    solar::execution::ServiceRunner<Application, Cockpit, 2048, solar::PreemptivePriority<2>>;
 using explicit_composition =
     solar::Compose<solar::Contract<generated::Contract>, solar::Own<parameters, runner>,
                    solar::Components<Cockpit>>;
