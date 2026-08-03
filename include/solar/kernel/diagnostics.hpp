@@ -246,10 +246,14 @@ thread_diagnostics(ThreadId thread,
 }
 
 template <std::size_t StackBytes>
-[[nodiscard]] Result<ThreadDiagnostics>
-thread_diagnostics(const Thread<StackBytes>& thread) noexcept
+[[nodiscard]] Result<ThreadDiagnostics> thread_diagnostics(Thread<StackBytes>& thread) noexcept
 {
-    auto diagnostics = thread_diagnostics(thread.native_handle(), Thread<StackBytes>::stack_size());
+    const auto reference = thread.ref();
+    if (!reference) {
+        return fail<Error>(reference.error());
+    }
+    auto diagnostics =
+        thread_diagnostics(reference->native_handle(), Thread<StackBytes>::stack_size());
     if (diagnostics) {
         diagnostics->state = thread.state();
     }

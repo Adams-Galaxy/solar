@@ -77,6 +77,13 @@ corresponding ownership phase is completed.
 No new mutable native handle is permitted until its row has a native mutation
 test showing that Solar lifecycle and destruction remain correct.
 
+Phase 2 has introduced `ThreadRef`, `SemaphoreRef`, `RecursiveMutexRef`,
+`EventFlagsRef`, `MessageQueueRef<T>`, `TimerRef`, and `PollSignalRef`.
+`WorkQueueTarget` now carries submission authority without exposing a queue
+handle. Mutable native access has been removed from `Mutex`, owned `Thread`,
+`Timer`, `Work`, `DelayableWork`, `TriggeredWork`, `WorkQueue`, and `PollSet`.
+The remaining rows are still under audit, so Phase 2 remains in progress.
+
 ## 3. Zephyr Kernel Coverage
 
 | Zephyr 4.4 family | Baseline Solar coverage | Planned disposition |
@@ -156,4 +163,20 @@ Compile-fail: invalid preemptive, cooperative, native-low, native-high,
               Meta-IRQ, and Application policy values produced focused markers
 Teensy: optimized/LTO application built; text 201276, data 99524, bss 131749
 Documentation audit: 18 aggregates, 9 subsystems, 67 Kconfig symbols passed
+```
+
+### 2026-08-03 — ownership/reference foundation
+
+```text
+Solar worktree after Phase 1: Phase 2 partial implementation
+Host: 68/68 passed
+Native: kernel core, kernel execution, and Remote protocol all passed;
+        21/21 runtime cases
+Borrowing: native semaphore, recursive mutex, message queue, event, timer,
+           poll signal, and current thread exercised through typed references
+Compile-fail: mutable owner handles rejected for Mutex, Thread, WorkQueue, Timer
+Teensy: optimized/LTO application built; FLASH 303300 B, RAM 198040 B
+Documentation audit: 18 aggregates, 9 subsystems, 67 Kconfig symbols passed
+Known limitations: Phase 2 remains active for the remaining transparent owners
+                   and final interoperation audit
 ```

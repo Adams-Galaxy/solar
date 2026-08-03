@@ -65,7 +65,7 @@ class ConditionVariable
         }
 
         const int result =
-            k_condvar_wait(&condition_, mutex.native_handle(), timeout.native_handle());
+            k_condvar_wait(&condition_, mutex.native_for_condition(), timeout.native_handle());
         mutex.end_condition_wait();
         return detail::map_wait(result, timeout, Status::WouldBlock);
     }

@@ -43,10 +43,17 @@ in thread context.
 
 ## Native interoperation
 
-Wrappers expose `native_handle()` or a focused native accessor. The returned
-Zephyr object remains owned by the wrapper; do not reinitialize it, move it, or
-retain it beyond the wrapper's lifetime. Direct Zephyr calls remain valid when
-Solar has no useful typed addition.
+Owning wrappers use stable native storage and do not expose mutable handles when
+a native call could invalidate their lifecycle or callback state. Use
+`owner.ref()` to borrow transparent primitives such as semaphores, recursive
+mutexes, events, message queues, timers, poll signals, and initialized threads.
+The matching `FooRef` can also borrow a Zephyr-owned object without taking over
+its initialization or lifetime.
+
+Custom workqueues expose `target()`, a narrow `WorkQueueTarget` capability that
+allows submission without allowing queue reinitialization or lifecycle changes.
+A reference or target must never outlive its native object. Direct Zephyr calls
+remain the supported path for kernel facilities that Solar has not wrapped.
 
 See {doc}`../reference/api/kernel`, {doc}`../concepts/concurrency-and-context`,
 and {doc}`../how-to/use-from-isr`.

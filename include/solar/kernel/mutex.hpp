@@ -17,6 +17,48 @@ namespace solar::kernel
 
 class ConditionVariable;
 
+/** Non-owning access to an initialized recursive Zephyr mutex. */
+class RecursiveMutexRef
+{
+  public:
+    explicit constexpr RecursiveMutexRef(k_mutex& mutex) noexcept : mutex_(&mutex) {}
+
+    [[nodiscard]] Result<void> lock(Timeout timeout = Timeout::forever()) const noexcept
+    {
+        if (in_isr()) {
+            return fail<Error>({.status = Status::Invalid});
+        }
+        return detail::map_wait(k_mutex_lock(mutex_, timeout.native_handle()), timeout,
+                                Status::WouldBlock);
+    }
+
+    [[nodiscard]] Result<void> lock(const Deadline& deadline) const noexcept
+    {
+        return lock(deadline.remaining());
+    }
+
+    [[nodiscard]] Result<void> try_lock() const noexcept
+    {
+        return lock(Timeout::no_wait());
+    }
+
+    [[nodiscard]] Result<void> unlock() const noexcept
+    {
+        if (in_isr()) {
+            return fail<Error>({.status = Status::Invalid});
+        }
+        return detail::map_native(k_mutex_unlock(mutex_));
+    }
+
+    [[nodiscard]] constexpr k_mutex* native_handle() const noexcept
+    {
+        return mutex_;
+    }
+
+  private:
+    k_mutex* mutex_;
+};
+
 class Mutex
 {
   public:
@@ -77,16 +119,6 @@ class Mutex
         return status;
     }
 
-    [[nodiscard]] k_mutex* native_handle() noexcept
-    {
-        return &mutex_;
-    }
-
-    [[nodiscard]] const k_mutex* native_handle() const noexcept
-    {
-        return &mutex_;
-    }
-
   private:
     [[nodiscard]] Result<void> begin_condition_wait() noexcept
     {
@@ -100,6 +132,11 @@ class Mutex
     void end_condition_wait() noexcept
     {
         owner_.store(k_current_get(), std::memory_order_release);
+    }
+
+    [[nodiscard]] k_mutex* native_for_condition() noexcept
+    {
+        return &mutex_;
     }
 
     friend class ConditionVariable;
@@ -123,11 +160,7 @@ class RecursiveMutex
 
     [[nodiscard]] Result<void> lock(Timeout timeout = Timeout::forever()) noexcept
     {
-        if (in_isr()) {
-            return fail<Error>({.status = Status::Invalid});
-        }
-        return detail::map_wait(k_mutex_lock(&mutex_, timeout.native_handle()), timeout,
-                                Status::WouldBlock);
+        return ref().lock(timeout);
     }
 
     [[nodiscard]] Result<void> lock(const Deadline& deadline) noexcept
@@ -142,20 +175,12 @@ class RecursiveMutex
 
     [[nodiscard]] Result<void> unlock() noexcept
     {
-        if (in_isr()) {
-            return fail<Error>({.status = Status::Invalid});
-        }
-        return detail::map_native(k_mutex_unlock(&mutex_));
+        return ref().unlock();
     }
 
-    [[nodiscard]] k_mutex* native_handle() noexcept
+    [[nodiscard]] RecursiveMutexRef ref() noexcept
     {
-        return &mutex_;
-    }
-
-    [[nodiscard]] const k_mutex* native_handle() const noexcept
-    {
-        return &mutex_;
+        return RecursiveMutexRef{mutex_};
     }
 
   private:

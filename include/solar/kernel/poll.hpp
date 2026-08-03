@@ -15,9 +15,47 @@
 namespace solar::kernel
 {
 
+class TriggeredWork;
+
 inline constexpr bool poll_available = IS_ENABLED(CONFIG_POLL);
 
 #if defined(CONFIG_POLL)
+
+/** Non-owning access to an initialized Zephyr poll signal. */
+class PollSignalRef
+{
+  public:
+    explicit constexpr PollSignalRef(k_poll_signal& signal) noexcept : signal_(&signal) {}
+
+    [[nodiscard]] Result<void> raise(int value = 0) const noexcept
+    {
+        return detail::map_native(k_poll_signal_raise(signal_, value));
+    }
+
+    void reset() const noexcept
+    {
+        k_poll_signal_reset(signal_);
+    }
+
+    [[nodiscard]] std::optional<int> value() const noexcept
+    {
+        unsigned int signaled{};
+        int result{};
+        k_poll_signal_check(signal_, &signaled, &result);
+        if (signaled == 0) {
+            return std::nullopt;
+        }
+        return result;
+    }
+
+    [[nodiscard]] constexpr k_poll_signal* native_handle() const noexcept
+    {
+        return signal_;
+    }
+
+  private:
+    k_poll_signal* signal_;
+};
 
 class PollSignal
 {
@@ -34,33 +72,19 @@ class PollSignal
 
     [[nodiscard]] Result<void> raise(int value = 0) noexcept
     {
-        return detail::map_native(k_poll_signal_raise(&signal_, value));
+        return ref().raise(value);
     }
-
     void reset() noexcept
     {
-        k_poll_signal_reset(&signal_);
+        ref().reset();
     }
-
     [[nodiscard]] std::optional<int> value() const noexcept
     {
-        unsigned int signaled{};
-        int result{};
-        k_poll_signal_check(const_cast<k_poll_signal*>(&signal_), &signaled, &result);
-        if (signaled == 0) {
-            return std::nullopt;
-        }
-        return result;
+        return PollSignalRef{const_cast<k_poll_signal&>(signal_)}.value();
     }
-
-    [[nodiscard]] k_poll_signal* native_handle() noexcept
+    [[nodiscard]] PollSignalRef ref() noexcept
     {
-        return &signal_;
-    }
-
-    [[nodiscard]] const k_poll_signal* native_handle() const noexcept
-    {
-        return &signal_;
+        return PollSignalRef{signal_};
     }
 
   private:
@@ -106,10 +130,20 @@ template <std::size_t Capacity> class PollSet
 
     [[nodiscard]] Result<void> add(PollSignal& signal, std::uint8_t tag = 0) noexcept
     {
+        return add(signal.ref(), tag);
+    }
+
+    [[nodiscard]] Result<void> add(PollSignalRef signal, std::uint8_t tag = 0) noexcept
+    {
         return add_native(K_POLL_TYPE_SIGNAL, signal.native_handle(), tag);
     }
 
     [[nodiscard]] Result<void> add(Semaphore& semaphore, std::uint8_t tag = 0) noexcept
+    {
+        return add(semaphore.ref(), tag);
+    }
+
+    [[nodiscard]] Result<void> add(SemaphoreRef semaphore, std::uint8_t tag = 0) noexcept
     {
         return add_native(K_POLL_TYPE_SEM_AVAILABLE, semaphore.native_handle(), tag);
     }
@@ -117,6 +151,12 @@ template <std::size_t Capacity> class PollSet
     template <typename Message, std::size_t Depth>
     [[nodiscard]] Result<void> add(MessageQueue<Message, Depth>& queue,
                                    std::uint8_t tag = 0) noexcept
+    {
+        return add(queue.ref(), tag);
+    }
+
+    template <typename Message>
+    [[nodiscard]] Result<void> add(MessageQueueRef<Message> queue, std::uint8_t tag = 0) noexcept
     {
         return add_native(K_POLL_TYPE_MSGQ_DATA_AVAILABLE, queue.native_handle(), tag);
     }
@@ -166,12 +206,14 @@ template <std::size_t Capacity> class PollSet
         count_ = 0;
     }
 
+  private:
     [[nodiscard]] k_poll_event* native_events() noexcept
     {
         return events_.data();
     }
 
-  private:
+    friend class TriggeredWork;
+
     [[nodiscard]] Result<void> add_native(std::uint32_t type, void* object,
                                           std::uint8_t tag) noexcept
     {

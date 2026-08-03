@@ -43,6 +43,26 @@ constexpr auto invalid_priority =
     solar::PreemptivePriority<CONFIG_NUM_PREEMPT_PRIORITIES>::resolve();
 #elif SOLAR_FAIL_CASE == 17
 constexpr auto invalid_priority = solar::CooperativePriority<CONFIG_NUM_COOP_PRIORITIES>::resolve();
+#elif SOLAR_FAIL_CASE == 18
+void invalid_native_access(solar::kernel::Mutex& mutex)
+{
+    (void)mutex.native_handle();
+}
+#elif SOLAR_FAIL_CASE == 19
+void invalid_native_access(solar::kernel::Thread<1024>& thread)
+{
+    (void)thread.native_handle();
+}
+#elif SOLAR_FAIL_CASE == 20
+void invalid_native_access(solar::kernel::WorkQueue<1024>& queue)
+{
+    (void)queue.native_handle();
+}
+#elif SOLAR_FAIL_CASE == 21
+void invalid_native_access(solar::kernel::Timer& timer)
+{
+    (void)timer.native_handle();
+}
 #else
 #error SOLAR_DIAGNOSTIC_UNKNOWN_KERNEL_FAILURE_CASE
 #endif

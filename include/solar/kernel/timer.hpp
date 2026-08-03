@@ -12,6 +12,63 @@
 namespace solar::kernel
 {
 
+/** Non-owning operations on an initialized native Zephyr timer. */
+class TimerRef
+{
+  public:
+    explicit constexpr TimerRef(k_timer& timer) noexcept : timer_(&timer) {}
+
+    [[nodiscard]] Result<void> start(Timeout initial,
+                                     Timeout period = Timeout::no_wait()) const noexcept
+    {
+        if (initial.is_forever()) {
+            return fail<Error>({.status = Status::Invalid});
+        }
+        k_timer_start(timer_, initial.native_handle(), period.native_handle());
+        return {};
+    }
+
+    void stop() const noexcept
+    {
+        k_timer_stop(timer_);
+    }
+    void stop_isr() const noexcept
+    {
+        k_timer_stop(timer_);
+    }
+
+    [[nodiscard]] std::uint32_t expirations() const noexcept
+    {
+        return k_timer_status_get(timer_);
+    }
+
+    [[nodiscard]] Result<std::uint32_t> sync() const noexcept
+    {
+        if (in_isr()) {
+            return fail<solar::Error>({.status = solar::Status::Invalid});
+        }
+        return k_timer_status_sync(timer_);
+    }
+
+    [[nodiscard]] TickDuration remaining() const noexcept
+    {
+        return from_ticks(static_cast<Tick>(k_timer_remaining_ticks(timer_)));
+    }
+
+    [[nodiscard]] TimePoint expires_at() const noexcept
+    {
+        return TimePoint{TickDuration{static_cast<Tick>(k_timer_expires_ticks(timer_))}};
+    }
+
+    [[nodiscard]] bool running() const noexcept
+    {
+        return k_timer_remaining_ticks(timer_) != 0;
+    }
+
+  private:
+    k_timer* timer_;
+};
+
 class Timer
 {
   public:
@@ -31,11 +88,7 @@ class Timer
 
     [[nodiscard]] Result<void> start(Timeout initial, Timeout period = Timeout::no_wait()) noexcept
     {
-        if (initial.is_forever()) {
-            return fail<Error>({.status = Status::Invalid});
-        }
-        k_timer_start(&timer_, initial.native_handle(), period.native_handle());
-        return {};
+        return ref().start(initial, period);
     }
 
     template <typename InitialRep, typename InitialPeriod>
@@ -56,50 +109,42 @@ class Timer
 
     void stop() noexcept
     {
-        k_timer_stop(&timer_);
+        ref().stop();
     }
 
     void stop_isr() noexcept
     {
-        k_timer_stop(&timer_);
+        ref().stop_isr();
     }
 
     [[nodiscard]] std::uint32_t expirations() noexcept
     {
-        return k_timer_status_get(&timer_);
+        return ref().expirations();
     }
 
     [[nodiscard]] Result<std::uint32_t> sync() noexcept
     {
-        if (in_isr()) {
-            return fail<solar::Error>({.status = solar::Status::Invalid});
-        }
-        return k_timer_status_sync(&timer_);
+        return ref().sync();
     }
 
     [[nodiscard]] TickDuration remaining() const noexcept
     {
-        return from_ticks(static_cast<Tick>(k_timer_remaining_ticks(&timer_)));
+        return TimerRef{const_cast<k_timer&>(timer_)}.remaining();
     }
 
     [[nodiscard]] TimePoint expires_at() const noexcept
     {
-        return TimePoint{TickDuration{static_cast<Tick>(k_timer_expires_ticks(&timer_))}};
+        return TimerRef{const_cast<k_timer&>(timer_)}.expires_at();
     }
 
     [[nodiscard]] bool running() const noexcept
     {
-        return k_timer_remaining_ticks(&timer_) != 0;
+        return TimerRef{const_cast<k_timer&>(timer_)}.running();
     }
 
-    [[nodiscard]] k_timer* native_handle() noexcept
+    [[nodiscard]] TimerRef ref() noexcept
     {
-        return &timer_;
-    }
-
-    [[nodiscard]] const k_timer* native_handle() const noexcept
-    {
-        return &timer_;
+        return TimerRef{timer_};
     }
 
   private:

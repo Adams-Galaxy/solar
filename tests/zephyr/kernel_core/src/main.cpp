@@ -12,6 +12,9 @@ using namespace std::chrono_literals;
 
 namespace kernel = solar::kernel;
 
+template <typename T>
+concept HasNativeHandle = requires(T& value) { value.native_handle(); };
+
 static_assert(
     std::is_same_v<decltype(kernel::MessageQueue<std::uint32_t, 4>::capacity), const std::size_t>);
 static_assert(kernel::MessageQueue<std::uint32_t, 4>::capacity == 4);
@@ -33,6 +36,23 @@ static_assert(!std::is_copy_constructible_v<kernel::MessageQueue<std::uint32_t, 
 static_assert(!std::is_move_constructible_v<kernel::MessageQueue<std::uint32_t, 2>>);
 static_assert(!std::is_copy_constructible_v<kernel::EventFlags>);
 static_assert(!std::is_move_constructible_v<kernel::EventFlags>);
+static_assert(std::is_trivially_copyable_v<kernel::SemaphoreRef>);
+static_assert(std::is_trivially_copyable_v<kernel::RecursiveMutexRef>);
+static_assert(std::is_trivially_copyable_v<kernel::MessageQueueRef<std::uint32_t>>);
+static_assert(std::is_trivially_copyable_v<kernel::TimerRef>);
+static_assert(!HasNativeHandle<kernel::Mutex>);
+static_assert(!HasNativeHandle<kernel::RecursiveMutex>);
+static_assert(!HasNativeHandle<kernel::Semaphore>);
+static_assert(!HasNativeHandle<kernel::MessageQueue<std::uint32_t, 2>>);
+static_assert(!HasNativeHandle<kernel::Timer>);
+#if defined(CONFIG_EVENTS)
+static_assert(std::is_trivially_copyable_v<kernel::EventFlagsRef>);
+static_assert(!HasNativeHandle<kernel::EventFlags>);
+#endif
+#if defined(CONFIG_POLL)
+static_assert(std::is_trivially_copyable_v<kernel::PollSignalRef>);
+static_assert(!HasNativeHandle<kernel::PollSignal>);
+#endif
 static_assert(!std::is_copy_constructible_v<kernel::PollSet<3>>);
 static_assert(!std::is_move_constructible_v<kernel::PollSet<3>>);
 static_assert(!std::is_copy_constructible_v<kernel::Timer>);
@@ -173,11 +193,67 @@ ZTEST(solar_kernel_core, test_priority_scheduler_and_current_thread)
     kernel::this_thread::set_priority(original);
 
     zassert_not_null(kernel::this_thread::id());
+    zassert_equal(kernel::this_thread::ref().native_handle(), kernel::this_thread::id());
     zassert_equal(result_status(kernel::this_thread::yield()), solar::Status::Ok);
     zassert_equal(result_status(kernel::this_thread::busy_wait_for(10us)), solar::Status::Ok);
 
     auto scheduler_lock = kernel::SchedulerLock::acquire();
     zassert_true(scheduler_lock.has_value());
+}
+
+ZTEST(solar_kernel_core, test_borrowed_native_objects)
+{
+    k_sem native_semaphore;
+    zassert_equal(k_sem_init(&native_semaphore, 0, 2), 0);
+    kernel::SemaphoreRef semaphore{native_semaphore};
+    semaphore.give();
+    zassert_equal(semaphore.count(), 1);
+    zassert_equal(result_status(semaphore.try_take()), solar::Status::Ok);
+
+    k_mutex native_mutex;
+    zassert_equal(k_mutex_init(&native_mutex), 0);
+    kernel::RecursiveMutexRef mutex{native_mutex};
+    zassert_equal(result_status(mutex.lock()), solar::Status::Ok);
+    zassert_equal(result_status(mutex.lock()), solar::Status::Ok);
+    zassert_equal(result_status(mutex.unlock()), solar::Status::Ok);
+    zassert_equal(result_status(mutex.unlock()), solar::Status::Ok);
+
+    alignas(std::uint32_t) std::array<std::byte, sizeof(std::uint32_t) * 2> storage{};
+    k_msgq native_queue;
+    k_msgq_init(&native_queue, reinterpret_cast<char*>(storage.data()), sizeof(std::uint32_t), 2);
+    kernel::MessageQueueRef<std::uint32_t> queue{native_queue};
+    zassert_equal(result_status(queue.try_send(42)), solar::Status::Ok);
+    zassert_equal(queue.size(), 1);
+    zassert_equal(*queue.try_receive(), 42);
+
+    k_timer native_timer;
+    k_timer_init(&native_timer, nullptr, nullptr);
+    kernel::TimerRef timer{native_timer};
+    zassert_equal(result_status(timer.start(kernel::Timeout::after(10ms))), solar::Status::Ok);
+    zassert_true(timer.running());
+    timer.stop();
+    zassert_false(timer.running());
+
+#if defined(CONFIG_EVENTS)
+    k_event native_events;
+    k_event_init(&native_events);
+    kernel::EventFlagsRef events{native_events};
+    (void)events.post(0x4);
+    zassert_equal(*events.take_any(0x4, kernel::Timeout::no_wait()), 0x4);
+#endif
+
+#if defined(CONFIG_POLL)
+    k_poll_signal native_signal;
+    k_poll_signal_init(&native_signal);
+    kernel::PollSignalRef signal{native_signal};
+    kernel::PollSet<1> poll;
+    zassert_equal(result_status(poll.add(signal)), solar::Status::Ok);
+    zassert_equal(result_status(signal.raise(7)), solar::Status::Ok);
+    const auto waited = poll.try_wait();
+    zassert_true(waited.has_value());
+    zassert_equal(waited->ready, 1);
+    zassert_equal(*signal.value(), 7);
+#endif
 }
 
 ZTEST(solar_kernel_core, test_mutex_lock_ownership_and_timeout)

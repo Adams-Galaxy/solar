@@ -52,15 +52,15 @@ class TriggeredWork
         return submit_result(result);
     }
 
-    template <std::size_t Capacity, detail::WorkTarget Target>
-    [[nodiscard]] Result<void, WorkError> submit(PollSet<Capacity>& events, const Target& target,
+    template <std::size_t Capacity>
+    [[nodiscard]] Result<void, WorkError> submit(PollSet<Capacity>& events, WorkQueueTarget target,
                                                  Timeout timeout = Timeout::forever()) noexcept
     {
         if (const auto claimed = claim(events); !claimed) {
             return claimed;
         }
         const int result =
-            k_work_poll_submit_to_queue(target.native_handle(), &work_, events.native_events(),
+            k_work_poll_submit_to_queue(target.native_queue(), &work_, events.native_events(),
                                         static_cast<int>(events.size()), timeout.native_handle());
         if (result != 0) {
             claimed_.store(false, std::memory_order_release);
@@ -75,9 +75,9 @@ class TriggeredWork
         return submit(events, timeout);
     }
 
-    template <std::size_t Capacity, detail::WorkTarget Target>
+    template <std::size_t Capacity>
     [[nodiscard]] Result<void, WorkError>
-    try_submit_isr(PollSet<Capacity>& events, const Target& target,
+    try_submit_isr(PollSet<Capacity>& events, WorkQueueTarget target,
                    Timeout timeout = Timeout::forever()) noexcept
     {
         return submit(events, target, timeout);
@@ -147,16 +147,6 @@ class TriggeredWork
     [[nodiscard]] bool running_on_current_thread() const noexcept
     {
         return handler_thread_.load(std::memory_order_acquire) == k_current_get();
-    }
-
-    [[nodiscard]] k_work_poll* native_handle() noexcept
-    {
-        return &work_;
-    }
-
-    [[nodiscard]] const k_work_poll* native_handle() const noexcept
-    {
-        return &work_;
     }
 
   private:

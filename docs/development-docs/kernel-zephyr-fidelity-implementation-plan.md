@@ -158,7 +158,7 @@ exact Zephyr recursive behavior and may provide `RecursiveMutexRef`.
 | --- | --- | --- |
 | 0 | Baseline and native coverage matrix | complete |
 | 1 | Priority and scheduling values | complete |
-| 2 | Ownership, references, and native interoperation | not started |
+| 2 | Ownership, references, and native interoperation | in progress |
 | 3 | Context and error contracts | not started |
 | 4 | Threads and scheduler controls | not started |
 | 5 | Synchronization, communication, time, and memory repairs | not started |

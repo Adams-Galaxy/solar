@@ -14,6 +14,7 @@
 #include "solar/kernel/interrupt.hpp"
 #include "solar/kernel/priority.hpp"
 #include "solar/kernel/time.hpp"
+#include "solar/kernel/work_queue_target.hpp"
 
 namespace solar::kernel
 {
@@ -26,22 +27,6 @@ struct WorkQueueConfiguration
     bool essential{};
     Milliseconds work_timeout{};
 };
-
-class SystemWorkQueue
-{
-  public:
-    [[nodiscard]] k_work_q* native_handle() const noexcept
-    {
-        return &k_sys_work_q;
-    }
-
-    [[nodiscard]] k_tid_t thread_id() const noexcept
-    {
-        return k_work_queue_thread_get(&k_sys_work_q);
-    }
-};
-
-inline constexpr SystemWorkQueue system_work_queue{};
 
 template <std::size_t StackBytes> class WorkQueue
 {
@@ -173,19 +158,14 @@ template <std::size_t StackBytes> class WorkQueue
         return started_.load(std::memory_order_acquire);
     }
 
-    [[nodiscard]] k_work_q* native_handle() const noexcept
+    [[nodiscard]] WorkQueueTarget target() noexcept
     {
-        return const_cast<k_work_q*>(&queue_);
+        return WorkQueueTarget{queue_};
     }
 
     [[nodiscard]] k_tid_t thread_id() const noexcept
     {
         return k_work_queue_thread_get(const_cast<k_work_q*>(&queue_));
-    }
-
-    [[nodiscard]] k_thread_stack_t* native_stack() noexcept
-    {
-        return stack_;
     }
 
     [[nodiscard]] static constexpr std::size_t stack_size() noexcept

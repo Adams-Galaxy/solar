@@ -11,6 +11,7 @@
 #include "solar/core/status.hpp"
 #include "solar/kernel/interrupt.hpp"
 #include "solar/kernel/time.hpp"
+#include "solar/kernel/work_queue_target.hpp"
 
 namespace solar::kernel
 {
@@ -126,11 +127,6 @@ namespace detail
         .status = solar::Status::Deadlock, .reason = WorkErrorReason::Deadlock, .native_error = 0};
 }
 
-template <typename Target>
-concept WorkTarget = requires(const Target& target) {
-    { target.native_handle() } -> std::same_as<k_work_q*>;
-};
-
 } // namespace detail
 
 class Work
@@ -158,10 +154,9 @@ class Work
         return detail::work_submission(k_work_submit(&work_));
     }
 
-    template <detail::WorkTarget Target>
-    [[nodiscard]] Result<WorkSubmission, WorkError> submit(const Target& target) noexcept
+    [[nodiscard]] Result<WorkSubmission, WorkError> submit(WorkQueueTarget target) noexcept
     {
-        return detail::work_submission(k_work_submit_to_queue(target.native_handle(), &work_));
+        return detail::work_submission(k_work_submit_to_queue(target.native_queue(), &work_));
     }
 
     [[nodiscard]] Result<WorkSubmission, WorkError> try_submit_isr() noexcept
@@ -169,8 +164,7 @@ class Work
         return submit();
     }
 
-    template <detail::WorkTarget Target>
-    [[nodiscard]] Result<WorkSubmission, WorkError> try_submit_isr(const Target& target) noexcept
+    [[nodiscard]] Result<WorkSubmission, WorkError> try_submit_isr(WorkQueueTarget target) noexcept
     {
         return submit(target);
     }
@@ -224,16 +218,6 @@ class Work
         return handler_thread_.load(std::memory_order_acquire) == k_current_get();
     }
 
-    [[nodiscard]] k_work* native_handle() noexcept
-    {
-        return &work_;
-    }
-
-    [[nodiscard]] const k_work* native_handle() const noexcept
-    {
-        return &work_;
-    }
-
   private:
     static void invoke(k_work* work) noexcept
     {
@@ -283,17 +267,16 @@ class DelayableWork
         return schedule(Timeout::after(delay));
     }
 
-    template <detail::WorkTarget Target>
-    [[nodiscard]] Result<WorkSubmission, WorkError> schedule(const Target& target,
+    [[nodiscard]] Result<WorkSubmission, WorkError> schedule(WorkQueueTarget target,
                                                              Timeout delay) noexcept
     {
         return detail::work_submission(
-            k_work_schedule_for_queue(target.native_handle(), &work_, delay.native_handle()));
+            k_work_schedule_for_queue(target.native_queue(), &work_, delay.native_handle()));
     }
 
-    template <detail::WorkTarget Target, typename Rep, typename Period>
+    template <typename Rep, typename Period>
     [[nodiscard]] Result<WorkSubmission, WorkError>
-    schedule(const Target& target, std::chrono::duration<Rep, Period> delay) noexcept
+    schedule(WorkQueueTarget target, std::chrono::duration<Rep, Period> delay) noexcept
     {
         return schedule(target, Timeout::after(delay));
     }
@@ -311,17 +294,16 @@ class DelayableWork
         return reschedule(Timeout::after(delay));
     }
 
-    template <detail::WorkTarget Target>
-    [[nodiscard]] Result<WorkSubmission, WorkError> reschedule(const Target& target,
+    [[nodiscard]] Result<WorkSubmission, WorkError> reschedule(WorkQueueTarget target,
                                                                Timeout delay) noexcept
     {
         return detail::work_submission(
-            k_work_reschedule_for_queue(target.native_handle(), &work_, delay.native_handle()));
+            k_work_reschedule_for_queue(target.native_queue(), &work_, delay.native_handle()));
     }
 
-    template <detail::WorkTarget Target, typename Rep, typename Period>
+    template <typename Rep, typename Period>
     [[nodiscard]] Result<WorkSubmission, WorkError>
-    reschedule(const Target& target, std::chrono::duration<Rep, Period> delay) noexcept
+    reschedule(WorkQueueTarget target, std::chrono::duration<Rep, Period> delay) noexcept
     {
         return reschedule(target, Timeout::after(delay));
     }
@@ -383,16 +365,6 @@ class DelayableWork
     [[nodiscard]] TimePoint expires_at() const noexcept
     {
         return TimePoint{TickDuration{static_cast<Tick>(k_work_delayable_expires_get(&work_))}};
-    }
-
-    [[nodiscard]] k_work_delayable* native_handle() noexcept
-    {
-        return &work_;
-    }
-
-    [[nodiscard]] const k_work_delayable* native_handle() const noexcept
-    {
-        return &work_;
     }
 
   private:

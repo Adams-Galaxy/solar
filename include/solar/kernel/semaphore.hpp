@@ -12,6 +12,62 @@
 namespace solar::kernel
 {
 
+/** Non-owning access to an initialized Zephyr semaphore. */
+class SemaphoreRef
+{
+  public:
+    explicit constexpr SemaphoreRef(k_sem& semaphore) noexcept : semaphore_(&semaphore) {}
+
+    void give() const noexcept
+    {
+        k_sem_give(semaphore_);
+    }
+
+    void give_isr() const noexcept
+    {
+        give();
+    }
+
+    [[nodiscard]] Result<void> take(Timeout timeout = Timeout::forever()) const noexcept
+    {
+        return detail::map_wait(k_sem_take(semaphore_, timeout.native_handle()), timeout,
+                                Status::WouldBlock);
+    }
+
+    [[nodiscard]] Result<void> take(const Deadline& deadline) const noexcept
+    {
+        return take(deadline.remaining());
+    }
+
+    [[nodiscard]] Result<void> try_take() const noexcept
+    {
+        return take(Timeout::no_wait());
+    }
+
+    [[nodiscard]] Result<void> try_take_isr() const noexcept
+    {
+        return take(Timeout::no_wait());
+    }
+
+    void reset() const noexcept
+    {
+        k_sem_reset(semaphore_);
+    }
+
+    [[nodiscard]] std::uint32_t count() const noexcept
+    {
+        return k_sem_count_get(semaphore_);
+    }
+
+    [[nodiscard]] constexpr k_sem* native_handle() const noexcept
+    {
+        return semaphore_;
+    }
+
+  private:
+    k_sem* semaphore_;
+};
+
 class Semaphore
 {
   public:
@@ -27,18 +83,17 @@ class Semaphore
 
     void give() noexcept
     {
-        k_sem_give(&semaphore_);
+        ref().give();
     }
 
     void give_isr() noexcept
     {
-        k_sem_give(&semaphore_);
+        ref().give_isr();
     }
 
     [[nodiscard]] Result<void> take(Timeout timeout = Timeout::forever()) noexcept
     {
-        return detail::map_wait(k_sem_take(&semaphore_, timeout.native_handle()), timeout,
-                                Status::WouldBlock);
+        return ref().take(timeout);
     }
 
     [[nodiscard]] Result<void> take(const Deadline& deadline) noexcept
@@ -58,22 +113,17 @@ class Semaphore
 
     void reset() noexcept
     {
-        k_sem_reset(&semaphore_);
+        ref().reset();
     }
 
     [[nodiscard]] std::uint32_t count() const noexcept
     {
-        return k_sem_count_get(const_cast<k_sem*>(&semaphore_));
+        return SemaphoreRef{const_cast<k_sem&>(semaphore_)}.count();
     }
 
-    [[nodiscard]] k_sem* native_handle() noexcept
+    [[nodiscard]] SemaphoreRef ref() noexcept
     {
-        return &semaphore_;
-    }
-
-    [[nodiscard]] const k_sem* native_handle() const noexcept
-    {
-        return &semaphore_;
+        return SemaphoreRef{semaphore_};
     }
 
   private:

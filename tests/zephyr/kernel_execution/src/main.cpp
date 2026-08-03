@@ -21,6 +21,8 @@ static_assert(!std::is_copy_constructible_v<kernel::DelayableWork>);
 static_assert(!std::is_move_constructible_v<kernel::DelayableWork>);
 static_assert(!std::is_copy_constructible_v<kernel::WorkQueue<1024>>);
 static_assert(!std::is_move_constructible_v<kernel::WorkQueue<1024>>);
+static_assert(std::is_trivially_copyable_v<kernel::ThreadRef>);
+static_assert(std::is_trivially_copyable_v<kernel::WorkQueueTarget>);
 static_assert(!std::is_copy_constructible_v<kernel::MemorySlab<16, 2>>);
 static_assert(!std::is_move_constructible_v<kernel::MemorySlab<16, 2>>);
 static_assert(sizeof(kernel::MemorySlab<16, 2>) >= sizeof(k_mem_slab) + 32);
@@ -328,18 +330,18 @@ ZTEST(solar_kernel_execution, test_owned_workqueue_drain_plug_unplug_and_stop)
                       {.priority = kernel::Priority::preemptive<1>(), .name = "solar-work-q"})),
                   solar::Status::Ok);
     zassert_true(queue.started());
-    zassert_equal(*work.submit(queue), kernel::WorkSubmission::Queued);
+    zassert_equal(*work.submit(queue.target()), kernel::WorkSubmission::Queued);
     zassert_equal(result_status(simple_work_done.take(kernel::Timeout::after(100ms))),
                   solar::Status::Ok);
     zassert_true(work.flush().has_value());
 
     const auto drained = queue.drain(true);
     zassert_true(drained.has_value());
-    const auto plugged = work.submit(queue);
+    const auto plugged = work.submit(queue.target());
     zassert_false(plugged.has_value());
     zassert_equal(plugged.error().status, solar::Status::Busy);
     zassert_equal(result_status(queue.unplug()), solar::Status::Ok);
-    zassert_equal(*work.submit(queue), kernel::WorkSubmission::Queued);
+    zassert_equal(*work.submit(queue.target()), kernel::WorkSubmission::Queued);
     zassert_equal(result_status(simple_work_done.take(kernel::Timeout::after(100ms))),
                   solar::Status::Ok);
     zassert_true(work.flush().has_value());
@@ -437,13 +439,15 @@ ZTEST(solar_kernel_execution, test_thread_diagnostics_and_enumeration)
     zassert_true(diagnostics->stack_unused.has_value());
     zassert_true(diagnostics->runtime.has_value());
 
-    zassert_equal(result_status(kernel::set_stack_warning_margin(thread.native_handle(), 16)),
+    const auto thread_ref = thread.ref();
+    zassert_true(thread_ref.has_value());
+    zassert_equal(result_status(kernel::set_stack_warning_margin(thread_ref->native_handle(), 16)),
                   solar::Status::Ok);
-    const auto safety = kernel::check_stack_safety(thread.native_handle(), true);
+    const auto safety = kernel::check_stack_safety(thread_ref->native_handle(), true);
     zassert_true(safety.has_value());
     zassert_true(safety->unused > 0);
 
-    expected_thread = thread.native_handle();
+    expected_thread = thread_ref->native_handle();
     enumerated_threads.store(0, std::memory_order_relaxed);
     found_thread.store(false, std::memory_order_relaxed);
     zassert_equal(result_status(kernel::for_each_thread_locked(&count_thread)), solar::Status::Ok);

@@ -18,6 +18,21 @@ namespace solar::kernel
 
 using ThreadId = k_tid_t;
 
+/** Non-owning identity for an initialized native Zephyr thread. */
+class ThreadRef
+{
+  public:
+    explicit constexpr ThreadRef(k_thread& thread) noexcept : thread_(&thread) {}
+
+    [[nodiscard]] constexpr ThreadId native_handle() const noexcept
+    {
+        return thread_;
+    }
+
+  private:
+    k_thread* thread_;
+};
+
 enum class ThreadExecutionState : std::uint8_t
 {
     Unknown,
@@ -207,24 +222,13 @@ template <std::size_t StackBytes> class Thread
                current == ThreadExecutionState::Suspended;
     }
 
-    [[nodiscard]] ThreadId native_handle() const noexcept
+    [[nodiscard]] Result<ThreadRef> ref() noexcept
     {
-        return id_.load(std::memory_order_acquire);
-    }
-
-    [[nodiscard]] k_thread* native_thread() noexcept
-    {
-        return &thread_;
-    }
-
-    [[nodiscard]] const k_thread* native_thread() const noexcept
-    {
-        return &thread_;
-    }
-
-    [[nodiscard]] k_thread_stack_t* native_stack() noexcept
-    {
-        return stack_;
+        const auto id = id_.load(std::memory_order_acquire);
+        if (id == nullptr) {
+            return fail<Error>({.status = Status::NotReady});
+        }
+        return ThreadRef{*id};
     }
 
     [[nodiscard]] static constexpr std::size_t stack_size() noexcept

@@ -1890,7 +1890,7 @@ template <typename System, typename DataT> void initialize_in_stream_state() noe
         // State slots are zero-initialized before catalog activation. Initialize
         // the kernel object explicitly here as well: native_sim does not
         // reliably run constructors for every weak inline template instance.
-        (void)k_sem_init(state.lifecycle_done.native_handle(), 0, 1);
+        (void)k_sem_init(state.lifecycle_done.ref().native_handle(), 0, 1);
     }
 }
 

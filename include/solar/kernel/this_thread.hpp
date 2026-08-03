@@ -10,6 +10,7 @@
 #include "solar/kernel/deadline.hpp"
 #include "solar/kernel/native.hpp"
 #include "solar/kernel/priority.hpp"
+#include "solar/kernel/thread.hpp"
 
 namespace solar::kernel::this_thread
 {
@@ -17,6 +18,11 @@ namespace solar::kernel::this_thread
 [[nodiscard]] inline NativeThread id() noexcept
 {
     return k_current_get();
+}
+
+[[nodiscard]] inline ThreadRef ref() noexcept
+{
+    return ThreadRef{*k_current_get()};
 }
 
 [[nodiscard]] inline Priority priority() noexcept
