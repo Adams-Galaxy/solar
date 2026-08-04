@@ -203,6 +203,13 @@ set(compile_fail_output
     ${CMAKE_CURRENT_BINARY_DIR}/expected_failure.o)
 
 function(solar_add_compile_failure name token source)
+    # Extra -I directories beyond include/ and this directory, e.g. stub
+    # headers for fixtures that specialize GeneratedTraits by hand instead of
+    # running the real code generator.
+    set(extra_includes)
+    foreach(extra_dir ${ARGN})
+        list(APPEND extra_includes -I${extra_dir})
+    endforeach()
     add_test(
         NAME ${name}
         COMMAND
@@ -214,6 +221,7 @@ function(solar_add_compile_failure name token source)
             -std=c++23
             -I${PROJECT_SOURCE_DIR}/include
             -I${CMAKE_CURRENT_SOURCE_DIR}
+            ${extra_includes}
             -c
             ${source}
             -o
@@ -272,6 +280,31 @@ solar_add_compile_failure(
     solar.compile_fail.application_duplicate_stack
     SOLAR_APPLICATION_DUPLICATE_SERVICE_STACK
     ${CMAKE_CURRENT_SOURCE_DIR}/../compile_fail/fixtures/application_duplicate_stack.cpp)
+solar_add_compile_failure(
+    solar.compile_fail.application_log_source_not_declared
+    SOLAR_LOG_SOURCE_NOT_DECLARED
+    ${CMAKE_CURRENT_SOURCE_DIR}/../compile_fail/fixtures/application_log_source_not_declared.cpp)
+solar_add_compile_failure(
+    solar.compile_fail.application_missing_remote_links
+    SOLAR_APPLICATION_MISSING_REMOTE_LINKS
+    ${CMAKE_CURRENT_SOURCE_DIR}/../compile_fail/fixtures/application_missing_remote_links.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../compile_fail/stubs)
+
+# Regression guard for the false positive above: Application being merely
+# forward-declared, never completed, in the translation unit must not break
+# a self-logging device header. See Specification<Application, bool> in
+# application.hpp.
+add_test(
+    NAME solar.compile_success.application_standalone_device_header
+    COMMAND
+        ${CMAKE_CXX_COMPILER}
+        -std=c++23
+        -I${PROJECT_SOURCE_DIR}/include
+        -I${CMAKE_CURRENT_SOURCE_DIR}
+        -c
+        ${CMAKE_CURRENT_SOURCE_DIR}/../compile_fail/fixtures/application_standalone_device_header.cpp
+        -o
+        ${CMAKE_CURRENT_BINARY_DIR}/solar.compile_success.application_standalone_device_header.o)
 
 add_test(
     NAME solar.compile_fail.self_test

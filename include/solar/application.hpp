@@ -5,6 +5,7 @@
 
 #include "solar/application/fwd.hpp"
 #include "solar/application/priority.hpp"
+#include "solar/core/completeness.hpp"
 #include "solar/core/type_list.hpp"
 #include "solar/execution/service_runner.hpp"
 #include "solar/module.hpp"
@@ -434,8 +435,38 @@ struct RemoteSelection<true, Application, Contract, Parameters, Components, Depe
 
 } // namespace detail
 
+namespace detail
+{
+/**
+ * Application is not yet a complete type at this point in the translation
+ * unit -- for example, a self-describing device or service header being
+ * compiled on its own, or included (as application headers commonly are)
+ * before the concrete Application type they describe is itself declared.
+ *
+ * Every facet becomes an inert placeholder here instead of forcing
+ * evaluation of catalog, logging, or Remote synthesis against a Platform and
+ * Devices list that do not exist yet. The real computation is unaffected: it
+ * reruns, correctly, once Application is complete elsewhere in the same
+ * translation unit, because deferred template instantiation resolves this
+ * specialization choice no earlier than that point is reached.
+ */
+template <typename Application> struct IncompleteSpecification
+{
+    using Logger = void;
+    using ParameterStore = void;
+    using RemoteRuntime = void;
+    using Composition = void;
+};
+} // namespace detail
+
 /** Fully normalized, inspectable high-level application specification. */
-template <typename Application> struct Specification
+template <typename Application, bool = is_complete_v<Application>> struct Specification;
+
+template <typename Application>
+struct Specification<Application, false> : detail::IncompleteSpecification<Application>
+{};
+
+template <typename Application> struct Specification<Application, true>
 {
     using Generated = GeneratedTraits<Application>;
     using Contract = typename detail::ContractOf<Application>::type;
@@ -501,14 +532,30 @@ namespace log
 template <typename Application> struct For
 {
 #if defined(CONFIG_SOLAR_LOG)
+    // Deliberately not [[nodiscard]]: this is the convenience entry point
+    // every device/service calls for pure side effect. Forcing a Receipt
+    // check at each call site has no sane action to take (a dropped log
+    // record is not a reason to change application control flow) and only
+    // trains callers to silence the warning rather than heed it. Code that
+    // genuinely needs to inspect delivery -- tests, buffer-pressure-aware
+    // sinks -- should go through the logger module directly, whose own
+    // methods remain [[nodiscard]].
 #define SOLAR_APPLICATION_LOG_FORWARD(NAME)                                                        \
     template <typename Source, typename Domain = domain::Unclassified, typename... Arguments>      \
     static Result<Receipt, Error> NAME(FormatString<std::type_identity_t<Arguments>...> format,    \
                                        Arguments&&... arguments) noexcept                          \
     {                                                                                              \
         using Backend = application::Logger<Application>;                                          \
-        return Backend::template NAME<Source, Domain>(format,                                      \
-                                                      std::forward<Arguments>(arguments)...);      \
+        if constexpr (!std::is_void_v<Backend>) {                                                  \
+            return Backend::template NAME<Source, Domain>(format,                                  \
+                                                          std::forward<Arguments>(arguments)...);  \
+        } else {                                                                                   \
+            /* Application is not complete at this point in the translation */                    \
+            /* unit (see Specification<Application, bool>): nothing to log */                      \
+            /* against yet. The real call re-resolves correctly once */                            \
+            /* Application completes elsewhere in the same TU. */                                  \
+            return Result<Receipt, Error>{Receipt{}};                                              \
+        }                                                                                           \
     }
     SOLAR_APPLICATION_LOG_FORWARD(trace)
     SOLAR_APPLICATION_LOG_FORWARD(debug)

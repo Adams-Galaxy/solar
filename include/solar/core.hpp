@@ -1,6 +1,7 @@
 #pragma once
 
 #include "solar/core/bounded.hpp"
+#include "solar/core/completeness.hpp"
 #include "solar/core/fixed_string.hpp"
 #include "solar/core/language.hpp"
 #include "solar/core/spin_mutex.hpp"
