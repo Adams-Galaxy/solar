@@ -253,7 +253,7 @@ class InputProducer(AbstractAsyncContextManager["InputProducer"]):
 
 
 class InputEndpoint:
-    def __init__(self, client: Any, descriptor: DataEndpoint):
+    def __init__(self, client: Any, descriptor: DataEndpoint | TopicEndpoint | StreamEndpoint):
         self.client = client
         self.descriptor = descriptor
 
@@ -279,7 +279,14 @@ class InputCollection(Mapping[int | str, Any]):
     def __getitem__(self, identity: int | str) -> Any:
         if isinstance(identity, int):
             return self.active[identity]
-        descriptor = self.client._require_catalog().data.resolve(identity)
+        catalog = self.client._require_catalog()
+        descriptor = None
+        for collection in (catalog.streams, catalog.data, catalog.topics):
+            descriptor = collection.get(identity)
+            if descriptor is not None:
+                break
+        if descriptor is None:
+            raise KeyError(identity)
         if not descriptor.supports("in_stream"):
             raise UnsupportedOperation(descriptor, "open_input")
         return InputEndpoint(self.client, descriptor)
