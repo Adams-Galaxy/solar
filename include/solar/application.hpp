@@ -503,9 +503,8 @@ template <typename Application> struct For
 #if defined(CONFIG_SOLAR_LOG)
 #define SOLAR_APPLICATION_LOG_FORWARD(NAME)                                                        \
     template <typename Source, typename Domain = domain::Unclassified, typename... Arguments>      \
-    [[nodiscard]] static Result<Receipt, Error> NAME(                                              \
-        FormatString<std::type_identity_t<Arguments>...> format,                                   \
-        Arguments&&... arguments) noexcept                                                         \
+    static Result<Receipt, Error> NAME(FormatString<std::type_identity_t<Arguments>...> format,    \
+                                       Arguments&&... arguments) noexcept                          \
     {                                                                                              \
         using Backend = application::Logger<Application>;                                          \
         return Backend::template NAME<Source, Domain>(format,                                      \
