@@ -1,0 +1,13 @@
+CheckOptions:
+  # bugprone-unused-return-value's default CheckedReturnTypes includes
+  # ^::std::expected$, which flags every discarded solar::Result<T, E> by
+  # return type alone -- independent of [[nodiscard]]. Solar already uses
+  # [[nodiscard]] deliberately and precisely, per function, as the single
+  # source of truth for which Result-returning calls must be checked
+  # (see application.hpp's SOLAR_APPLICATION_LOG_FORWARD for an example of a
+  # function that intentionally waives it). A blanket type-based rule can't
+  # know about that decision and only fights it, so std::expected is
+  # dropped here; the rest of the upstream default list is unrelated to
+  # Solar and left unchanged.
+  - key: bugprone-unused-return-value.CheckedReturnTypes
+    value: "^::std::error_code$;^::std::error_condition$;^::std::errc$;^::boost::system::error_code$"

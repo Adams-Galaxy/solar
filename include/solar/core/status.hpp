@@ -249,4 +249,29 @@ template <ErrorType E>
     return Failure<E>{std::move(error)};
 }
 
+/** Re-wrap another error domain's status as a failed Result in this one.
+ *
+ * For crossing a domain boundary where only Status is meaningful upstream
+ * (the common case propagating a lower layer's failure through a caller
+ * with its own richer error type). Every field of Target other than status
+ * takes its default value: this carries status only, not the source
+ * error's other fields, so prefer building Target explicitly wherever a
+ * richer field (reason, member, ...) should be preserved instead of
+ * defaulted.
+ * @tparam Target Concrete error domain to fail as.
+ * @param error Source error to project through `status_of`.
+ */
+template <ErrorType Target, ErrorType Source>
+[[nodiscard]] constexpr auto fail_as(const Source& error) noexcept -> Failure<Target>
+{
+    return fail<Target>(Target{.status = status_of(error)});
+}
+
+/** `fail_as` from an already-failed Result, rather than its extracted error. */
+template <ErrorType Target, typename T, ErrorType Source>
+[[nodiscard]] constexpr auto fail_as(const Result<T, Source>& result) noexcept -> Failure<Target>
+{
+    return fail_as<Target>(result.error());
+}
+
 } // namespace solar

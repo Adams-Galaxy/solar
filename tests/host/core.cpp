@@ -148,6 +148,25 @@ void test_expected_operations()
     assert(!incomplete && solar::status_of(incomplete.error()) == solar::Status::NotReady);
 }
 
+void test_fail_as()
+{
+    const solar::Result<int, ParseError> failure = solar::fail<ParseError>(ParseError::Invalid);
+
+    const auto from_error = [](const ParseError& error) -> solar::Result<void> {
+        return solar::fail_as<solar::Error>(error);
+    }(failure.error());
+    assert(!from_error && solar::status_of(from_error.error()) == solar::Status::Invalid);
+
+    const auto from_result = []() -> solar::Result<void> {
+        const solar::Result<int, ParseError> nested = solar::fail<ParseError>(ParseError::Invalid);
+        if (!nested) {
+            return solar::fail_as<solar::Error>(nested);
+        }
+        return {};
+    }();
+    assert(!from_result && solar::status_of(from_result.error()) == solar::Status::Invalid);
+}
+
 void test_move_only_results()
 {
     solar::Result<std::unique_ptr<int>> value = std::make_unique<int>(42);
@@ -188,6 +207,7 @@ void test_result_operations_do_not_allocate()
 int main()
 {
     test_expected_operations();
+    test_fail_as();
     test_move_only_results();
     test_type_iteration();
     test_result_operations_do_not_allocate();
