@@ -250,6 +250,18 @@ config SOLAR_LOG_RENDER_BUFFER_BYTES
 	range 64 4096
 	default 384
 
+config SOLAR_LOG_ZEPHYR_BRIDGE
+	bool "Forward native Zephyr log traffic into Solar sinks"
+	depends on LOG
+	select LOG_OUTPUT
+	default n
+	help
+	  Registers a Zephyr log backend that relays every native Zephyr log
+	  message (including from code with no Application binding, such as
+	  the Remote byte engine) into this Application's Solar logger, under
+	  one reserved Source. Zephyr's own logging remains fully usable
+	  everywhere it always was; this only adds a second destination.
+
 endif # SOLAR_LOG
 
 endmenu

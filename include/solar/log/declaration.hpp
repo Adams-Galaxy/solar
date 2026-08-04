@@ -85,6 +85,28 @@ using BuiltinDomains = TypeList<domain::Unclassified, domain::Lifecycle, domain:
                                 domain::Device, domain::Scheduling, domain::Security,
                                 domain::Resources>;
 
+namespace source
+{
+
+/**
+ * Reserved Source standing in for all native Zephyr log traffic forwarded by
+ * the Zephyr backend bridge (CONFIG_SOLAR_LOG_ZEPHYR_BRIDGE). Every bridged
+ * record carries this one Source; the originating Zephyr module name is
+ * folded into the rendered text instead of being catalog-indexed, since it is
+ * only known at runtime. Declared here, not injected ad hoc, so it stays a
+ * normal, auditable member of the closed LogSourceCatalog whenever the bridge
+ * is enabled.
+ */
+struct ZephyrBridge
+{
+    static constexpr SourceDescriptor descriptor{
+        .name = "zephyr",
+        .description = "Native Zephyr log traffic forwarded by the Solar backend bridge",
+    };
+};
+
+} // namespace source
+
 } // namespace solar::log
 
 template <> struct solar::catalog_traits<solar::log::SourceTag>

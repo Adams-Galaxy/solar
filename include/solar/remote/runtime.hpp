@@ -9,6 +9,7 @@
 #include <type_traits>
 #include <utility>
 
+#include "solar/log/system.hpp"
 #include "solar/remote/codec.hpp"
 #include "solar/remote/declaration.hpp"
 #include "solar/remote/facility.hpp"
@@ -34,6 +35,7 @@ template <typename System, typename Registration>
 template <typename System> void pong_responded() noexcept
 {
     (void)sizeof(System);
+    log::system::info("pong responded");
 }
 
 template <typename T> struct IsPushOutStream : std::false_type

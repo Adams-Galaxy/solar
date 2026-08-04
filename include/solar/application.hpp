@@ -483,7 +483,12 @@ template <typename Application> struct Specification<Application, true>
     using ServiceTypes = transform_t<Runs, detail::ServiceOf>;
     using ServiceRunners = transform_t<Runs, detail::MakeRunner<Application>::template Apply>;
     using PlatformModules = typename detail::PlatformModulesOf<Platform>::type;
+#if defined(CONFIG_SOLAR_LOG_ZEPHYR_BRIDGE)
+    using LogSources =
+        unique_t<concat_t<DeclaredDevices, ServiceTypes, TypeList<log::source::ZephyrBridge>>>;
+#else
     using LogSources = unique_t<concat_t<DeclaredDevices, ServiceTypes>>;
+#endif
     using LoggingPolicy = typename detail::LoggingPolicyOf<Configuration>::type;
     using Logging = detail::LoggingSynthesis<Application, LogSources, Platform, LoggingPolicy>;
     using Logger = typename Logging::Module;

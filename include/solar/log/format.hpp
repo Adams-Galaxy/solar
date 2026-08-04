@@ -205,6 +205,49 @@ template <typename... Arguments>
     return {};
 }
 
+[[nodiscard]] inline Result<void, Error> encode_text(CaptureRequest& request,
+                                                     std::string_view text) noexcept
+{
+    const auto copied = std::min(text.size(), request.payload.size());
+    std::memcpy(request.payload.data(), text.data(), copied);
+    request.payload_size = static_cast<std::uint16_t>(copied);
+    if (copied != text.size()) {
+        request.flags |= flag(RecordFlag::Truncated);
+    }
+    return {};
+}
+
+[[nodiscard]] inline Result<std::size_t, Error> render_text(RecordView record,
+                                                             std::span<char> output) noexcept
+{
+    const auto copied = std::min(record.payload.size(), output.size());
+    std::memcpy(output.data(), record.payload.data(), copied);
+    return copied;
+}
+
+struct BridgedLine
+{
+    std::string_view source;
+    std::string_view text;
+};
+
+/**
+ * Zephyr-bridged records carry their originating module name as a
+ * "module: message" prefix on the rendered text, since that identity is
+ * only known at runtime and cannot live in the compile-time Source catalog.
+ * Sinks that want bridged records to read like any other Solar record (a
+ * dedicated source column, not a generic placeholder) split it back out here
+ * instead of duplicating this parsing per sink.
+ */
+[[nodiscard]] inline BridgedLine split_bridged_text(std::string_view rendered) noexcept
+{
+    const auto separator = rendered.find(": ");
+    if (separator == std::string_view::npos) {
+        return {.source = {}, .text = rendered};
+    }
+    return {.source = rendered.substr(0, separator), .text = rendered.substr(separator + 2)};
+}
+
 class TextWriter
 {
   public:

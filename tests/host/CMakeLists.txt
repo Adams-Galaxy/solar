@@ -44,6 +44,16 @@ target_compile_definitions(solar_host_standalone_modules PRIVATE
 target_link_libraries(solar_host_standalone_modules PRIVATE solar)
 add_test(NAME solar.host.modules.standalone COMMAND solar_host_standalone_modules)
 
+add_executable(solar_host_log_text_capture log_text_capture.cpp)
+target_compile_definitions(solar_host_log_text_capture PRIVATE
+    CONFIG_SOLAR_LOG=1
+    CONFIG_SOLAR_LOG_MAX_RECORD_BYTES=128
+    CONFIG_SOLAR_LOG_MAX_STRING_BYTES=64
+    CONFIG_SOLAR_LOG_MAX_HEXDUMP_BYTES=64
+    CONFIG_SOLAR_LOG_RENDER_BUFFER_BYTES=256)
+target_link_libraries(solar_host_log_text_capture PRIVATE solar)
+add_test(NAME solar.host.log.text_capture COMMAND solar_host_log_text_capture)
+
 add_executable(solar_host_standalone_modules_concurrency standalone_modules_concurrency.cpp)
 target_link_libraries(solar_host_standalone_modules_concurrency PRIVATE solar)
 add_test(NAME solar.host.modules.standalone_concurrency

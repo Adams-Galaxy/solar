@@ -14,6 +14,9 @@
 #include "solar/kernel/interrupt.hpp"
 #include "solar/kernel/priority.hpp"
 #include "solar/kernel/time.hpp"
+#include "solar/log/module.hpp"
+
+SOLAR_LOG_DECLARE_MODULE(kernel)
 
 namespace solar::kernel
 {
@@ -414,9 +417,12 @@ template <std::size_t StackBytes> class Thread
                             configuration.options.native_handle(), native_delay);
         if (id == nullptr) {
             lifecycle_.store(ThreadLifecycleState::Empty, std::memory_order_release);
+            log::module::kernel::error("thread create failed: k_thread_create returned null");
             return fail<Error>({.status = Status::Error});
         }
         id_.store(id, std::memory_order_release);
+        log::module::kernel::debug(configuration.name != nullptr ? configuration.name
+                                                                  : "thread created");
 
         if (configuration.name != nullptr) {
             const auto name_status = detail::map_native(k_thread_name_set(id, configuration.name));

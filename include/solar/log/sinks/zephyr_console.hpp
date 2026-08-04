@@ -6,6 +6,7 @@
 
 #include "solar/core/status.hpp"
 #include "solar/log/declaration.hpp"
+#include "solar/log/format.hpp"
 
 namespace solar::log
 {
@@ -53,11 +54,20 @@ struct DefaultZephyrConsoleRenderer
         const auto seconds = record.header.timestamp / microseconds_per_second;
         const auto milliseconds =
             (record.header.timestamp % microseconds_per_second) / microseconds_per_millisecond;
-        const auto source = detail::source_name<System>(record);
+        // Bridged records carry a single, generic catalog Source; the real
+        // identity lives in the rendered text as "module: message". Split it
+        // back out so bridged lines read like any other Solar record instead
+        // of a placeholder bracket followed by a redundant module prefix.
+        const auto source = record.header.origin == Origin::Zephyr
+                                ? detail::split_bridged_text(rendered).source
+                                : detail::source_name<System>(record);
+        const auto text = record.header.origin == Origin::Zephyr
+                              ? detail::split_bridged_text(rendered).text
+                              : rendered;
 
         printk("[solar %lld.%03lld] [%.*s] %-7s %.*s\n", static_cast<long long>(seconds),
                static_cast<long long>(milliseconds), static_cast<int>(source.size()), source.data(),
-               to_string(record.header.level), static_cast<int>(rendered.size()), rendered.data());
+               to_string(record.header.level), static_cast<int>(text.size()), text.data());
         return {};
     }
 };

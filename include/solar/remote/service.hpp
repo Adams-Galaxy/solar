@@ -9,6 +9,7 @@
 #include <optional>
 #include <span>
 
+#include "solar/log/module.hpp"
 #include "solar/remote/facility.hpp"
 
 #if defined(__ZEPHYR__) && defined(CONFIG_SOLAR_REMOTE)
@@ -21,6 +22,8 @@
 #include "solar/kernel/time.hpp"
 #include "solar/remote/frame.hpp"
 #endif
+
+SOLAR_LOG_DECLARE_MODULE(remote)
 
 namespace solar::remote
 {
@@ -1417,6 +1420,7 @@ template <typename ArchitectureT, typename RuntimeContextT> struct Service
                 const auto hello = hello_payload();
                 (void)transmit<LinkT, Index>(protocol::Kind::ServerHello, hello);
             }
+            log::module::remote::info("link connected");
             break;
         case LinkEventKind::Disconnected:
         case LinkEventKind::Fault:
@@ -1427,6 +1431,11 @@ template <typename ArchitectureT, typename RuntimeContextT> struct Service
             State::session.store(event.kind == LinkEventKind::Fault ? SessionState::Faulted
                                                                     : SessionState::Disconnected,
                                  std::memory_order_release);
+            if (event.kind == LinkEventKind::Fault) {
+                log::module::remote::warn("link faulted");
+            } else {
+                log::module::remote::info("link disconnected");
+            }
             State::tx_in_flight.store(false, std::memory_order_release);
             {
                 auto guard = State::response_lock.acquire();

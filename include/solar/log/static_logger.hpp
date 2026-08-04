@@ -17,13 +17,43 @@
 #include "solar/log/types.hpp"
 
 #if defined(__ZEPHYR__)
+#include "solar/kernel/spinlock.hpp"
 #include "solar/kernel/time.hpp"
+#endif
+
+#if defined(CONFIG_SOLAR_LOG_ZEPHYR_BRIDGE)
+#include "solar/log/zephyr_bridge.hpp"
 #endif
 
 namespace solar::log
 {
 namespace static_detail
 {
+
+#if defined(__ZEPHYR__)
+/**
+ * `solar::SpinMutex` busy-waits without disabling preemption, so a thread
+ * holding it can be preempted mid-critical-section by another thread that
+ * then spins on the same lock forever (the holder, being lower priority,
+ * never runs again to release it). That window was narrow enough to ignore
+ * before the Zephyr backend bridge existed; the bridge's log-processing
+ * thread now also calls into capture() for every native Zephyr log line
+ * system-wide, which makes the race close to certain in practice.
+ * `kernel::SpinLock` (a real k_spinlock) disables interrupts for its
+ * critical section, which prevents exactly this preemption.
+ */
+using RecordLock = kernel::SpinLock;
+[[nodiscard]] inline RecordLock::Guard acquire(RecordLock& lock) noexcept
+{
+    return lock.acquire();
+}
+#else
+using RecordLock = SpinMutex;
+[[nodiscard]] inline SpinGuard acquire(RecordLock& lock) noexcept
+{
+    return SpinGuard{lock};
+}
+#endif
 
 template <typename Tag, typename Entries> struct CatalogFrom;
 
@@ -123,24 +153,39 @@ struct StaticLogger<Application, TypeList<SourceTypes...>, TypeList<DomainTypes.
 
     [[nodiscard]] static Result<void> initialize() noexcept
     {
-        SpinGuard guard{lock_};
-        head_ = size_ = lost_ = 0;
-        status_ = {.history_capacity = HistoryCapacity,
-                   .next_sequence = 1,
-                   .last_status = Status::Ok,
-                   .ready = true,
-                   // Initialization is deliberately observable. When the logger is
-                   // ordered before the remaining modules, their bring-up records
-                   // are retained even though the System has not reached start().
-                   .accepting = true};
+        {
+            // Scoped tightly: on Zephyr this guard is a real k_spinlock, which
+            // disables interrupts for its duration. Sink initialization below
+            // can be a real, possibly interrupt-driven device bring-up (e.g. a
+            // console/UART sink), so it must run outside the lock -- only the
+            // bookkeeping reset needs it.
+            auto guard = static_detail::acquire(lock_);
+            head_ = size_ = lost_ = 0;
+            status_ = {.history_capacity = HistoryCapacity,
+                       .next_sequence = 1,
+                       .last_status = Status::Ok,
+                       .ready = true,
+                       // Initialization is deliberately observable. When the logger is
+                       // ordered before the remaining modules, their bring-up records
+                       // are retained even though the System has not reached start().
+                       .accepting = true};
+        }
         Result<void> result{};
         ((result ? result = static_detail::initialize_sink<SinkTypes>() : result), ...);
+#if defined(CONFIG_SOLAR_LOG_ZEPHYR_BRIDGE)
+        if (result) {
+            auto bridged = bridge::install_for<StaticLogger>();
+            if (!bridged && status_of(bridged.error()) != Status::Already) {
+                return bridged;
+            }
+        }
+#endif
         return result;
     }
 
     [[nodiscard]] static Result<void> start() noexcept
     {
-        SpinGuard guard{lock_};
+        auto guard = static_detail::acquire(lock_);
         if (!status_.ready) {
             return fail<solar::Error>({.status = Status::NotReady});
         }
@@ -151,7 +196,7 @@ struct StaticLogger<Application, TypeList<SourceTypes...>, TypeList<DomainTypes.
     [[nodiscard]] static Result<void> stop() noexcept
     {
         {
-            SpinGuard guard{lock_};
+            auto guard = static_detail::acquire(lock_);
             status_.accepting = false;
         }
         return flush();
@@ -161,7 +206,7 @@ struct StaticLogger<Application, TypeList<SourceTypes...>, TypeList<DomainTypes.
     {
         Result<void> result{};
         ((result ? result = static_detail::deinitialize_sink<SinkTypes>() : result), ...);
-        SpinGuard guard{lock_};
+        auto guard = static_detail::acquire(lock_);
         status_.ready = false;
         return result;
     }
@@ -206,15 +251,40 @@ struct StaticLogger<Application, TypeList<SourceTypes...>, TypeList<DomainTypes.
     SOLAR_STATIC_LOG_LEVEL(error, Error)
 #undef SOLAR_STATIC_LOG_LEVEL
 
+    /**
+     * Captures pre-rendered, runtime-known text under a fixed Source, rather
+     * than a compile-time format string. Used for records whose content only
+     * exists at runtime -- most notably the Zephyr backend bridge, which
+     * relays foreign log lines it cannot express as a Solar format string.
+     */
+    template <typename Source>
+    [[nodiscard]] static Result<Receipt, Error> capture_text(Level level, Origin origin,
+                                                              std::string_view text) noexcept
+    {
+        static_assert(LogSourceCatalog::template contains<Source>,
+                      "SOLAR_LOG_SOURCE_NOT_DECLARED: source is absent from this logger");
+        CaptureRequest request{
+            .level = level,
+            .context = ContextKind::Thread,
+            .origin = origin,
+            .encoding = Encoding::Text,
+        };
+        auto encoded = detail::encode_text(request, text);
+        if (!encoded) {
+            return fail<Error>(encoded.error());
+        }
+        return capture<Source, domain::Unclassified>(request);
+    }
+
     [[nodiscard]] static FacilityRecord record() noexcept
     {
-        SpinGuard guard{lock_};
+        auto guard = static_detail::acquire(lock_);
         return status_;
     }
 
     [[nodiscard]] static HistoryPage history(Cursor cursor, std::span<Record> output) noexcept
     {
-        SpinGuard guard{lock_};
+        auto guard = static_detail::acquire(lock_);
         HistoryPage page{.next = cursor};
         if (size_ == 0) {
             return page;
@@ -268,7 +338,7 @@ struct StaticLogger<Application, TypeList<SourceTypes...>, TypeList<DomainTypes.
     {
         Record stored{};
         {
-            SpinGuard guard{lock_};
+            auto guard = static_detail::acquire(lock_);
             if (!status_.ready || !status_.accepting) {
                 return fail<Error>({.status = Status::NotReady,
                                     .reason = Reason::CaptureClosed,
@@ -307,7 +377,7 @@ struct StaticLogger<Application, TypeList<SourceTypes...>, TypeList<DomainTypes.
         Result<void> delivered{};
         ((delivered ? delivered = deliver<SinkTypes>(stored) : delivered), ...);
         if (!delivered) {
-            SpinGuard guard{lock_};
+            auto guard = static_detail::acquire(lock_);
             ++status_.sink_failures;
             status_.last_status = status_of(delivered.error());
         }
@@ -330,9 +400,9 @@ struct StaticLogger<Application, TypeList<SourceTypes...>, TypeList<DomainTypes.
 #endif
                    >
             rendered{};
-        // StaticLogger currently produces SolarArguments records exclusively,
-        // so it can use the dependency-light native renderer directly.
-        auto result = detail::render_native(stored.view(), rendered);
+        const auto result = stored.header.encoding == Encoding::Text
+                                ? detail::render_text(stored.view(), rendered)
+                                : detail::render_native(stored.view(), rendered);
         if (!result) {
             return fail<solar::Error>({.status = status_of(result.error())});
         }
@@ -352,7 +422,7 @@ struct StaticLogger<Application, TypeList<SourceTypes...>, TypeList<DomainTypes.
     inline static std::size_t size_{};
     inline static std::uint64_t lost_{};
     inline static FacilityRecord status_{};
-    inline static SpinMutex lock_{};
+    inline static static_detail::RecordLock lock_{};
 };
 
 } // namespace solar::log
