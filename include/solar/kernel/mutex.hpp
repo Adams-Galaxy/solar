@@ -22,9 +22,9 @@ class ConditionVariableRef;
 class RecursiveMutexRef
 {
   public:
-    explicit constexpr RecursiveMutexRef(k_mutex& mutex) noexcept : mutex_(&mutex) {}
+    explicit constexpr RecursiveMutexRef(k_mutex& mutex) : mutex_(&mutex) {}
 
-    [[nodiscard]] Result<void> lock(Timeout timeout = Timeout::forever()) const noexcept
+    [[nodiscard]] Result<void> lock(Timeout timeout = Timeout::forever()) const
     {
         if (in_isr()) {
             return fail<Error>({.status = Status::Invalid});
@@ -33,17 +33,17 @@ class RecursiveMutexRef
                                 Status::WouldBlock);
     }
 
-    [[nodiscard]] Result<void> lock(const Deadline& deadline) const noexcept
+    [[nodiscard]] Result<void> lock(const Deadline& deadline) const
     {
         return lock(deadline.remaining());
     }
 
-    [[nodiscard]] Result<void> try_lock() const noexcept
+    [[nodiscard]] Result<void> try_lock() const
     {
         return lock(Timeout::no_wait());
     }
 
-    [[nodiscard]] Result<void> unlock() const noexcept
+    [[nodiscard]] Result<void> unlock() const
     {
         if (in_isr()) {
             return fail<Error>({.status = Status::Invalid});
@@ -51,7 +51,7 @@ class RecursiveMutexRef
         return detail::map_native(k_mutex_unlock(mutex_));
     }
 
-    [[nodiscard]] constexpr k_mutex* native_handle() const noexcept
+    [[nodiscard]] constexpr k_mutex* native_handle() const
     {
         return mutex_;
     }
@@ -63,7 +63,7 @@ class RecursiveMutexRef
 class Mutex
 {
   public:
-    Mutex() noexcept
+    Mutex()
     {
         const int result = k_mutex_init(&mutex_);
         __ASSERT_NO_MSG(result == 0);
@@ -75,7 +75,7 @@ class Mutex
     Mutex(Mutex&&) = delete;
     Mutex& operator=(Mutex&&) = delete;
 
-    [[nodiscard]] Result<void> lock(Timeout timeout = Timeout::forever()) noexcept
+    [[nodiscard]] Result<void> lock(Timeout timeout = Timeout::forever())
     {
         if (in_isr()) {
             return fail<Error>({.status = Status::Invalid});
@@ -94,17 +94,17 @@ class Mutex
         return status;
     }
 
-    [[nodiscard]] Result<void> lock(const Deadline& deadline) noexcept
+    [[nodiscard]] Result<void> lock(const Deadline& deadline)
     {
         return lock(deadline.remaining());
     }
 
-    [[nodiscard]] Result<void> try_lock() noexcept
+    [[nodiscard]] Result<void> try_lock()
     {
         return lock(Timeout::no_wait());
     }
 
-    [[nodiscard]] Result<void> unlock() noexcept
+    [[nodiscard]] Result<void> unlock()
     {
         if (in_isr()) {
             return fail<Error>({.status = Status::Invalid});
@@ -123,7 +123,7 @@ class Mutex
     }
 
   private:
-    [[nodiscard]] Result<void> begin_condition_wait() noexcept
+    [[nodiscard]] Result<void> begin_condition_wait()
     {
         if (owner_.load(std::memory_order_acquire) != k_current_get()) {
             return fail<Error>({.status = Status::PermissionDenied});
@@ -132,12 +132,12 @@ class Mutex
         return {};
     }
 
-    void end_condition_wait() noexcept
+    void end_condition_wait()
     {
         owner_.store(k_current_get(), std::memory_order_release);
     }
 
-    [[nodiscard]] k_mutex* native_for_condition() noexcept
+    [[nodiscard]] k_mutex* native_for_condition()
     {
         return &mutex_;
     }
@@ -152,7 +152,7 @@ class Mutex
 class RecursiveMutex
 {
   public:
-    RecursiveMutex() noexcept
+    RecursiveMutex()
     {
         const int result = k_mutex_init(&mutex_);
         __ASSERT_NO_MSG(result == 0);
@@ -164,27 +164,27 @@ class RecursiveMutex
     RecursiveMutex(RecursiveMutex&&) = delete;
     RecursiveMutex& operator=(RecursiveMutex&&) = delete;
 
-    [[nodiscard]] Result<void> lock(Timeout timeout = Timeout::forever()) noexcept
+    [[nodiscard]] Result<void> lock(Timeout timeout = Timeout::forever())
     {
         return ref().lock(timeout);
     }
 
-    [[nodiscard]] Result<void> lock(const Deadline& deadline) noexcept
+    [[nodiscard]] Result<void> lock(const Deadline& deadline)
     {
         return lock(deadline.remaining());
     }
 
-    [[nodiscard]] Result<void> try_lock() noexcept
+    [[nodiscard]] Result<void> try_lock()
     {
         return lock(Timeout::no_wait());
     }
 
-    [[nodiscard]] Result<void> unlock() noexcept
+    [[nodiscard]] Result<void> unlock()
     {
         return ref().unlock();
     }
 
-    [[nodiscard]] RecursiveMutexRef ref() noexcept
+    [[nodiscard]] RecursiveMutexRef ref()
     {
         return RecursiveMutexRef{mutex_};
     }
@@ -204,7 +204,7 @@ template <Lockable MutexType> class LockGuard
 {
   public:
     [[nodiscard]] static Result<LockGuard> acquire(MutexType& mutex,
-                                                   Timeout timeout = Timeout::forever()) noexcept
+                                                   Timeout timeout = Timeout::forever())
     {
         const auto status = mutex.lock(timeout);
         if (!status) {
@@ -228,7 +228,7 @@ template <Lockable MutexType> class LockGuard
     LockGuard& operator=(LockGuard&&) = delete;
 
   private:
-    explicit LockGuard(MutexType& mutex) noexcept : mutex_(&mutex) {}
+    explicit LockGuard(MutexType& mutex) : mutex_(&mutex) {}
 
     MutexType* mutex_{};
 };
@@ -238,10 +238,10 @@ template <Lockable MutexType> class UniqueLock
   public:
     UniqueLock() = default;
 
-    explicit UniqueLock(MutexType& mutex) noexcept : mutex_(&mutex) {}
+    explicit UniqueLock(MutexType& mutex) : mutex_(&mutex) {}
 
     [[nodiscard]] static Result<UniqueLock> acquire(MutexType& mutex,
-                                                    Timeout timeout = Timeout::forever()) noexcept
+                                                    Timeout timeout = Timeout::forever())
     {
         UniqueLock lock{mutex};
         const auto status = lock.lock(timeout);
@@ -278,7 +278,7 @@ template <Lockable MutexType> class UniqueLock
         return *this;
     }
 
-    [[nodiscard]] Result<void> lock(Timeout timeout = Timeout::forever()) noexcept
+    [[nodiscard]] Result<void> lock(Timeout timeout = Timeout::forever())
     {
         if (mutex_ == nullptr) {
             return fail<Error>({.status = Status::Invalid});
@@ -291,12 +291,12 @@ template <Lockable MutexType> class UniqueLock
         return status;
     }
 
-    [[nodiscard]] Result<void> try_lock() noexcept
+    [[nodiscard]] Result<void> try_lock()
     {
         return lock(Timeout::no_wait());
     }
 
-    [[nodiscard]] Result<void> unlock() noexcept
+    [[nodiscard]] Result<void> unlock()
     {
         if (mutex_ == nullptr || !owns_) {
             return fail<Error>({.status = Status::Invalid});
@@ -308,29 +308,29 @@ template <Lockable MutexType> class UniqueLock
         return status;
     }
 
-    [[nodiscard]] bool owns_lock() const noexcept
+    [[nodiscard]] bool owns_lock() const
     {
         return owns_;
     }
 
-    explicit operator bool() const noexcept
+    explicit operator bool() const
     {
         return owns_lock();
     }
 
-    [[nodiscard]] MutexType* mutex() const noexcept
+    [[nodiscard]] MutexType* mutex() const
     {
         return mutex_;
     }
 
-    [[nodiscard]] MutexType* release() noexcept
+    [[nodiscard]] MutexType* release()
     {
         owns_ = false;
         return std::exchange(mutex_, nullptr);
     }
 
   private:
-    void disown_after_native_release() noexcept
+    void disown_after_native_release()
     {
         owns_ = false;
     }
@@ -343,14 +343,14 @@ template <Lockable MutexType> class UniqueLock
 
 template <Lockable MutexType>
 [[nodiscard]] Result<LockGuard<MutexType>> lock_guard(MutexType& mutex,
-                                                      Timeout timeout = Timeout::forever()) noexcept
+                                                      Timeout timeout = Timeout::forever())
 {
     return LockGuard<MutexType>::acquire(mutex, timeout);
 }
 
 template <Lockable MutexType>
 [[nodiscard]] Result<UniqueLock<MutexType>>
-unique_lock(MutexType& mutex, Timeout timeout = Timeout::forever()) noexcept
+unique_lock(MutexType& mutex, Timeout timeout = Timeout::forever())
 {
     return UniqueLock<MutexType>::acquire(mutex, timeout);
 }

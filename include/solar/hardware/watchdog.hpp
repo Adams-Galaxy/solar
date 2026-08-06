@@ -27,7 +27,7 @@ struct Timeout
     [[nodiscard]] static constexpr Timeout window(std::chrono::duration<MinRep, MinPeriod> minimum,
                                                   std::chrono::duration<MaxRep, MaxPeriod> maximum,
                                                   wdt_callback_t callback = nullptr,
-                                                  std::uint8_t flags = WDT_FLAG_RESET_SOC) noexcept
+                                                  std::uint8_t flags = WDT_FLAG_RESET_SOC)
     {
         const auto min_ms = std::chrono::duration_cast<std::chrono::milliseconds>(minimum).count();
         const auto max_ms = std::chrono::duration_cast<std::chrono::milliseconds>(maximum).count();
@@ -66,12 +66,12 @@ template <auto Spec> class Channel
         return *this;
     }
 
-    [[nodiscard]] constexpr int id() const noexcept
+    [[nodiscard]] constexpr int id() const
     {
         return id_;
     }
 
-    [[nodiscard]] Result<void, Error> feed() const noexcept
+    [[nodiscard]] Result<void, Error> feed() const
     {
         if (id_ < 0) {
             return fail<Error>({.status = solar::Status::Invalid,
@@ -84,13 +84,13 @@ template <auto Spec> class Channel
                                                Spec.identity.path.view());
     }
 
-    [[nodiscard]] static constexpr const device* native_device() noexcept
+    [[nodiscard]] static constexpr const device* native_device()
     {
         return Spec.native;
     }
 
   private:
-    explicit constexpr Channel(int id) noexcept : id_(id) {}
+    explicit constexpr Channel(int id) : id_(id) {}
     int id_{-1};
 
     template <auto> friend struct Device;
@@ -108,7 +108,7 @@ template <auto Spec> struct Device : hardware::Endpoint<Spec>
 
     using Base = hardware::Endpoint<Spec>;
 
-    [[nodiscard]] static Result<Channel<Spec>, Error> install(const Timeout& timeout) noexcept
+    [[nodiscard]] static Result<Channel<Spec>, Error> install(const Timeout& timeout)
     {
         if (!timeout.valid || timeout.native.window.max == 0U ||
             timeout.native.window.min > timeout.native.window.max) {
@@ -126,13 +126,13 @@ template <auto Spec> struct Device : hardware::Endpoint<Spec>
         return Channel<Spec>{result};
     }
 
-    [[nodiscard]] static Result<void, Error> setup(std::uint8_t options = 0) noexcept
+    [[nodiscard]] static Result<void, Error> setup(std::uint8_t options = 0)
     {
         return hardware::detail::native_result(wdt_setup(Base::native_device(), options),
                                                Operation::Configure, Base::path());
     }
 
-    [[nodiscard]] static Result<void, Error> disable() noexcept
+    [[nodiscard]] static Result<void, Error> disable()
     {
         return hardware::detail::native_result(wdt_disable(Base::native_device()),
                                                Operation::Disable, Base::path());

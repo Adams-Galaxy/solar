@@ -31,7 +31,7 @@ struct SteadyClock
 
     static constexpr bool is_steady = true;
 
-    [[nodiscard]] static time_point now() noexcept
+    [[nodiscard]] static time_point now()
     {
         return time_point{duration{k_uptime_ticks()}};
     }
@@ -44,7 +44,7 @@ using TimePoint = SteadyClock::time_point;
 class CycleDuration
 {
   public:
-    [[nodiscard]] static constexpr Result<CycleDuration> from_cycles(std::uint64_t cycles) noexcept
+    [[nodiscard]] static constexpr Result<CycleDuration> from_cycles(std::uint64_t cycles)
     {
         if (cycles > static_cast<std::uint64_t>(std::numeric_limits<std::int32_t>::max())) {
             return fail<Error>({.status = Status::Invalid});
@@ -52,13 +52,13 @@ class CycleDuration
         return CycleDuration{static_cast<std::int32_t>(cycles)};
     }
 
-    [[nodiscard]] constexpr std::int32_t count() const noexcept
+    [[nodiscard]] constexpr std::int32_t count() const
     {
         return cycles_;
     }
 
   private:
-    explicit constexpr CycleDuration(std::int32_t cycles) noexcept : cycles_(cycles) {}
+    explicit constexpr CycleDuration(std::int32_t cycles) : cycles_(cycles) {}
     std::int32_t cycles_{};
 };
 
@@ -66,28 +66,28 @@ class CycleDuration
 class CycleTimePoint
 {
   public:
-    [[nodiscard]] static constexpr CycleTimePoint from_cycles(std::uint32_t cycles) noexcept
+    [[nodiscard]] static constexpr CycleTimePoint from_cycles(std::uint32_t cycles)
     {
         return CycleTimePoint{cycles};
     }
 
-    [[nodiscard]] static CycleTimePoint now() noexcept
+    [[nodiscard]] static CycleTimePoint now()
     {
         return from_cycles(k_cycle_get_32());
     }
 
-    [[nodiscard]] constexpr std::uint32_t count() const noexcept
+    [[nodiscard]] constexpr std::uint32_t count() const
     {
         return cycles_;
     }
 
   private:
-    explicit constexpr CycleTimePoint(std::uint32_t cycles) noexcept : cycles_(cycles) {}
+    explicit constexpr CycleTimePoint(std::uint32_t cycles) : cycles_(cycles) {}
     std::uint32_t cycles_{};
 };
 
 template <typename Rep, typename Period>
-[[nodiscard]] constexpr Tick to_ticks_ceil(std::chrono::duration<Rep, Period> duration) noexcept
+[[nodiscard]] constexpr Tick to_ticks_ceil(std::chrono::duration<Rep, Period> duration)
 {
     if (duration <= std::chrono::duration<Rep, Period>::zero()) {
         return 0;
@@ -136,17 +136,17 @@ template <typename Rep, typename Period>
     }
 }
 
-[[nodiscard]] constexpr TickDuration from_ticks(Tick ticks) noexcept
+[[nodiscard]] constexpr TickDuration from_ticks(Tick ticks)
 {
     return TickDuration{ticks};
 }
 
-[[nodiscard]] inline Tick now_ticks() noexcept
+[[nodiscard]] inline Tick now_ticks()
 {
     return static_cast<Tick>(k_uptime_ticks());
 }
 
-[[nodiscard]] inline TimePoint now() noexcept
+[[nodiscard]] inline TimePoint now()
 {
     return SteadyClock::now();
 }
@@ -154,17 +154,17 @@ template <typename Rep, typename Period>
 class Timeout
 {
   public:
-    [[nodiscard]] static constexpr Timeout no_wait() noexcept
+    [[nodiscard]] static constexpr Timeout no_wait()
     {
         return Timeout{K_NO_WAIT};
     }
 
-    [[nodiscard]] static constexpr Timeout forever() noexcept
+    [[nodiscard]] static constexpr Timeout forever()
     {
         return Timeout{K_FOREVER};
     }
 
-    [[nodiscard]] static constexpr Timeout after_ticks(Tick ticks) noexcept
+    [[nodiscard]] static constexpr Timeout after_ticks(Tick ticks)
     {
         if (ticks <= 0) {
             return no_wait();
@@ -176,33 +176,33 @@ class Timeout
 
     template <typename Rep, typename Period>
     [[nodiscard]] static constexpr Timeout
-    after(std::chrono::duration<Rep, Period> duration) noexcept
+    after(std::chrono::duration<Rep, Period> duration)
     {
         return after_ticks(to_ticks_ceil(duration));
     }
 
-    [[nodiscard]] static constexpr Timeout from_native(k_timeout_t timeout) noexcept
+    [[nodiscard]] static constexpr Timeout from_native(k_timeout_t timeout)
     {
         return Timeout{timeout};
     }
 
-    [[nodiscard]] constexpr bool is_no_wait() const noexcept
+    [[nodiscard]] constexpr bool is_no_wait() const
     {
         return K_TIMEOUT_EQ(value_, K_NO_WAIT);
     }
 
-    [[nodiscard]] constexpr bool is_forever() const noexcept
+    [[nodiscard]] constexpr bool is_forever() const
     {
         return K_TIMEOUT_EQ(value_, K_FOREVER);
     }
 
-    [[nodiscard]] constexpr k_timeout_t native_handle() const noexcept
+    [[nodiscard]] constexpr k_timeout_t native_handle() const
     {
         return value_;
     }
 
   private:
-    explicit constexpr Timeout(k_timeout_t value) noexcept : value_(value) {}
+    explicit constexpr Timeout(k_timeout_t value) : value_(value) {}
 
     k_timeout_t value_ = K_NO_WAIT;
 };

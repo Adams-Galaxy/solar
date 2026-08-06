@@ -17,14 +17,14 @@ namespace solar::kernel
 class SemaphoreRef
 {
   public:
-    explicit constexpr SemaphoreRef(k_sem& semaphore) noexcept : semaphore_(&semaphore) {}
+    explicit constexpr SemaphoreRef(k_sem& semaphore) : semaphore_(&semaphore) {}
 
-    void give() const noexcept
+    void give() const
     {
         k_sem_give(semaphore_);
     }
 
-    [[nodiscard]] Result<void> take(Timeout timeout = Timeout::forever()) const noexcept
+    [[nodiscard]] Result<void> take(Timeout timeout = Timeout::forever()) const
     {
         if (in_isr()) {
             return fail<Error>({.status = Status::Invalid});
@@ -32,38 +32,38 @@ class SemaphoreRef
         return take_native(timeout);
     }
 
-    [[nodiscard]] Result<void> take(const Deadline& deadline) const noexcept
+    [[nodiscard]] Result<void> take(const Deadline& deadline) const
     {
         return take(deadline.remaining());
     }
 
-    [[nodiscard]] Result<void> try_take() const noexcept
+    [[nodiscard]] Result<void> try_take() const
     {
         return take(Timeout::no_wait());
     }
 
-    [[nodiscard]] Result<void> try_take_isr() const noexcept
+    [[nodiscard]] Result<void> try_take_isr() const
     {
         return take_native(Timeout::no_wait());
     }
 
-    void reset() const noexcept
+    void reset() const
     {
         k_sem_reset(semaphore_);
     }
 
-    [[nodiscard]] std::uint32_t count() const noexcept
+    [[nodiscard]] std::uint32_t count() const
     {
         return k_sem_count_get(semaphore_);
     }
 
-    [[nodiscard]] constexpr k_sem* native_handle() const noexcept
+    [[nodiscard]] constexpr k_sem* native_handle() const
     {
         return semaphore_;
     }
 
   private:
-    [[nodiscard]] Result<void> take_native(Timeout timeout) const noexcept
+    [[nodiscard]] Result<void> take_native(Timeout timeout) const
     {
         return detail::map_wait(k_sem_take(semaphore_, timeout.native_handle()), timeout,
                                 Status::WouldBlock);
@@ -75,49 +75,49 @@ class SemaphoreRef
 class Semaphore
 {
   public:
-    Semaphore() noexcept : Semaphore(0, 1, ValidatedConfiguration{}) {}
+    Semaphore() : Semaphore(0, 1, ValidatedConfiguration{}) {}
 
     Semaphore(const Semaphore&) = delete;
     Semaphore& operator=(const Semaphore&) = delete;
     Semaphore(Semaphore&&) = delete;
     Semaphore& operator=(Semaphore&&) = delete;
 
-    void give() noexcept
+    void give()
     {
         ref().give();
     }
 
-    [[nodiscard]] Result<void> take(Timeout timeout = Timeout::forever()) noexcept
+    [[nodiscard]] Result<void> take(Timeout timeout = Timeout::forever())
     {
         return ref().take(timeout);
     }
 
-    [[nodiscard]] Result<void> take(const Deadline& deadline) noexcept
+    [[nodiscard]] Result<void> take(const Deadline& deadline)
     {
         return take(deadline.remaining());
     }
 
-    [[nodiscard]] Result<void> try_take() noexcept
+    [[nodiscard]] Result<void> try_take()
     {
         return take(Timeout::no_wait());
     }
 
-    [[nodiscard]] Result<void> try_take_isr() noexcept
+    [[nodiscard]] Result<void> try_take_isr()
     {
         return ref().try_take_isr();
     }
 
-    void reset() noexcept
+    void reset()
     {
         ref().reset();
     }
 
-    [[nodiscard]] std::uint32_t count() const noexcept
+    [[nodiscard]] std::uint32_t count() const
     {
         return SemaphoreRef{const_cast<k_sem&>(semaphore_)}.count();
     }
 
-    [[nodiscard]] SemaphoreRef ref() noexcept
+    [[nodiscard]] SemaphoreRef ref()
     {
         return SemaphoreRef{semaphore_};
     }
@@ -126,7 +126,7 @@ class Semaphore
     struct ValidatedConfiguration
     {};
 
-    Semaphore(std::uint32_t initial_count, std::uint32_t limit, ValidatedConfiguration) noexcept
+    Semaphore(std::uint32_t initial_count, std::uint32_t limit, ValidatedConfiguration)
     {
         const int result = k_sem_init(&semaphore_, initial_count, limit);
         __ASSERT_NO_MSG(result == 0);
@@ -142,7 +142,7 @@ class Semaphore
 class BinarySemaphore : public Semaphore
 {
   public:
-    explicit BinarySemaphore(bool initially_available = false) noexcept
+    explicit BinarySemaphore(bool initially_available = false)
         : Semaphore(initially_available ? 1U : 0U, 1U, ValidatedConfiguration{})
     {}
 };
@@ -159,7 +159,7 @@ class CountingSemaphore : public Semaphore
                   "SOLAR_DIAGNOSTIC_SEMAPHORE_INITIAL_OVERFLOW: initial count exceeds limit");
 
   public:
-    CountingSemaphore() noexcept : Semaphore(InitialCount, Limit, ValidatedConfiguration{}) {}
+    CountingSemaphore() : Semaphore(InitialCount, Limit, ValidatedConfiguration{}) {}
 };
 
 } // namespace solar::kernel

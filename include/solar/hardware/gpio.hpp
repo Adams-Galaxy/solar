@@ -64,7 +64,7 @@ template <Key EndpointKey> struct CallbackState
     inline static std::atomic<gpio_flags_t> trigger{};
 };
 
-[[nodiscard]] constexpr gpio_flags_t trigger_flags(Trigger trigger) noexcept
+[[nodiscard]] constexpr gpio_flags_t trigger_flags(Trigger trigger)
 {
     switch (trigger) {
     case Trigger::Rising:
@@ -89,7 +89,7 @@ template <Key EndpointKey> struct CallbackState
     return GPIO_INT_DISABLE;
 }
 
-[[nodiscard]] constexpr gpio_flags_t initial_flags(Initial initial) noexcept
+[[nodiscard]] constexpr gpio_flags_t initial_flags(Initial initial)
 {
     switch (initial) {
     case Initial::Preserve:
@@ -120,7 +120,7 @@ template <auto Spec> struct Pin : Endpoint<Spec>
     inline static constexpr auto key =
         detail::Key{Base::descriptor_value.native.port, Base::descriptor_value.native.pin};
 
-    [[nodiscard]] static Result<void, Error> configure(gpio_flags_t flags) noexcept
+    [[nodiscard]] static Result<void, Error> configure(gpio_flags_t flags)
     {
         if (auto ready = Base::require_ready(); !ready) {
             return ready;
@@ -130,7 +130,7 @@ template <auto Spec> struct Pin : Endpoint<Spec>
             Base::path());
     }
 
-    [[nodiscard]] static Result<bool, Error> read() noexcept
+    [[nodiscard]] static Result<bool, Error> read()
     {
         const auto value = gpio_pin_get_dt(&Base::descriptor_value.native);
         if (value < 0) {
@@ -140,7 +140,7 @@ template <auto Spec> struct Pin : Endpoint<Spec>
         return value != 0;
     }
 
-    [[nodiscard]] static Result<bool, Error> read_raw() noexcept
+    [[nodiscard]] static Result<bool, Error> read_raw()
     {
         const auto value =
             gpio_pin_get_raw(Base::descriptor_value.native.port, Base::descriptor_value.native.pin);
@@ -151,14 +151,14 @@ template <auto Spec> struct Pin : Endpoint<Spec>
         return value != 0;
     }
 
-    [[nodiscard]] static Result<void, Error> write(bool active) noexcept
+    [[nodiscard]] static Result<void, Error> write(bool active)
     {
         return hardware::detail::native_result(
             gpio_pin_set_dt(&Base::descriptor_value.native, active), Operation::Write,
             Base::path());
     }
 
-    [[nodiscard]] static Result<void, Error> write_raw(bool high) noexcept
+    [[nodiscard]] static Result<void, Error> write_raw(bool high)
     {
         return hardware::detail::native_result(gpio_pin_set_raw(Base::descriptor_value.native.port,
                                                                 Base::descriptor_value.native.pin,
@@ -166,18 +166,18 @@ template <auto Spec> struct Pin : Endpoint<Spec>
                                                Operation::Write, Base::path());
     }
 
-    [[nodiscard]] static Result<void, Error> toggle() noexcept
+    [[nodiscard]] static Result<void, Error> toggle()
     {
         return hardware::detail::native_result(gpio_pin_toggle_dt(&Base::descriptor_value.native),
                                                Operation::Toggle, Base::path());
     }
 
-    [[nodiscard]] static constexpr gpio_pin_t pin() noexcept
+    [[nodiscard]] static constexpr gpio_pin_t pin()
     {
         return Base::descriptor_value.native.pin;
     }
 
-    [[nodiscard]] static constexpr gpio_dt_flags_t devicetree_flags() noexcept
+    [[nodiscard]] static constexpr gpio_dt_flags_t devicetree_flags()
     {
         return Base::descriptor_value.native.dt_flags;
     }
@@ -185,7 +185,7 @@ template <auto Spec> struct Pin : Endpoint<Spec>
 
 template <auto Spec, gpio_flags_t Options = 0> struct Input : Pin<Spec>
 {
-    [[nodiscard]] static Result<void, Error> configure() noexcept
+    [[nodiscard]] static Result<void, Error> configure()
     {
         return Pin<Spec>::configure(GPIO_INPUT | Options);
     }
@@ -194,17 +194,17 @@ template <auto Spec, gpio_flags_t Options = 0> struct Input : Pin<Spec>
 template <auto Spec, Initial InitialValue = Initial::Inactive, gpio_flags_t Options = 0>
 struct Output : Pin<Spec>
 {
-    [[nodiscard]] static Result<void, Error> configure() noexcept
+    [[nodiscard]] static Result<void, Error> configure()
     {
         return Pin<Spec>::configure(detail::initial_flags(InitialValue) | Options);
     }
 
-    [[nodiscard]] static Result<void, Error> activate() noexcept
+    [[nodiscard]] static Result<void, Error> activate()
     {
         return Pin<Spec>::write(true);
     }
 
-    [[nodiscard]] static Result<void, Error> deactivate() noexcept
+    [[nodiscard]] static Result<void, Error> deactivate()
     {
         return Pin<Spec>::write(false);
     }
@@ -225,7 +225,7 @@ struct Interrupt : Input<Spec, Options>
     using Base = Pin<Spec>;
     using State = detail::CallbackState<Base::key>;
 
-    [[nodiscard]] static Result<void, Error> install(Handler handler) noexcept
+    [[nodiscard]] static Result<void, Error> install(Handler handler)
     {
         if (handler == nullptr) {
             return fail<Error>({.status = solar::Status::Invalid,
@@ -255,7 +255,7 @@ struct Interrupt : Input<Spec, Options>
         return {};
     }
 
-    [[nodiscard]] static Result<void, Error> uninstall() noexcept
+    [[nodiscard]] static Result<void, Error> uninstall()
     {
         if (!State::registered.load(std::memory_order_acquire)) {
             return fail<Error>({.status = solar::Status::NotReady,
@@ -275,7 +275,7 @@ struct Interrupt : Input<Spec, Options>
         return {};
     }
 
-    [[nodiscard]] static Result<void, Error> configure(Trigger trigger = DefaultTrigger) noexcept
+    [[nodiscard]] static Result<void, Error> configure(Trigger trigger = DefaultTrigger)
     {
         const auto flags = detail::trigger_flags(trigger);
         State::trigger.store(flags, std::memory_order_release);
@@ -284,7 +284,7 @@ struct Interrupt : Input<Spec, Options>
             Operation::InterruptConfigure, Base::path());
     }
 
-    [[nodiscard]] static Result<void, Error> enable() noexcept
+    [[nodiscard]] static Result<void, Error> enable()
     {
         auto flags = State::trigger.load(std::memory_order_acquire);
         if (flags == 0) {
@@ -295,7 +295,7 @@ struct Interrupt : Input<Spec, Options>
             Operation::InterruptConfigure, Base::path());
     }
 
-    [[nodiscard]] static Result<void, Error> disable() noexcept
+    [[nodiscard]] static Result<void, Error> disable()
     {
         return hardware::detail::native_result(
             gpio_pin_interrupt_configure_dt(&Base::descriptor_value.native, GPIO_INT_DISABLE),
@@ -303,7 +303,7 @@ struct Interrupt : Input<Spec, Options>
     }
 
     [[nodiscard]] static Result<void, Error> start(Handler handler,
-                                                   Trigger trigger = DefaultTrigger) noexcept
+                                                   Trigger trigger = DefaultTrigger)
     {
         if (auto configured = Input<Spec, Options>::configure(); !configured) {
             return configured;
@@ -318,14 +318,14 @@ struct Interrupt : Input<Spec, Options>
         return {};
     }
 
-    [[nodiscard]] static Result<void, Error> stop() noexcept
+    [[nodiscard]] static Result<void, Error> stop()
     {
         auto disabled = disable();
         auto removed = uninstall();
         return disabled ? removed : disabled;
     }
 
-    [[nodiscard]] static Result<bool, Error> pending() noexcept
+    [[nodiscard]] static Result<bool, Error> pending()
     {
         const auto result = gpio_get_pending_int(Base::descriptor_value.native.port);
         if (result < 0) {
@@ -335,13 +335,13 @@ struct Interrupt : Input<Spec, Options>
         return result != 0;
     }
 
-    [[nodiscard]] static bool installed() noexcept
+    [[nodiscard]] static bool installed()
     {
         return State::registered.load(std::memory_order_acquire);
     }
 
   private:
-    static void trampoline(const device*, gpio_callback*, gpio_port_pins_t pins) noexcept
+    static void trampoline(const device*, gpio_callback*, gpio_port_pins_t pins)
     {
         if (const auto handler = State::handler.load(std::memory_order_acquire)) {
             handler(Event{.pins = pins});
@@ -351,17 +351,17 @@ struct Interrupt : Input<Spec, Options>
 
 template <const device* Device> struct Port
 {
-    [[nodiscard]] static bool ready() noexcept
+    [[nodiscard]] static bool ready()
     {
         return device_is_ready(Device);
     }
 
-    [[nodiscard]] static constexpr const device* native_handle() noexcept
+    [[nodiscard]] static constexpr const device* native_handle()
     {
         return Device;
     }
 
-    [[nodiscard]] static Result<gpio_port_value_t, Error> read_raw() noexcept
+    [[nodiscard]] static Result<gpio_port_value_t, Error> read_raw()
     {
         gpio_port_value_t value{};
         const auto result = gpio_port_get_raw(Device, &value);
@@ -372,7 +372,7 @@ template <const device* Device> struct Port
     }
 
     [[nodiscard]] static Result<void, Error> write_masked_raw(gpio_port_pins_t mask,
-                                                              gpio_port_value_t value) noexcept
+                                                              gpio_port_value_t value)
     {
         return hardware::detail::native_result(gpio_port_set_masked_raw(Device, mask, value),
                                                Operation::Write);

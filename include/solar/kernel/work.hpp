@@ -53,13 +53,13 @@ enum class WorkState : std::uint32_t
     Triggered = (1U << 31U),
 };
 
-[[nodiscard]] constexpr WorkState operator|(WorkState left, WorkState right) noexcept
+[[nodiscard]] constexpr WorkState operator|(WorkState left, WorkState right)
 {
     return static_cast<WorkState>(static_cast<std::uint32_t>(left) |
                                   static_cast<std::uint32_t>(right));
 }
 
-[[nodiscard]] constexpr bool has_state(WorkState value, WorkState flag) noexcept
+[[nodiscard]] constexpr bool has_state(WorkState value, WorkState flag)
 {
     return (static_cast<std::uint32_t>(value) & static_cast<std::uint32_t>(flag)) != 0;
 }
@@ -67,7 +67,7 @@ enum class WorkState : std::uint32_t
 namespace detail
 {
 
-[[nodiscard]] constexpr WorkError submission_error(int native_error) noexcept
+[[nodiscard]] constexpr WorkError submission_error(int native_error)
 {
     switch (native_error) {
     case -EBUSY:
@@ -89,7 +89,7 @@ namespace detail
     }
 }
 
-[[nodiscard]] inline Result<WorkSubmission, WorkError> work_submission(int result) noexcept
+[[nodiscard]] inline Result<WorkSubmission, WorkError> work_submission(int result)
 {
     switch (result) {
     case 0:
@@ -103,21 +103,21 @@ namespace detail
     }
 }
 
-[[nodiscard]] constexpr WorkError invalid_work_context() noexcept
+[[nodiscard]] constexpr WorkError invalid_work_context()
 {
     return {.status = solar::Status::Invalid,
             .reason = WorkErrorReason::InvalidContext,
             .native_error = 0};
 }
 
-[[nodiscard]] constexpr WorkError invalid_work_events() noexcept
+[[nodiscard]] constexpr WorkError invalid_work_events()
 {
     return {.status = solar::Status::Invalid,
             .reason = WorkErrorReason::InvalidEvents,
             .native_error = 0};
 }
 
-[[nodiscard]] constexpr WorkError work_deadlock() noexcept
+[[nodiscard]] constexpr WorkError work_deadlock()
 {
     return {
         .status = solar::Status::Deadlock, .reason = WorkErrorReason::Deadlock, .native_error = 0};
@@ -130,7 +130,7 @@ class Work
   public:
     using Handler = void (*)(Work&) noexcept;
 
-    explicit Work(Handler handler = nullptr) noexcept : handler_(handler)
+    explicit Work(Handler handler = nullptr) : handler_(handler)
     {
         k_work_init(&work_, &Work::invoke);
     }
@@ -145,22 +145,22 @@ class Work
     Work(Work&&) = delete;
     Work& operator=(Work&&) = delete;
 
-    [[nodiscard]] Result<WorkSubmission, WorkError> submit() noexcept
+    [[nodiscard]] Result<WorkSubmission, WorkError> submit()
     {
         return detail::work_submission(k_work_submit(&work_));
     }
 
-    [[nodiscard]] Result<WorkSubmission, WorkError> submit(WorkQueueTarget target) noexcept
+    [[nodiscard]] Result<WorkSubmission, WorkError> submit(WorkQueueTarget target)
     {
         return detail::work_submission(k_work_submit_to_queue(target.native_queue(), &work_));
     }
 
-    [[nodiscard]] WorkState cancel() noexcept
+    [[nodiscard]] WorkState cancel()
     {
         return static_cast<WorkState>(k_work_cancel(&work_));
     }
 
-    [[nodiscard]] Result<bool, WorkError> cancel_sync() noexcept
+    [[nodiscard]] Result<bool, WorkError> cancel_sync()
     {
         if (in_isr()) {
             return fail<WorkError>(detail::invalid_work_context());
@@ -172,7 +172,7 @@ class Work
         return k_work_cancel_sync(&work_, &sync);
     }
 
-    [[nodiscard]] Result<bool, WorkError> flush() noexcept
+    [[nodiscard]] Result<bool, WorkError> flush()
     {
         if (in_isr()) {
             return fail<WorkError>(detail::invalid_work_context());
@@ -184,23 +184,23 @@ class Work
         return k_work_flush(&work_, &sync);
     }
 
-    [[nodiscard]] WorkState state() const noexcept
+    [[nodiscard]] WorkState state() const
     {
         return static_cast<WorkState>(k_work_busy_get(&work_));
     }
 
-    [[nodiscard]] bool pending() const noexcept
+    [[nodiscard]] bool pending() const
     {
         return k_work_is_pending(&work_);
     }
 
-    [[nodiscard]] bool running_on_current_thread() const noexcept
+    [[nodiscard]] bool running_on_current_thread() const
     {
         return handler_thread_.load(std::memory_order_acquire) == k_current_get();
     }
 
   private:
-    static void invoke(k_work* work) noexcept
+    static void invoke(k_work* work)
     {
         auto& self = *CONTAINER_OF(work, Work, work_);
         self.handler_thread_.store(k_current_get(), std::memory_order_release);
@@ -220,7 +220,7 @@ class DelayableWork
   public:
     using Handler = void (*)(DelayableWork&) noexcept;
 
-    explicit DelayableWork(Handler handler = nullptr) noexcept : handler_(handler)
+    explicit DelayableWork(Handler handler = nullptr) : handler_(handler)
     {
         k_work_init_delayable(&work_, &DelayableWork::invoke);
     }
@@ -236,20 +236,20 @@ class DelayableWork
     DelayableWork& operator=(DelayableWork&&) = delete;
 
     [[nodiscard]] Result<WorkSubmission, WorkError>
-    schedule(Timeout delay = Timeout::no_wait()) noexcept
+    schedule(Timeout delay = Timeout::no_wait())
     {
         return detail::work_submission(k_work_schedule(&work_, delay.native_handle()));
     }
 
     template <typename Rep, typename Period>
     [[nodiscard]] Result<WorkSubmission, WorkError>
-    schedule(std::chrono::duration<Rep, Period> delay) noexcept
+    schedule(std::chrono::duration<Rep, Period> delay)
     {
         return schedule(Timeout::after(delay));
     }
 
     [[nodiscard]] Result<WorkSubmission, WorkError> schedule(WorkQueueTarget target,
-                                                             Timeout delay) noexcept
+                                                             Timeout delay)
     {
         return detail::work_submission(
             k_work_schedule_for_queue(target.native_queue(), &work_, delay.native_handle()));
@@ -257,26 +257,26 @@ class DelayableWork
 
     template <typename Rep, typename Period>
     [[nodiscard]] Result<WorkSubmission, WorkError>
-    schedule(WorkQueueTarget target, std::chrono::duration<Rep, Period> delay) noexcept
+    schedule(WorkQueueTarget target, std::chrono::duration<Rep, Period> delay)
     {
         return schedule(target, Timeout::after(delay));
     }
 
     [[nodiscard]] Result<WorkSubmission, WorkError>
-    reschedule(Timeout delay = Timeout::no_wait()) noexcept
+    reschedule(Timeout delay = Timeout::no_wait())
     {
         return detail::work_submission(k_work_reschedule(&work_, delay.native_handle()));
     }
 
     template <typename Rep, typename Period>
     [[nodiscard]] Result<WorkSubmission, WorkError>
-    reschedule(std::chrono::duration<Rep, Period> delay) noexcept
+    reschedule(std::chrono::duration<Rep, Period> delay)
     {
         return reschedule(Timeout::after(delay));
     }
 
     [[nodiscard]] Result<WorkSubmission, WorkError> reschedule(WorkQueueTarget target,
-                                                               Timeout delay) noexcept
+                                                               Timeout delay)
     {
         return detail::work_submission(
             k_work_reschedule_for_queue(target.native_queue(), &work_, delay.native_handle()));
@@ -284,17 +284,17 @@ class DelayableWork
 
     template <typename Rep, typename Period>
     [[nodiscard]] Result<WorkSubmission, WorkError>
-    reschedule(WorkQueueTarget target, std::chrono::duration<Rep, Period> delay) noexcept
+    reschedule(WorkQueueTarget target, std::chrono::duration<Rep, Period> delay)
     {
         return reschedule(target, Timeout::after(delay));
     }
 
-    [[nodiscard]] WorkState cancel() noexcept
+    [[nodiscard]] WorkState cancel()
     {
         return static_cast<WorkState>(k_work_cancel_delayable(&work_));
     }
 
-    [[nodiscard]] Result<bool, WorkError> cancel_sync() noexcept
+    [[nodiscard]] Result<bool, WorkError> cancel_sync()
     {
         if (in_isr()) {
             return fail<WorkError>(detail::invalid_work_context());
@@ -306,7 +306,7 @@ class DelayableWork
         return k_work_cancel_delayable_sync(&work_, &sync);
     }
 
-    [[nodiscard]] Result<bool, WorkError> flush() noexcept
+    [[nodiscard]] Result<bool, WorkError> flush()
     {
         if (in_isr()) {
             return fail<WorkError>(detail::invalid_work_context());
@@ -318,33 +318,33 @@ class DelayableWork
         return k_work_flush_delayable(&work_, &sync);
     }
 
-    [[nodiscard]] WorkState state() const noexcept
+    [[nodiscard]] WorkState state() const
     {
         return static_cast<WorkState>(k_work_delayable_busy_get(&work_));
     }
 
-    [[nodiscard]] bool pending() const noexcept
+    [[nodiscard]] bool pending() const
     {
         return k_work_delayable_is_pending(&work_);
     }
 
-    [[nodiscard]] bool running_on_current_thread() const noexcept
+    [[nodiscard]] bool running_on_current_thread() const
     {
         return handler_thread_.load(std::memory_order_acquire) == k_current_get();
     }
 
-    [[nodiscard]] TickDuration remaining() const noexcept
+    [[nodiscard]] TickDuration remaining() const
     {
         return from_ticks(static_cast<Tick>(k_work_delayable_remaining_get(&work_)));
     }
 
-    [[nodiscard]] TimePoint expires_at() const noexcept
+    [[nodiscard]] TimePoint expires_at() const
     {
         return TimePoint{TickDuration{static_cast<Tick>(k_work_delayable_expires_get(&work_))}};
     }
 
   private:
-    static void invoke(k_work* work) noexcept
+    static void invoke(k_work* work)
     {
         auto* native = k_work_delayable_from_work(work);
         auto& self = *CONTAINER_OF(native, DelayableWork, work_);

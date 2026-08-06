@@ -38,12 +38,12 @@ enum class Level : std::uint8_t
     Fatal,
 };
 
-[[nodiscard]] constexpr bool at_least(Level value, Level minimum) noexcept
+[[nodiscard]] constexpr bool at_least(Level value, Level minimum)
 {
     return static_cast<std::uint8_t>(value) >= static_cast<std::uint8_t>(minimum);
 }
 
-[[nodiscard]] constexpr const char* to_string(Level level) noexcept
+[[nodiscard]] constexpr const char* to_string(Level level)
 {
     switch (level) {
     case Level::Trace:
@@ -102,12 +102,12 @@ enum class RecordFlag : std::uint16_t
 
 using RecordFlags = std::uint16_t;
 
-[[nodiscard]] constexpr RecordFlags flag(RecordFlag value) noexcept
+[[nodiscard]] constexpr RecordFlags flag(RecordFlag value)
 {
     return static_cast<RecordFlags>(value);
 }
 
-[[nodiscard]] constexpr bool has_flag(RecordFlags flags, RecordFlag value) noexcept
+[[nodiscard]] constexpr bool has_flag(RecordFlags flags, RecordFlag value)
 {
     return (flags & flag(value)) != 0;
 }
@@ -207,7 +207,7 @@ inline constexpr std::size_t max_record_payload_bytes = CONFIG_SOLAR_LOG_MAX_REC
 inline constexpr std::size_t max_record_payload_bytes = 1;
 #endif
 
-[[nodiscard]] constexpr CaptureOptions correlated(CorrelationId id) noexcept
+[[nodiscard]] constexpr CaptureOptions correlated(CorrelationId id)
 {
     return {.correlation = id};
 }
@@ -283,7 +283,7 @@ struct Record
     RecordHeader header{};
     std::array<std::byte, max_record_payload_bytes> payload{};
 
-    [[nodiscard]] constexpr RecordView view() const noexcept
+    [[nodiscard]] constexpr RecordView view() const
     {
         return {.header = header,
                 .payload = std::span<const std::byte>{payload}.first(header.payload_size)};

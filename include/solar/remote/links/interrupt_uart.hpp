@@ -22,7 +22,7 @@ template <typename Derived, const device* Device, std::size_t RxCapacity> class 
 {
     static_assert(RxCapacity > 0);
 
-    [[nodiscard]] static consteval bool manually_signalled_connection() noexcept
+    [[nodiscard]] static consteval bool manually_signalled_connection()
     {
         if constexpr (requires { Derived::manual_connection_events; }) {
             return Derived::manual_connection_events;
@@ -31,7 +31,7 @@ template <typename Derived, const device* Device, std::size_t RxCapacity> class 
     }
 
   public:
-    [[nodiscard]] static Result<void, LinkError> open(LinkEventSink sink) noexcept
+    [[nodiscard]] static Result<void, LinkError> open(LinkEventSink sink)
     {
         if (!device_is_ready(Device)) {
             return fail<LinkError>({.status = solar::Status::NotReady});
@@ -63,7 +63,7 @@ template <typename Derived, const device* Device, std::size_t RxCapacity> class 
         return {};
     }
 
-    static void signal_connected() noexcept
+    static void signal_connected()
     {
         LinkEventSink sink;
         {
@@ -77,7 +77,7 @@ template <typename Derived, const device* Device, std::size_t RxCapacity> class 
         sink.notify(LinkEvent{.kind = LinkEventKind::Connected});
     }
 
-    static void signal_disconnected() noexcept
+    static void signal_disconnected()
     {
         LinkEventSink sink;
         {
@@ -91,7 +91,7 @@ template <typename Derived, const device* Device, std::size_t RxCapacity> class 
         sink.notify(LinkEvent{.kind = LinkEventKind::Disconnected});
     }
 
-    static void close() noexcept
+    static void close()
     {
         uart_irq_rx_disable(Device);
         uart_irq_tx_disable(Device);
@@ -107,7 +107,7 @@ template <typename Derived, const device* Device, std::size_t RxCapacity> class 
     }
 
     [[nodiscard]] static Result<std::span<const std::byte>, LinkError>
-    rx_bytes(LeaseHandle lease) noexcept
+    rx_bytes(LeaseHandle lease)
     {
         auto guard = lock_.acquire();
         if (!opened_ || !rx_occupied_ || lease != rx_handle_) {
@@ -116,7 +116,7 @@ template <typename Derived, const device* Device, std::size_t RxCapacity> class 
         return std::span<const std::byte>{rx_storage_}.first(rx_size_);
     }
 
-    static void release_rx(LeaseHandle lease) noexcept
+    static void release_rx(LeaseHandle lease)
     {
         bool enable{};
         {
@@ -132,7 +132,7 @@ template <typename Derived, const device* Device, std::size_t RxCapacity> class 
         }
     }
 
-    [[nodiscard]] static Result<TxDisposition, LinkError> try_transmit(TxLease lease) noexcept
+    [[nodiscard]] static Result<TxDisposition, LinkError> try_transmit(TxLease lease)
     {
         {
             auto guard = lock_.acquire();
@@ -152,7 +152,7 @@ template <typename Derived, const device* Device, std::size_t RxCapacity> class 
     }
 
   private:
-    static void interrupt(const device* device_value, void*) noexcept
+    static void interrupt(const device* device_value, void*)
     {
         if (uart_irq_update(device_value) < 0) {
             return;

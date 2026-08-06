@@ -357,7 +357,7 @@ consteval bool unique_enum_values(EnumValues<Values...>)
 }
 
 template <typename Enum, typename... Values>
-[[nodiscard]] constexpr bool declared_enum_value(Enum value, EnumValues<Values...>) noexcept
+[[nodiscard]] constexpr bool declared_enum_value(Enum value, EnumValues<Values...>)
 {
     return ((value == Values::value) || ...);
 }
@@ -461,7 +461,7 @@ template <typename Value> consteval bool validate_enum_schema()
 }
 
 template <typename Enum>
-[[nodiscard]] constexpr bool declared_enum_value(Enum value) noexcept
+[[nodiscard]] constexpr bool declared_enum_value(Enum value)
     requires EnumerationSchemaType<Enum>
 {
     return detail::declared_enum_value(value, typename Schema<Enum>::Values{});
@@ -796,7 +796,7 @@ template <typename ActionT> class Responder
         abandon();
     }
 
-    [[nodiscard]] Result<void> complete(Response response) noexcept
+    [[nodiscard]] Result<void> complete(Response response)
     {
         if (!active_ || success_ == nullptr) {
             return fail<solar::Error>({.status = solar::Status::NotReady});
@@ -805,13 +805,13 @@ template <typename ActionT> class Responder
         return success_(token_, std::move(response));
     }
 
-    [[nodiscard]] Result<void> complete() noexcept
+    [[nodiscard]] Result<void> complete()
         requires std::same_as<Response, Empty>
     {
         return complete(Empty{});
     }
 
-    [[nodiscard]] Result<void> reject(Error error) noexcept
+    [[nodiscard]] Result<void> reject(Error error)
     {
         if (!active_ || failure_ == nullptr) {
             return fail<solar::Error>({.status = solar::Status::NotReady});
@@ -820,12 +820,12 @@ template <typename ActionT> class Responder
         return failure_(token_, std::move(error));
     }
 
-    [[nodiscard]] bool cancelled() const noexcept
+    [[nodiscard]] bool cancelled() const
     {
         return !active_ || cancelled_ == nullptr || cancelled_(token_);
     }
 
-    [[nodiscard]] explicit operator bool() const noexcept
+    [[nodiscard]] explicit operator bool() const
     {
         return active_ && !cancelled();
     }
@@ -839,12 +839,12 @@ template <typename ActionT> class Responder
     friend struct detail::ResponderFactory<ActionT>;
 
     Responder(detail::ResponderToken token, Success success, Failure failure, Abandon abandon,
-              Cancelled cancelled) noexcept
+              Cancelled cancelled)
         : token_(token), success_(success), failure_(failure), abandon_(abandon),
           cancelled_(cancelled), active_(true)
     {}
 
-    void abandon() noexcept
+    void abandon()
     {
         if (active_ && abandon_ != nullptr) {
             active_ = false;
@@ -868,7 +868,7 @@ template <typename ActionT> struct ResponderFactory
     [[nodiscard]] static Responder<ActionT>
     make(ResponderToken token, typename Responder<ActionT>::Success success,
          typename Responder<ActionT>::Failure failure, typename Responder<ActionT>::Abandon abandon,
-         typename Responder<ActionT>::Cancelled cancelled) noexcept
+         typename Responder<ActionT>::Cancelled cancelled)
     {
         return Responder<ActionT>{token, success, failure, abandon, cancelled};
     }

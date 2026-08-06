@@ -28,11 +28,11 @@ struct FatalError
     Status trigger_status{Status::Error};
 };
 
-using FatalObserver = void (*)(const FatalError&) noexcept;
+using FatalObserver = void (*)(const FatalError&);
 
 inline constexpr bool fatal_bridge_available = IS_ENABLED(CONFIG_SOLAR_FATAL_BRIDGE);
 
-[[nodiscard]] constexpr FatalReason normalize_fatal_reason(unsigned int reason) noexcept
+[[nodiscard]] constexpr FatalReason normalize_fatal_reason(unsigned int reason)
 {
     switch (reason) {
     case K_ERR_CPU_EXCEPTION:
@@ -53,24 +53,24 @@ inline constexpr bool fatal_bridge_available = IS_ENABLED(CONFIG_SOLAR_FATAL_BRI
 
 #if defined(CONFIG_SOLAR_FATAL_BRIDGE)
 
-[[nodiscard]] Result<void> install_fatal_observer(FatalObserver observer) noexcept;
-[[nodiscard]] Result<FatalError> fatal_reason() noexcept;
+[[nodiscard]] Result<void> install_fatal_observer(FatalObserver observer);
+[[nodiscard]] Result<FatalError> fatal_reason();
 
 namespace detail
 {
 
-void latch_requested_panic(Status status) noexcept;
+void latch_requested_panic(Status status);
 
 } // namespace detail
 
 #else
 
-[[nodiscard]] inline Result<void> install_fatal_observer(FatalObserver) noexcept
+[[nodiscard]] inline Result<void> install_fatal_observer(FatalObserver)
 {
     return fail<Error>({.status = Status::NotSupported});
 }
 
-[[nodiscard]] inline Result<FatalError> fatal_reason() noexcept
+[[nodiscard]] inline Result<FatalError> fatal_reason()
 {
     return fail<solar::Error>({.status = solar::Status::NotSupported});
 }
@@ -78,20 +78,20 @@ void latch_requested_panic(Status status) noexcept;
 namespace detail
 {
 
-inline void latch_requested_panic(Status) noexcept {}
+inline void latch_requested_panic(Status) {}
 
 } // namespace detail
 
 #endif
 
-[[noreturn]] inline void panic(Status status = Status::Error) noexcept
+[[noreturn]] inline void panic(Status status = Status::Error)
 {
     detail::latch_requested_panic(status);
     k_panic();
     CODE_UNREACHABLE;
 }
 
-[[noreturn]] inline void fatal_halt(FatalReason reason) noexcept
+[[noreturn]] inline void fatal_halt(FatalReason reason)
 {
     unsigned int native = K_ERR_KERNEL_PANIC;
     switch (reason) {

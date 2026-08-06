@@ -16,10 +16,10 @@ namespace solar::kernel
 class TimerRef
 {
   public:
-    explicit constexpr TimerRef(k_timer& timer) noexcept : timer_(&timer) {}
+    explicit constexpr TimerRef(k_timer& timer) : timer_(&timer) {}
 
     [[nodiscard]] Result<void> start(Timeout initial,
-                                     Timeout period = Timeout::no_wait()) const noexcept
+                                     Timeout period = Timeout::no_wait()) const
     {
         if (in_isr()) {
             return fail<Error>({.status = Status::Invalid});
@@ -28,16 +28,16 @@ class TimerRef
         return {};
     }
 
-    void stop() const noexcept
+    void stop() const
     {
         k_timer_stop(timer_);
     }
-    [[nodiscard]] std::uint32_t expirations() const noexcept
+    [[nodiscard]] std::uint32_t expirations() const
     {
         return k_timer_status_get(timer_);
     }
 
-    [[nodiscard]] Result<std::uint32_t> sync() const noexcept
+    [[nodiscard]] Result<std::uint32_t> sync() const
     {
         if (in_isr()) {
             return fail<solar::Error>({.status = solar::Status::Invalid});
@@ -45,17 +45,17 @@ class TimerRef
         return k_timer_status_sync(timer_);
     }
 
-    [[nodiscard]] TickDuration remaining() const noexcept
+    [[nodiscard]] TickDuration remaining() const
     {
         return from_ticks(static_cast<Tick>(k_timer_remaining_ticks(timer_)));
     }
 
-    [[nodiscard]] TimePoint expires_at() const noexcept
+    [[nodiscard]] TimePoint expires_at() const
     {
         return TimePoint{TickDuration{static_cast<Tick>(k_timer_expires_ticks(timer_))}};
     }
 
-    [[nodiscard]] bool running() const noexcept
+    [[nodiscard]] bool running() const
     {
         return k_timer_remaining_ticks(timer_) != 0;
     }
@@ -69,7 +69,7 @@ class Timer
   public:
     using Callback = void (*)(Timer&) noexcept;
 
-    explicit Timer(Callback expiry_callback = nullptr, Callback stop_callback = nullptr) noexcept
+    explicit Timer(Callback expiry_callback = nullptr, Callback stop_callback = nullptr)
         : expiry_callback_(expiry_callback), stop_callback_(stop_callback)
     {
         k_timer_init(&timer_, &Timer::on_expiry, &Timer::on_stop);
@@ -81,14 +81,14 @@ class Timer
     Timer(Timer&&) = delete;
     Timer& operator=(Timer&&) = delete;
 
-    [[nodiscard]] Result<void> start(Timeout initial, Timeout period = Timeout::no_wait()) noexcept
+    [[nodiscard]] Result<void> start(Timeout initial, Timeout period = Timeout::no_wait())
     {
         return ref().start(initial, period);
     }
 
     template <typename InitialRep, typename InitialPeriod>
     [[nodiscard]] Result<void>
-    start_after(std::chrono::duration<InitialRep, InitialPeriod> initial) noexcept
+    start_after(std::chrono::duration<InitialRep, InitialPeriod> initial)
     {
         return start(Timeout::after(initial));
     }
@@ -97,48 +97,48 @@ class Timer
               typename RepeatPeriod>
     [[nodiscard]] Result<void>
     start_periodic(std::chrono::duration<InitialRep, InitialPeriod> initial,
-                   std::chrono::duration<RepeatRep, RepeatPeriod> period) noexcept
+                   std::chrono::duration<RepeatRep, RepeatPeriod> period)
     {
         return start(Timeout::after(initial), Timeout::after(period));
     }
 
-    void stop() noexcept
+    void stop()
     {
         ref().stop();
     }
 
-    [[nodiscard]] std::uint32_t expirations() noexcept
+    [[nodiscard]] std::uint32_t expirations()
     {
         return ref().expirations();
     }
 
-    [[nodiscard]] Result<std::uint32_t> sync() noexcept
+    [[nodiscard]] Result<std::uint32_t> sync()
     {
         return ref().sync();
     }
 
-    [[nodiscard]] TickDuration remaining() const noexcept
+    [[nodiscard]] TickDuration remaining() const
     {
         return TimerRef{const_cast<k_timer&>(timer_)}.remaining();
     }
 
-    [[nodiscard]] TimePoint expires_at() const noexcept
+    [[nodiscard]] TimePoint expires_at() const
     {
         return TimerRef{const_cast<k_timer&>(timer_)}.expires_at();
     }
 
-    [[nodiscard]] bool running() const noexcept
+    [[nodiscard]] bool running() const
     {
         return TimerRef{const_cast<k_timer&>(timer_)}.running();
     }
 
-    [[nodiscard]] TimerRef ref() noexcept
+    [[nodiscard]] TimerRef ref()
     {
         return TimerRef{timer_};
     }
 
   private:
-    static void on_expiry(k_timer* timer) noexcept
+    static void on_expiry(k_timer* timer)
     {
         auto* self = static_cast<Timer*>(k_timer_user_data_get(timer));
         if (self != nullptr && self->expiry_callback_ != nullptr) {
@@ -146,7 +146,7 @@ class Timer
         }
     }
 
-    static void on_stop(k_timer* timer) noexcept
+    static void on_stop(k_timer* timer)
     {
         auto* self = static_cast<Timer*>(k_timer_user_data_get(timer));
         if (self != nullptr && self->stop_callback_ != nullptr) {

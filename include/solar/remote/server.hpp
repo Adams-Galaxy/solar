@@ -57,7 +57,7 @@ template <typename Contract, ServerConfig Config = ServerConfig{}> class Server
     using Endpoints = typename Contract::Endpoints;
     using Declarations = typename Contract::Declarations;
 
-    [[nodiscard]] Result<void> initialize() noexcept
+    [[nodiscard]] Result<void> initialize()
     {
         SpinGuard lock{mutex_};
         sessions_.fill({});
@@ -69,7 +69,7 @@ template <typename Contract, ServerConfig Config = ServerConfig{}> class Server
         return {};
     }
 
-    [[nodiscard]] Result<void> start() noexcept
+    [[nodiscard]] Result<void> start()
     {
         SpinGuard lock{mutex_};
         if (!initialized_) {
@@ -82,7 +82,7 @@ template <typename Contract, ServerConfig Config = ServerConfig{}> class Server
         return {};
     }
 
-    [[nodiscard]] Result<void> stop() noexcept
+    [[nodiscard]] Result<void> stop()
     {
         SpinGuard lock{mutex_};
         active_ = false;
@@ -92,7 +92,7 @@ template <typename Contract, ServerConfig Config = ServerConfig{}> class Server
         return {};
     }
 
-    [[nodiscard]] Result<void> deinitialize() noexcept
+    [[nodiscard]] Result<void> deinitialize()
     {
         SpinGuard lock{mutex_};
         active_ = false;
@@ -103,7 +103,7 @@ template <typename Contract, ServerConfig Config = ServerConfig{}> class Server
         return {};
     }
 
-    [[nodiscard]] Result<Session> open_session() noexcept
+    [[nodiscard]] Result<Session> open_session()
     {
         SpinGuard lock{mutex_};
         if (!active_) {
@@ -121,7 +121,7 @@ template <typename Contract, ServerConfig Config = ServerConfig{}> class Server
         return fail<solar::Error>({.status = Status::NoSpace});
     }
 
-    [[nodiscard]] Result<void> close_session(Session session) noexcept
+    [[nodiscard]] Result<void> close_session(Session session)
     {
         SpinGuard lock{mutex_};
         auto* slot = find_session(session);
@@ -142,7 +142,7 @@ template <typename Contract, ServerConfig Config = ServerConfig{}> class Server
     }
 
     [[nodiscard]] Result<Request> begin_request(Session session, std::uint32_t correlation,
-                                                std::size_t payload_bytes) noexcept
+                                                std::size_t payload_bytes)
     {
         SpinGuard lock{mutex_};
         if (!active_ || find_session(session) == nullptr)
@@ -161,7 +161,7 @@ template <typename Contract, ServerConfig Config = ServerConfig{}> class Server
         return fail<solar::Error>({.status = Status::NoSpace});
     }
 
-    [[nodiscard]] Result<void> complete_request(Request token) noexcept
+    [[nodiscard]] Result<void> complete_request(Request token)
     {
         SpinGuard lock{mutex_};
         for (auto& request : requests_) {
@@ -175,7 +175,7 @@ template <typename Contract, ServerConfig Config = ServerConfig{}> class Server
     }
 
     template <typename Parameter>
-    [[nodiscard]] Result<typename Parameter::Value> get(Session session) noexcept
+    [[nodiscard]] Result<typename Parameter::Value> get(Session session)
     {
         if (!valid_session(session)) {
             return fail<solar::Error>({.status = Status::NotFound});
@@ -184,7 +184,7 @@ template <typename Contract, ServerConfig Config = ServerConfig{}> class Server
     }
 
     template <typename Parameter>
-    [[nodiscard]] Result<void> set(Session session, typename Parameter::Value value) noexcept
+    [[nodiscard]] Result<void> set(Session session, typename Parameter::Value value)
     {
         if (!valid_session(session)) {
             return fail<solar::Error>({.status = Status::NotFound});
@@ -204,7 +204,7 @@ template <typename Contract, ServerConfig Config = ServerConfig{}> class Server
     }
 
     template <typename Stream>
-    [[nodiscard]] Result<void> subscribe(Session session, std::uint32_t maximum_rate_hz) noexcept
+    [[nodiscard]] Result<void> subscribe(Session session, std::uint32_t maximum_rate_hz)
     {
         static_assert(!Stream::input,
                       "SOLAR_REMOTE_SUBSCRIBE_INPUT_STREAM: input streams must be opened");
@@ -212,14 +212,14 @@ template <typename Contract, ServerConfig Config = ServerConfig{}> class Server
     }
 
     template <typename Stream>
-    [[nodiscard]] Result<void> open_input(Session session, std::uint32_t maximum_rate_hz) noexcept
+    [[nodiscard]] Result<void> open_input(Session session, std::uint32_t maximum_rate_hz)
     {
         static_assert(Stream::input,
                       "SOLAR_REMOTE_OPEN_OUTPUT_STREAM: output streams must be subscribed");
         return add_subscription<Stream>(session, maximum_rate_hz, true);
     }
 
-    template <typename Stream> [[nodiscard]] Result<void> unsubscribe(Session session) noexcept
+    template <typename Stream> [[nodiscard]] Result<void> unsubscribe(Session session)
     {
         SpinGuard lock{mutex_};
         for (auto& slot : subscriptions_) {
@@ -242,7 +242,7 @@ template <typename Contract, ServerConfig Config = ServerConfig{}> class Server
     }
 
     template <typename Stream>
-    [[nodiscard]] Result<void> grant(Session session, std::uint16_t credits) noexcept
+    [[nodiscard]] Result<void> grant(Session session, std::uint16_t credits)
     {
         static_assert(Stream::input);
         SpinGuard lock{mutex_};
@@ -301,7 +301,7 @@ template <typename Contract, ServerConfig Config = ServerConfig{}> class Server
         return publish<Stream>(value, sink, std::numeric_limits<std::uint64_t>::max());
     }
 
-    [[nodiscard]] std::size_t session_count() const noexcept
+    [[nodiscard]] std::size_t session_count() const
     {
         SpinGuard lock{mutex_};
         std::size_t count{};
@@ -337,7 +337,7 @@ template <typename Contract, ServerConfig Config = ServerConfig{}> class Server
         bool active{};
     };
 
-    [[nodiscard]] SessionSlot* find_session(Session session) noexcept
+    [[nodiscard]] SessionSlot* find_session(Session session)
     {
         for (auto& slot : sessions_) {
             if (slot.active && slot.id == session.value) {
@@ -347,7 +347,7 @@ template <typename Contract, ServerConfig Config = ServerConfig{}> class Server
         return nullptr;
     }
 
-    [[nodiscard]] bool valid_session(Session session) noexcept
+    [[nodiscard]] bool valid_session(Session session)
     {
         SpinGuard lock{mutex_};
         return active_ && find_session(session) != nullptr;
@@ -355,7 +355,7 @@ template <typename Contract, ServerConfig Config = ServerConfig{}> class Server
 
     template <typename Stream>
     [[nodiscard]] Result<void> add_subscription(Session session, std::uint32_t maximum_rate_hz,
-                                                bool input) noexcept
+                                                bool input)
     {
         if (maximum_rate_hz == 0)
             return fail<solar::Error>({.status = Status::Invalid});
@@ -394,7 +394,7 @@ template <typename Contract, ServerConfig Config = ServerConfig{}> class Server
         return fail<solar::Error>({.status = Status::NoSpace});
     }
 
-    template <typename Stream> [[nodiscard]] bool take_credit(Session session) noexcept
+    template <typename Stream> [[nodiscard]] bool take_credit(Session session)
     {
         SpinGuard lock{mutex_};
         for (auto& slot : subscriptions_) {
@@ -428,51 +428,51 @@ struct StaticServer
 
     inline static Server<Contract, Config> storage{};
 
-    [[nodiscard]] static Result<void> initialize() noexcept
+    [[nodiscard]] static Result<void> initialize()
     {
         return storage.initialize();
     }
-    [[nodiscard]] static Result<void> start() noexcept
+    [[nodiscard]] static Result<void> start()
     {
         return storage.start();
     }
-    [[nodiscard]] static Result<void> stop() noexcept
+    [[nodiscard]] static Result<void> stop()
     {
         return storage.stop();
     }
-    [[nodiscard]] static Result<void> deinitialize() noexcept
+    [[nodiscard]] static Result<void> deinitialize()
     {
         return storage.deinitialize();
     }
 
-    [[nodiscard]] static Result<Session> open_session() noexcept
+    [[nodiscard]] static Result<Session> open_session()
     {
         return storage.open_session();
     }
 
-    [[nodiscard]] static Result<void> close_session(Session session) noexcept
+    [[nodiscard]] static Result<void> close_session(Session session)
     {
         return storage.close_session(session);
     }
 
     [[nodiscard]] static auto begin_request(Session session, std::uint32_t correlation,
-                                            std::size_t payload_bytes) noexcept
+                                            std::size_t payload_bytes)
     {
         return storage.begin_request(session, correlation, payload_bytes);
     }
 
-    [[nodiscard]] static Result<void> complete_request(Request request) noexcept
+    [[nodiscard]] static Result<void> complete_request(Request request)
     {
         return storage.complete_request(request);
     }
 
-    template <typename Parameter> [[nodiscard]] static auto get(Session session) noexcept
+    template <typename Parameter> [[nodiscard]] static auto get(Session session)
     {
         return storage.template get<Parameter>(session);
     }
 
     template <typename Parameter>
-    [[nodiscard]] static Result<void> set(Session session, typename Parameter::Value value) noexcept
+    [[nodiscard]] static Result<void> set(Session session, typename Parameter::Value value)
     {
         return storage.template set<Parameter>(session, std::move(value));
     }
@@ -485,14 +485,14 @@ struct StaticServer
 
     template <typename Stream>
     [[nodiscard]] static Result<void> subscribe(Session session,
-                                                std::uint32_t maximum_rate_hz) noexcept
+                                                std::uint32_t maximum_rate_hz)
     {
         return storage.template subscribe<Stream>(session, maximum_rate_hz);
     }
 
     template <typename Stream>
     [[nodiscard]] static Result<void> open_input(Session session,
-                                                 std::uint32_t maximum_rate_hz) noexcept
+                                                 std::uint32_t maximum_rate_hz)
     {
         return storage.template open_input<Stream>(session, maximum_rate_hz);
     }
@@ -504,7 +504,7 @@ struct StaticServer
     }
 
     template <typename Stream>
-    [[nodiscard]] static Result<void> grant(Session session, std::uint16_t credits) noexcept
+    [[nodiscard]] static Result<void> grant(Session session, std::uint16_t credits)
     {
         return storage.template grant<Stream>(session, credits);
     }

@@ -27,45 +27,45 @@ using ThreadId = k_tid_t;
 class ThreadRef
 {
   public:
-    explicit constexpr ThreadRef(k_thread& thread) noexcept : thread_(&thread) {}
+    explicit constexpr ThreadRef(k_thread& thread) : thread_(&thread) {}
 
     /** Return the native thread identity; lifecycle mutation remains wrapped. */
-    [[nodiscard]] constexpr ThreadId id() const noexcept
+    [[nodiscard]] constexpr ThreadId id() const
     {
         return thread_;
     }
 
-    [[nodiscard]] Result<Priority> priority() const noexcept
+    [[nodiscard]] Result<Priority> priority() const
     {
         return Priority::from_native(k_thread_priority_get(thread_));
     }
 
-    void set_priority(Priority priority) const noexcept
+    void set_priority(Priority priority) const
     {
         k_thread_priority_set(thread_, priority.native_handle());
     }
 
-    void wakeup() const noexcept
+    void wakeup() const
     {
         k_wakeup(thread_);
     }
 
-    void suspend() const noexcept
+    void suspend() const
     {
         k_thread_suspend(thread_);
     }
 
-    void resume() const noexcept
+    void resume() const
     {
         k_thread_resume(thread_);
     }
 
-    void abort() const noexcept
+    void abort() const
     {
         k_thread_abort(thread_);
     }
 
-    [[nodiscard]] Result<void> join(Timeout timeout = Timeout::forever()) const noexcept
+    [[nodiscard]] Result<void> join(Timeout timeout = Timeout::forever()) const
     {
         if (in_isr()) {
             return fail<Error>({.status = Status::Invalid});
@@ -74,12 +74,12 @@ class ThreadRef
                                 Status::WouldBlock);
     }
 
-    [[nodiscard]] Result<void> join(const Deadline& deadline) const noexcept
+    [[nodiscard]] Result<void> join(const Deadline& deadline) const
     {
         return join(deadline.remaining());
     }
 
-    [[nodiscard]] Result<bool> exited() const noexcept
+    [[nodiscard]] Result<bool> exited() const
     {
         const int result = k_thread_join(thread_, K_NO_WAIT);
         if (result == 0) {
@@ -92,19 +92,19 @@ class ThreadRef
     }
 
 #if defined(CONFIG_SYS_CLOCK_EXISTS)
-    [[nodiscard]] TimePoint wake_deadline() const noexcept
+    [[nodiscard]] TimePoint wake_deadline() const
     {
         return TimePoint{TickDuration{k_thread_timeout_expires_ticks(thread_)}};
     }
 
-    [[nodiscard]] TickDuration wake_remaining() const noexcept
+    [[nodiscard]] TickDuration wake_remaining() const
     {
         return TickDuration{k_thread_timeout_remaining_ticks(thread_)};
     }
 #endif
 
 #if defined(CONFIG_SCHED_DEADLINE)
-    [[nodiscard]] Result<void> set_deadline(CycleDuration deadline) const noexcept
+    [[nodiscard]] Result<void> set_deadline(CycleDuration deadline) const
     {
         if (in_isr()) {
             return fail<Error>({.status = Status::Invalid});
@@ -113,7 +113,7 @@ class ThreadRef
         return {};
     }
 
-    [[nodiscard]] Result<void> set_absolute_deadline(CycleTimePoint deadline) const noexcept
+    [[nodiscard]] Result<void> set_absolute_deadline(CycleTimePoint deadline) const
     {
         if (in_isr()) {
             return fail<Error>({.status = Status::Invalid});
@@ -126,7 +126,7 @@ class ThreadRef
 #if defined(CONFIG_TIMESLICE_PER_THREAD)
     [[nodiscard]] Result<void> set_time_slice(TickDuration slice,
                                               k_thread_timeslice_fn_t expired = nullptr,
-                                              void* user_data = nullptr) const noexcept
+                                              void* user_data = nullptr) const
     {
         if (in_isr()) {
             return fail<Error>({.status = Status::Invalid});
@@ -160,25 +160,25 @@ enum class ThreadLifecycleState : std::uint8_t
 class ThreadOptions
 {
   public:
-    [[nodiscard]] static constexpr ThreadOptions none() noexcept
+    [[nodiscard]] static constexpr ThreadOptions none()
     {
         return ThreadOptions{};
     }
 
 #if defined(K_FP_REGS)
-    [[nodiscard]] static constexpr ThreadOptions floating_point() noexcept
+    [[nodiscard]] static constexpr ThreadOptions floating_point()
     {
         return ThreadOptions{K_FP_REGS};
     }
 #endif
 
-    [[nodiscard]] constexpr std::uint32_t native_handle() const noexcept
+    [[nodiscard]] constexpr std::uint32_t native_handle() const
     {
         return value_;
     }
 
   private:
-    explicit constexpr ThreadOptions(std::uint32_t value = 0) noexcept : value_(value) {}
+    explicit constexpr ThreadOptions(std::uint32_t value = 0) : value_(value) {}
 
     std::uint32_t value_{};
 };
@@ -214,31 +214,31 @@ template <std::size_t StackBytes> class Thread
     Thread(Thread&&) = delete;
     Thread& operator=(Thread&&) = delete;
 
-    [[nodiscard]] Result<void> prepare(Entry entry, ThreadConfiguration configuration) noexcept
+    [[nodiscard]] Result<void> prepare(Entry entry, ThreadConfiguration configuration)
     {
         return prepare(entry, nullptr, configuration);
     }
 
     [[nodiscard]] Result<void> prepare(Entry entry, void* argument,
-                                       ThreadConfiguration configuration) noexcept
+                                       ThreadConfiguration configuration)
     {
         return create(entry, argument, configuration, Timeout::forever(), true);
     }
 
     [[nodiscard]] Result<void> launch(Entry entry, ThreadConfiguration configuration,
-                                      Timeout delay = Timeout::no_wait()) noexcept
+                                      Timeout delay = Timeout::no_wait())
     {
         return launch(entry, nullptr, configuration, delay);
     }
 
     [[nodiscard]] Result<void> launch(Entry entry, void* argument,
                                       ThreadConfiguration configuration,
-                                      Timeout delay = Timeout::no_wait()) noexcept
+                                      Timeout delay = Timeout::no_wait())
     {
         return create(entry, argument, configuration, delay, false);
     }
 
-    [[nodiscard]] Result<void> start() noexcept
+    [[nodiscard]] Result<void> start()
     {
         ThreadLifecycleState expected = ThreadLifecycleState::Prepared;
         if (!lifecycle_.compare_exchange_strong(expected, ThreadLifecycleState::Started,
@@ -251,7 +251,7 @@ template <std::size_t StackBytes> class Thread
         return {};
     }
 
-    [[nodiscard]] Result<void> suspend() noexcept
+    [[nodiscard]] Result<void> suspend()
     {
         const auto id = id_.load(std::memory_order_acquire);
         if (id == nullptr) {
@@ -267,7 +267,7 @@ template <std::size_t StackBytes> class Thread
         return {};
     }
 
-    [[nodiscard]] Result<void> resume() noexcept
+    [[nodiscard]] Result<void> resume()
     {
         const auto id = id_.load(std::memory_order_acquire);
         if (id == nullptr || !active()) {
@@ -277,7 +277,7 @@ template <std::size_t StackBytes> class Thread
         return {};
     }
 
-    [[nodiscard]] Result<void> join(Timeout timeout = Timeout::forever()) noexcept
+    [[nodiscard]] Result<void> join(Timeout timeout = Timeout::forever())
     {
         if (id_.load(std::memory_order_acquire) == nullptr) {
             return fail<Error>({.status = Status::NotReady});
@@ -296,12 +296,12 @@ template <std::size_t StackBytes> class Thread
         return status;
     }
 
-    [[nodiscard]] Result<void> join(const Deadline& deadline) noexcept
+    [[nodiscard]] Result<void> join(const Deadline& deadline)
     {
         return join(deadline.remaining());
     }
 
-    [[nodiscard]] Result<bool> exited() const noexcept
+    [[nodiscard]] Result<bool> exited() const
     {
         if (id_.load(std::memory_order_acquire) == nullptr) {
             return fail<solar::Error>({.status = solar::Status::NotReady});
@@ -317,7 +317,7 @@ template <std::size_t StackBytes> class Thread
         return result;
     }
 
-    [[nodiscard]] Result<void> abort() noexcept
+    [[nodiscard]] Result<void> abort()
     {
         const auto id = id_.load(std::memory_order_acquire);
         if (id == nullptr) {
@@ -339,19 +339,19 @@ template <std::size_t StackBytes> class Thread
         return {};
     }
 
-    [[nodiscard]] ThreadLifecycleState lifecycle() const noexcept
+    [[nodiscard]] ThreadLifecycleState lifecycle() const
     {
         return lifecycle_.load(std::memory_order_acquire);
     }
 
-    [[nodiscard]] bool active() const noexcept
+    [[nodiscard]] bool active() const
     {
         const auto current = lifecycle();
         return current == ThreadLifecycleState::Prepared ||
                current == ThreadLifecycleState::Started;
     }
 
-    [[nodiscard]] Result<ThreadRef> ref() noexcept
+    [[nodiscard]] Result<ThreadRef> ref()
     {
         const auto id = id_.load(std::memory_order_acquire);
         if (id == nullptr) {
@@ -360,14 +360,14 @@ template <std::size_t StackBytes> class Thread
         return ThreadRef{*id};
     }
 
-    [[nodiscard]] static constexpr std::size_t stack_size() noexcept
+    [[nodiscard]] static constexpr std::size_t stack_size()
     {
         return K_KERNEL_STACK_SIZEOF(stack_);
     }
 
   private:
     [[nodiscard]] Result<void> validate(Entry entry,
-                                        const ThreadConfiguration& configuration) const noexcept
+                                        const ThreadConfiguration& configuration) const
     {
         if (entry == nullptr) {
             return fail<Error>({.status = Status::Invalid});
@@ -390,7 +390,7 @@ template <std::size_t StackBytes> class Thread
 
     [[nodiscard]] Result<void> create(Entry entry, void* argument,
                                       ThreadConfiguration configuration, Timeout delay,
-                                      bool prepared_only) noexcept
+                                      bool prepared_only)
     {
         if (in_isr()) {
             return fail<Error>({.status = Status::Invalid});
@@ -439,7 +439,7 @@ template <std::size_t StackBytes> class Thread
         return {};
     }
 
-    static void trampoline(void* self_pointer, void*, void*) noexcept
+    static void trampoline(void* self_pointer, void*, void*)
     {
         auto& self = *static_cast<Thread*>(self_pointer);
         self.entry_(self.argument_);

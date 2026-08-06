@@ -67,7 +67,7 @@ template <StoreDeclaration... Declarations> struct ParameterSnapshot
     std::tuple<ParameterSnapshotEntry<Declarations>...> values{};
     std::uint64_t transaction_revision{};
 
-    template <typename Declaration> [[nodiscard]] const auto& get() const noexcept
+    template <typename Declaration> [[nodiscard]] const auto& get() const
     {
         static_assert(contains_v<Declaration, TypeList<Declarations...>>);
         return std::get<ParameterSnapshotEntry<Declaration>>(values).value;
@@ -87,7 +87,7 @@ template <StoreDeclaration Declaration> struct Slot
 };
 
 template <typename Declaration>
-[[nodiscard]] constexpr bool valid(const typename Declaration::Value& value) noexcept
+[[nodiscard]] constexpr bool valid(const typename Declaration::Value& value)
 {
     if constexpr (requires { Declaration::minimum; }) {
         if (value < static_cast<typename Declaration::Value>(Declaration::minimum)) {
@@ -148,7 +148,7 @@ template <SchemaType SchemaT> class Store
     Store(const Store&) = delete;
     Store& operator=(const Store&) = delete;
 
-    [[nodiscard]] Result<void> initialize() noexcept
+    [[nodiscard]] Result<void> initialize()
     {
         SpinGuard lock{mutex_};
         Storage::for_each(slots_, []<typename SlotT>(SlotT& slot) {
@@ -162,7 +162,7 @@ template <SchemaType SchemaT> class Store
         return {};
     }
 
-    [[nodiscard]] Result<void> start() noexcept
+    [[nodiscard]] Result<void> start()
     {
         SpinGuard lock{mutex_};
         if (!initialized_) {
@@ -175,7 +175,7 @@ template <SchemaType SchemaT> class Store
         return {};
     }
 
-    [[nodiscard]] Result<void> stop() noexcept
+    [[nodiscard]] Result<void> stop()
     {
         SpinGuard lock{mutex_};
         if (!initialized_) {
@@ -185,7 +185,7 @@ template <SchemaType SchemaT> class Store
         return {};
     }
 
-    [[nodiscard]] Result<void> deinitialize() noexcept
+    [[nodiscard]] Result<void> deinitialize()
     {
         SpinGuard lock{mutex_};
         active_ = false;
@@ -194,7 +194,7 @@ template <SchemaType SchemaT> class Store
     }
 
     template <StoreDeclaration Declaration>
-    [[nodiscard]] Result<typename Declaration::Value> get() const noexcept
+    [[nodiscard]] Result<typename Declaration::Value> get() const
     {
         require_member<Declaration>();
         SpinGuard lock{mutex_};
@@ -263,7 +263,7 @@ template <SchemaType SchemaT> class Store
 
     /** Read several values and their common transaction revision atomically. */
     template <StoreDeclaration... Declarations>
-    [[nodiscard]] Result<ParameterSnapshot<Declarations...>> snapshot() const noexcept
+    [[nodiscard]] Result<ParameterSnapshot<Declarations...>> snapshot() const
     {
         static_assert(unique_types_v<TypeList<Declarations...>>);
         (require_member<Declarations>(), ...);
@@ -303,7 +303,7 @@ template <SchemaType SchemaT> class Store
     }
 
     template <StoreDeclaration Declaration>
-    [[nodiscard]] Result<std::uint64_t> revision() const noexcept
+    [[nodiscard]] Result<std::uint64_t> revision() const
     {
         require_member<Declaration>();
         SpinGuard lock{mutex_};
@@ -313,13 +313,13 @@ template <SchemaType SchemaT> class Store
         return slot<Declaration>().revision;
     }
 
-    [[nodiscard]] bool initialized() const noexcept
+    [[nodiscard]] bool initialized() const
     {
         SpinGuard lock{mutex_};
         return initialized_;
     }
 
-    [[nodiscard]] bool active() const noexcept
+    [[nodiscard]] bool active() const
     {
         SpinGuard lock{mutex_};
         return active_;
@@ -335,18 +335,18 @@ template <SchemaType SchemaT> class Store
                       "application schema");
     }
 
-    template <typename Declaration> auto& slot() noexcept
+    template <typename Declaration> auto& slot()
     {
         return std::get<store_detail::Slot<Declaration>>(slots_);
     }
 
-    template <typename Declaration> const auto& slot() const noexcept
+    template <typename Declaration> const auto& slot() const
     {
         return std::get<store_detail::Slot<Declaration>>(slots_);
     }
 
     template <StoreDeclaration Declaration>
-    void commit_assignment(ValueAssignment<Declaration> assignment) noexcept
+    void commit_assignment(ValueAssignment<Declaration> assignment)
     {
         auto& target = slot<Declaration>();
         target.value = std::move(assignment.value);
@@ -369,28 +369,28 @@ template <typename Application, SchemaType SchemaT> struct StaticStore
 
     inline static Store<SchemaT> storage{};
 
-    [[nodiscard]] static Result<void> initialize() noexcept
+    [[nodiscard]] static Result<void> initialize()
     {
         return storage.initialize();
     }
 
-    [[nodiscard]] static Result<void> start() noexcept
+    [[nodiscard]] static Result<void> start()
     {
         return storage.start();
     }
 
-    [[nodiscard]] static Result<void> stop() noexcept
+    [[nodiscard]] static Result<void> stop()
     {
         return storage.stop();
     }
 
-    [[nodiscard]] static Result<void> deinitialize() noexcept
+    [[nodiscard]] static Result<void> deinitialize()
     {
         return storage.deinitialize();
     }
 
     template <StoreDeclaration Declaration>
-    [[nodiscard]] static Result<typename Declaration::Value> get() noexcept
+    [[nodiscard]] static Result<typename Declaration::Value> get()
     {
         return storage.template get<Declaration>();
     }
@@ -407,7 +407,7 @@ template <typename Application, SchemaType SchemaT> struct StaticStore
         return storage.set_many(std::forward<Assignments>(assignments)...);
     }
 
-    template <StoreDeclaration... Declarations> [[nodiscard]] static auto snapshot() noexcept
+    template <StoreDeclaration... Declarations> [[nodiscard]] static auto snapshot()
     {
         return storage.template snapshot<Declarations...>();
     }
@@ -419,7 +419,7 @@ template <typename Application, SchemaType SchemaT> struct StaticStore
     }
 
     template <StoreDeclaration Declaration>
-    [[nodiscard]] static Result<std::uint64_t> revision() noexcept
+    [[nodiscard]] static Result<std::uint64_t> revision()
     {
         return storage.template revision<Declaration>();
     }

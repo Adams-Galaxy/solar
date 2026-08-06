@@ -342,7 +342,7 @@ template <typename... Modules> struct FoldModuleMetadata<TypeList<Modules...>>
     using Inspection = unique_t<concat_t<typename InspectionFrom<Modules>::type...>>;
 };
 
-template <typename Module> [[nodiscard]] Result<void> initialize() noexcept
+template <typename Module> [[nodiscard]] Result<void> initialize()
 {
     if constexpr (requires {
                       { Module::initialize() } -> std::same_as<Result<void>>;
@@ -352,7 +352,7 @@ template <typename Module> [[nodiscard]] Result<void> initialize() noexcept
     return {};
 }
 
-template <typename Module> [[nodiscard]] Result<void> start() noexcept
+template <typename Module> [[nodiscard]] Result<void> start()
 {
     if constexpr (requires {
                       { Module::start() } -> std::same_as<Result<void>>;
@@ -362,7 +362,7 @@ template <typename Module> [[nodiscard]] Result<void> start() noexcept
     return {};
 }
 
-template <typename Module> [[nodiscard]] Result<void> stop() noexcept
+template <typename Module> [[nodiscard]] Result<void> stop()
 {
     if constexpr (requires {
                       { Module::stop() } -> std::same_as<Result<void>>;
@@ -372,7 +372,7 @@ template <typename Module> [[nodiscard]] Result<void> stop() noexcept
     return {};
 }
 
-template <typename Module> [[nodiscard]] Result<void> deinitialize() noexcept
+template <typename Module> [[nodiscard]] Result<void> deinitialize()
 {
     if constexpr (requires {
                       { Module::deinitialize() } -> std::same_as<Result<void>>;
@@ -386,19 +386,19 @@ template <typename List> struct ModuleLifecycle;
 
 template <> struct ModuleLifecycle<TypeList<>>
 {
-    [[nodiscard]] static Result<void> initialize_all() noexcept
+    [[nodiscard]] static Result<void> initialize_all()
     {
         return {};
     }
-    [[nodiscard]] static Result<void> start_all() noexcept
+    [[nodiscard]] static Result<void> start_all()
     {
         return {};
     }
-    [[nodiscard]] static Result<void> stop_all() noexcept
+    [[nodiscard]] static Result<void> stop_all()
     {
         return {};
     }
-    [[nodiscard]] static Result<void> deinitialize_all() noexcept
+    [[nodiscard]] static Result<void> deinitialize_all()
     {
         return {};
     }
@@ -408,7 +408,7 @@ template <typename Head, typename... Tail> struct ModuleLifecycle<TypeList<Head,
 {
     using Rest = ModuleLifecycle<TypeList<Tail...>>;
 
-    [[nodiscard]] static Result<void> initialize_all() noexcept
+    [[nodiscard]] static Result<void> initialize_all()
     {
         if (auto result = initialize<Head>(); !result) {
             return result;
@@ -420,7 +420,7 @@ template <typename Head, typename... Tail> struct ModuleLifecycle<TypeList<Head,
         return {};
     }
 
-    [[nodiscard]] static Result<void> start_all() noexcept
+    [[nodiscard]] static Result<void> start_all()
     {
         if (auto result = start<Head>(); !result) {
             return result;
@@ -432,14 +432,14 @@ template <typename Head, typename... Tail> struct ModuleLifecycle<TypeList<Head,
         return {};
     }
 
-    [[nodiscard]] static Result<void> stop_all() noexcept
+    [[nodiscard]] static Result<void> stop_all()
     {
         auto result = stop<Head>();
         auto rest = Rest::stop_all();
         return result ? rest : result;
     }
 
-    [[nodiscard]] static Result<void> deinitialize_all() noexcept
+    [[nodiscard]] static Result<void> deinitialize_all()
     {
         auto result = deinitialize<Head>();
         auto rest = Rest::deinitialize_all();
@@ -452,7 +452,7 @@ template <typename Connection> struct ConnectionLifecycle;
 template <typename Adapter, typename... Endpoints>
 struct ConnectionLifecycle<Connect<Adapter, Endpoints...>>
 {
-    [[nodiscard]] static Result<void> connect() noexcept
+    [[nodiscard]] static Result<void> connect()
     {
         static_assert(
             requires {
@@ -461,7 +461,7 @@ struct ConnectionLifecycle<Connect<Adapter, Endpoints...>>
         return Adapter::template connect<Endpoints...>();
     }
 
-    [[nodiscard]] static Result<void> disconnect() noexcept
+    [[nodiscard]] static Result<void> disconnect()
     {
         if constexpr (requires {
                           {
@@ -478,11 +478,11 @@ template <typename List> struct ConnectionsLifecycle;
 
 template <> struct ConnectionsLifecycle<TypeList<>>
 {
-    [[nodiscard]] static Result<void> connect_all() noexcept
+    [[nodiscard]] static Result<void> connect_all()
     {
         return {};
     }
-    [[nodiscard]] static Result<void> disconnect_all() noexcept
+    [[nodiscard]] static Result<void> disconnect_all()
     {
         return {};
     }
@@ -492,7 +492,7 @@ template <typename Head, typename... Tail> struct ConnectionsLifecycle<TypeList<
 {
     using Rest = ConnectionsLifecycle<TypeList<Tail...>>;
 
-    [[nodiscard]] static Result<void> connect_all() noexcept
+    [[nodiscard]] static Result<void> connect_all()
     {
         if (auto result = ConnectionLifecycle<Head>::connect(); !result) {
             return result;
@@ -504,7 +504,7 @@ template <typename Head, typename... Tail> struct ConnectionsLifecycle<TypeList<
         return {};
     }
 
-    [[nodiscard]] static Result<void> disconnect_all() noexcept
+    [[nodiscard]] static Result<void> disconnect_all()
     {
         auto result = ConnectionLifecycle<Head>::disconnect();
         auto rest = Rest::disconnect_all();
@@ -539,7 +539,7 @@ template <typename Application, typename Composition> struct System
 
     System() = delete;
 
-    [[nodiscard]] static Result<void> boot() noexcept
+    [[nodiscard]] static Result<void> boot()
     {
         if (active_) {
             return fail<Error>({.status = Status::Already});
@@ -567,7 +567,7 @@ template <typename Application, typename Composition> struct System
         return {};
     }
 
-    [[nodiscard]] static Result<void> shutdown() noexcept
+    [[nodiscard]] static Result<void> shutdown()
     {
         if (!active_) {
             return {};
@@ -590,11 +590,11 @@ template <typename Application, typename Composition> struct System
         return deinitialized;
     }
 
-    [[nodiscard]] static bool active() noexcept
+    [[nodiscard]] static bool active()
     {
         return active_;
     }
-    [[nodiscard]] static LifecycleStage stage() noexcept
+    [[nodiscard]] static LifecycleStage stage()
     {
         return stage_;
     }

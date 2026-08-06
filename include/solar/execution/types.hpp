@@ -278,7 +278,7 @@ struct RecordPage
     std::size_t count{};
     std::size_t total{};
 
-    [[nodiscard]] constexpr bool has_more() const noexcept
+    [[nodiscard]] constexpr bool has_more() const
     {
         return offset + count < total;
     }

@@ -86,7 +86,7 @@ struct ByteRuntime
     using ServiceType = typename Context::RemoteService;
     using Dependencies = DependenciesT;
 
-    [[nodiscard]] static Result<void> initialize() noexcept
+    [[nodiscard]] static Result<void> initialize()
     {
 #if defined(__ZEPHYR__) && defined(CONFIG_SOLAR_REMOTE)
         run_status_.store(Status::NotReady, std::memory_order_relaxed);
@@ -118,7 +118,7 @@ struct ByteRuntime
 #endif
     }
 
-    [[nodiscard]] static Result<void> start() noexcept
+    [[nodiscard]] static Result<void> start()
     {
 #if defined(__ZEPHYR__) && defined(CONFIG_SOLAR_REMOTE)
         if (auto result = FacilityType::start(); !result) {
@@ -137,7 +137,7 @@ struct ByteRuntime
         return {};
     }
 
-    [[nodiscard]] static Result<void> stop() noexcept
+    [[nodiscard]] static Result<void> stop()
     {
 #if defined(__ZEPHYR__) && defined(CONFIG_SOLAR_REMOTE)
         auto requested = stop_source_.request_stop();
@@ -161,7 +161,7 @@ struct ByteRuntime
         return {};
     }
 
-    [[nodiscard]] static Result<void> deinitialize() noexcept
+    [[nodiscard]] static Result<void> deinitialize()
     {
 #if defined(__ZEPHYR__) && defined(CONFIG_SOLAR_REMOTE)
         auto service = ServiceType::deinit();
@@ -174,7 +174,7 @@ struct ByteRuntime
 
     /** Publish one producer-paced value to subscribers of a genuine Stream endpoint. */
     template <typename StreamT>
-    [[nodiscard]] static Result<WriteReceipt, Error> publish(typename StreamT::Value value) noexcept
+    [[nodiscard]] static Result<WriteReceipt, Error> publish(typename StreamT::Value value)
     {
 #if defined(__ZEPHYR__) && defined(CONFIG_SOLAR_REMOTE)
         static_assert(Context::RemoteStreamCatalog::template contains<StreamT>,
@@ -187,7 +187,7 @@ struct ByteRuntime
 #endif
     }
 
-    template <typename StreamT> [[nodiscard]] static bool interested() noexcept
+    template <typename StreamT> [[nodiscard]] static bool interested()
     {
 #if defined(__ZEPHYR__) && defined(CONFIG_SOLAR_REMOTE)
         static_assert(Context::RemoteStreamCatalog::template contains<StreamT>);

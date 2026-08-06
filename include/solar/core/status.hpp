@@ -1,8 +1,12 @@
 #pragma once
 
+#include <array>
 #include <cerrno>
 #include <concepts>
+#include <cstdint>
 #include <expected>
+#include <source_location>
+#include <string_view>
 #include <type_traits>
 #include <utility>
 
@@ -96,23 +100,23 @@ enum class Status : int
     UnexpectedExit = detail::unexpected_exit_errno,
 };
 
-[[nodiscard]] constexpr bool ok(Status status) noexcept
+[[nodiscard]] constexpr bool ok(Status status)
 {
     return status == Status::Ok;
 }
 
-[[nodiscard]] constexpr int to_errno(Status status) noexcept
+[[nodiscard]] constexpr int to_errno(Status status)
 {
     return static_cast<std::underlying_type_t<Status>>(status);
 }
 
-[[nodiscard]] constexpr int to_native_errno(Status status) noexcept
+[[nodiscard]] constexpr int to_native_errno(Status status)
 {
     const auto error = to_errno(status);
     return error == 0 ? 0 : -error;
 }
 
-[[nodiscard]] constexpr Status status_from_errno(int error) noexcept
+[[nodiscard]] constexpr Status status_from_errno(int error)
 {
     const auto code = error < 0 ? -error : error;
 
@@ -194,7 +198,7 @@ struct Error
     return error.status;
 }
 
-[[nodiscard]] constexpr Error error_from_errno(int error) noexcept
+[[nodiscard]] constexpr Error error_from_errno(int error)
 {
     return {.status = status_from_errno(error), .native = error};
 }
@@ -249,6 +253,88 @@ template <ErrorType E>
     return Failure<E>{std::move(error)};
 }
 
+/** Project-wide trace depth for `Traced<E, N>`. Zero (the default) means no
+ * storage and a no-op `with_context` — see `docs/concepts/result-and-errors.md`.
+ * Set via `CONFIG_SOLAR_ERROR_TRACE_DEPTH` (Zephyr Kconfig) or the
+ * `SOLAR_ERROR_TRACE_DEPTH` host CMake cache variable of the same name.
+ */
+inline constexpr std::size_t kErrorTraceDepth =
+#if defined(CONFIG_SOLAR_ERROR_TRACE_DEPTH)
+    CONFIG_SOLAR_ERROR_TRACE_DEPTH;
+#else
+    0;
+#endif
+
+/** One recorded boundary crossing in an error's trace. */
+struct Frame
+{
+    std::source_location loc;
+    Status status{Status::Error};
+    std::string_view tag;
+};
+
+/** Error value optionally carrying a fixed-size trace of boundary crossings.
+ *
+ * `N` is fixed at compile time by `kErrorTraceDepth`, one project-wide knob —
+ * there is no per-call-site or per-module override. At `N == 0` (the
+ * specialization below) this has identical layout to `E` and `with_context`
+ * is a no-op, so turning tracing on or off is a single rebuild, not a
+ * call-site change. See `docs/concepts/result-and-errors.md`.
+ */
+template <ErrorType E, std::size_t N = kErrorTraceDepth>
+struct Traced
+{
+    E error;
+    std::array<Frame, N> frames{};
+    std::uint8_t count{};
+
+    [[nodiscard]] constexpr Traced with_context(
+        std::string_view tag,
+        std::source_location loc = std::source_location::current()) const noexcept
+    {
+        Traced traced = *this;
+        if (traced.count < N) {
+            traced.frames[traced.count] = Frame{.loc = loc, .status = status_of(error), .tag = tag};
+            ++traced.count;
+        }
+        return traced;
+    }
+};
+
+template <ErrorType E>
+struct Traced<E, 0>
+{
+    E error;
+
+    [[nodiscard]] constexpr Traced with_context(
+        std::string_view, std::source_location = std::source_location::current()) const noexcept
+    {
+        return *this;
+    }
+};
+
+template <ErrorType E, std::size_t N>
+[[nodiscard]] constexpr Status status_of(const Traced<E, N>& traced) noexcept
+{
+    return status_of(traced.error);
+}
+
+static_assert(sizeof(Traced<Error, 0>) == sizeof(Error),
+              "Traced<E, 0> must be a zero-cost wrapper around E");
+
+namespace detail
+{
+
+template <typename T> struct is_traced : std::false_type
+{
+};
+
+template <ErrorType E, std::size_t N> struct is_traced<Traced<E, N>> : std::true_type
+{
+};
+
+} // namespace detail
+
 /** Re-wrap another error domain's status as a failed Result in this one.
  *
  * For crossing a domain boundary where only Status is meaningful upstream
@@ -258,20 +344,36 @@ template <ErrorType E>
  * error's other fields, so prefer building Target explicitly wherever a
  * richer field (reason, member, ...) should be preserved instead of
  * defaulted.
+ *
+ * The result is always `Traced<Target>`, even at `kErrorTraceDepth == 0`
+ * (where it is a zero-cost wrapper): this crossing is recorded as a new
+ * frame, and if `source` is itself already `Traced<X, N>`, that existing
+ * chain is carried forward rather than discarded.
  * @tparam Target Concrete error domain to fail as.
- * @param error Source error to project through `status_of`.
+ * @param source Source error to project through `status_of`.
+ * @param tag Optional short label for this crossing, recorded in the trace.
+ * @param loc Call site of this crossing; defaults to the caller's location.
  */
 template <ErrorType Target, ErrorType Source>
-[[nodiscard]] constexpr auto fail_as(const Source& error) noexcept -> Failure<Target>
+[[nodiscard]] constexpr auto fail_as(
+    const Source& source, std::string_view tag = {},
+    std::source_location loc = std::source_location::current()) -> Failure<Traced<Target>>
 {
-    return fail<Target>(Target{.status = status_of(error)});
+    Traced<Target> traced{.error = Target{.status = status_of(source)}};
+    if constexpr (kErrorTraceDepth > 0 && detail::is_traced<Source>::value) {
+        traced.frames = source.frames;
+        traced.count = source.count;
+    }
+    return fail<Traced<Target>>(traced.with_context(tag, loc));
 }
 
 /** `fail_as` from an already-failed Result, rather than its extracted error. */
 template <ErrorType Target, typename T, ErrorType Source>
-[[nodiscard]] constexpr auto fail_as(const Result<T, Source>& result) noexcept -> Failure<Target>
+[[nodiscard]] constexpr auto fail_as(
+    const Result<T, Source>& result, std::string_view tag = {},
+    std::source_location loc = std::source_location::current()) -> Failure<Traced<Target>>
 {
-    return fail_as<Target>(result.error());
+    return fail_as<Target>(result.error(), tag, loc);
 }
 
 } // namespace solar

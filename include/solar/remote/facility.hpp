@@ -29,27 +29,27 @@ template <typename Architecture, typename RuntimeContext = void> struct Service;
 namespace detail
 {
 
-template <typename System> void process_publication(std::uint16_t endpoint) noexcept;
+template <typename System> void process_publication(std::uint16_t endpoint);
 template <typename System>
-void process_application_frame(std::uint16_t link, const frame::Decoded& decoded) noexcept;
+void process_application_frame(std::uint16_t link, const frame::Decoded& decoded);
 template <typename System>
-[[nodiscard]] Result<void> process_action_work(std::uint32_t target, bool action) noexcept;
+[[nodiscard]] Result<void> process_action_work(std::uint32_t target, bool action);
 template <typename System>
-[[nodiscard]] Result<void> process_poll_work(std::uint32_t target) noexcept;
+[[nodiscard]] Result<void> process_poll_work(std::uint32_t target);
 template <typename System>
-[[nodiscard]] Result<void> process_in_stream_work(std::uint32_t target) noexcept;
-template <typename System> void initialize_in_stream_runtime() noexcept;
-template <typename System> [[nodiscard]] std::int64_t process_poll_releases() noexcept;
+[[nodiscard]] Result<void> process_in_stream_work(std::uint32_t target);
+template <typename System> void initialize_in_stream_runtime();
+template <typename System> [[nodiscard]] std::int64_t process_poll_releases();
 template <typename System>
-void reset_session(std::uint16_t link, InStreamCloseReason reason) noexcept;
-template <typename System> void open_session(std::uint16_t link) noexcept;
-template <typename System> void pong_responded() noexcept;
+void reset_session(std::uint16_t link, InStreamCloseReason reason);
+template <typename System> void open_session(std::uint16_t link);
+template <typename System> void pong_responded();
 template <typename System>
-[[nodiscard]] protocol::IntrospectionSummary introspection_summary() noexcept;
-template <typename System> [[nodiscard]] protocol::ServerInformation server_information() noexcept;
+[[nodiscard]] protocol::IntrospectionSummary introspection_summary();
+template <typename System> [[nodiscard]] protocol::ServerInformation server_information();
 template <typename System>
 [[nodiscard]] Result<std::size_t, Error> manifest_chunk(std::span<const std::byte> request,
-                                                        std::span<std::byte> output) noexcept;
+                                                        std::span<std::byte> output);
 template <typename Entries> struct DeclarationsOf;
 
 template <typename... Entries> struct DeclarationsOf<TypeList<Entries...>>
@@ -64,7 +64,7 @@ template <typename Entries> using declarations_of_t = typename DeclarationsOf<En
 /** Default scheduler for Remote work; applications may supply an explicit adapter. */
 struct InlineScheduler
 {
-    template <typename Registration> [[nodiscard]] static Result<void> submit() noexcept
+    template <typename Registration> [[nodiscard]] static Result<void> submit()
     {
         return Registration::BehaviorType::execute();
     }
@@ -105,7 +105,7 @@ template <typename ArchitectureT> struct Facility
     inline static std::atomic_bool ready{};
     inline static std::atomic_bool accepting{};
     inline static std::atomic_uint32_t active_requests{};
-    [[nodiscard]] static Result<void> init() noexcept
+    [[nodiscard]] static Result<void> init()
     {
         accepting.store(false, std::memory_order_relaxed);
         active_requests.store(0, std::memory_order_relaxed);
@@ -113,19 +113,19 @@ template <typename ArchitectureT> struct Facility
         return {};
     }
 
-    [[nodiscard]] static Result<void> start() noexcept
+    [[nodiscard]] static Result<void> start()
     {
         accepting.store(true, std::memory_order_release);
         return {};
     }
 
-    [[nodiscard]] static Result<void> stop() noexcept
+    [[nodiscard]] static Result<void> stop()
     {
         accepting.store(false, std::memory_order_release);
         return {};
     }
 
-    [[nodiscard]] static Result<void> deinit() noexcept
+    [[nodiscard]] static Result<void> deinit()
     {
         ready.store(false, std::memory_order_release);
         return {};

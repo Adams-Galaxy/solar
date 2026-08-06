@@ -13,3 +13,11 @@
 #if __cpp_lib_expected < 202211L
 #error "SOLAR_DIAGNOSTIC_REQUIRES_MONADIC_EXPECTED: Solar requires monadic std::expected operations"
 #endif
+
+#if defined(__cpp_exceptions)
+#error "SOLAR_DIAGNOSTIC_REQUIRES_NO_EXCEPTIONS: Solar requires exceptions to be disabled (-fno-exceptions)"
+#endif
+
+#if defined(__cpp_rtti)
+#error "SOLAR_DIAGNOSTIC_REQUIRES_NO_RTTI: Solar requires RTTI to be disabled (-fno-rtti)"
+#endif

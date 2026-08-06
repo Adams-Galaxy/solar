@@ -14,13 +14,13 @@ namespace solar::events
 struct Forward
 {
     template <typename Bus, typename Event, typename Observer>
-    [[nodiscard]] static Result<void> connect() noexcept
+    [[nodiscard]] static Result<void> connect()
     {
         return Bus::template observe<Event>(&Observer::observe);
     }
 
     template <typename Bus, typename Event, typename Observer>
-    [[nodiscard]] static Result<void> disconnect() noexcept
+    [[nodiscard]] static Result<void> disconnect()
     {
         return Bus::template unobserve<Event>(&Observer::observe);
     }
@@ -32,7 +32,7 @@ template <typename Event, typename Observer, std::size_t Capacity> class Schedul
     static_assert(Capacity > 0);
 
   public:
-    ScheduledForward() noexcept
+    ScheduledForward()
     {
         for (std::size_t index{}; index < Capacity; ++index) {
             contexts_[index] = {.owner = this, .index = index};
@@ -40,7 +40,7 @@ template <typename Event, typename Observer, std::size_t Capacity> class Schedul
     }
 
     template <typename Queue>
-    [[nodiscard]] Result<void> emit(const typename Event::Value& value, Queue& queue) noexcept
+    [[nodiscard]] Result<void> emit(const typename Event::Value& value, Queue& queue)
     {
         std::size_t selected = Capacity;
         {

@@ -15,7 +15,7 @@ template <std::size_t Capacity> struct BoundedText
     std::array<char, Capacity> storage{};
     std::uint16_t size{};
 
-    [[nodiscard]] constexpr std::string_view view() const noexcept
+    [[nodiscard]] constexpr std::string_view view() const
     {
         return {storage.data(), size};
     }
@@ -27,7 +27,7 @@ template <std::size_t Capacity> struct BoundedBytes
     std::array<std::byte, Capacity> storage{};
     std::uint16_t size{};
 
-    [[nodiscard]] constexpr std::span<const std::byte> view() const noexcept
+    [[nodiscard]] constexpr std::span<const std::byte> view() const
     {
         return {storage.data(), size};
     }
@@ -40,12 +40,12 @@ template <typename Value, std::size_t Capacity> struct BoundedVector
     std::array<Value, Capacity> storage{};
     std::uint16_t size{};
 
-    [[nodiscard]] constexpr std::span<Value> view() noexcept
+    [[nodiscard]] constexpr std::span<Value> view()
     {
         return {storage.data(), size};
     }
 
-    [[nodiscard]] constexpr std::span<const Value> view() const noexcept
+    [[nodiscard]] constexpr std::span<const Value> view() const
     {
         return {storage.data(), size};
     }

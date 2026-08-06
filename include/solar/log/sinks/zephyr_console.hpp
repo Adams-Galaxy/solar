@@ -14,7 +14,7 @@ namespace solar::log
 namespace detail
 {
 
-[[nodiscard]] constexpr std::string_view origin_name(Origin origin) noexcept
+[[nodiscard]] constexpr std::string_view origin_name(Origin origin)
 {
     switch (origin) {
     case Origin::Solar:
@@ -33,7 +33,7 @@ namespace detail
     return "unknown";
 }
 
-template <typename System> [[nodiscard]] std::string_view source_name(RecordView record) noexcept
+template <typename System> [[nodiscard]] std::string_view source_name(RecordView record)
 {
     const auto source = System::LogSourceCatalog::find(record.header.source);
     if (source && !source->get().descriptor.name.empty()) {
@@ -47,7 +47,7 @@ template <typename System> [[nodiscard]] std::string_view source_name(RecordView
 struct DefaultZephyrConsoleRenderer
 {
     template <typename System>
-    [[nodiscard]] static Result<void> render(RecordView record, std::string_view rendered) noexcept
+    [[nodiscard]] static Result<void> render(RecordView record, std::string_view rendered)
     {
         constexpr Timestamp microseconds_per_second = 1'000'000;
         constexpr Timestamp microseconds_per_millisecond = 1'000;
@@ -80,7 +80,7 @@ template <typename Renderer = DefaultZephyrConsoleRenderer> struct ZephyrConsole
     };
 
     template <typename System>
-    [[nodiscard]] static Result<void> consume(RecordView record, std::string_view rendered) noexcept
+    [[nodiscard]] static Result<void> consume(RecordView record, std::string_view rendered)
     {
         if constexpr (requires { Renderer::template render<System>(record, rendered); }) {
             return Renderer::template render<System>(record, rendered);

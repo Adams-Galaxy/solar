@@ -110,14 +110,14 @@ template <typename... Arguments> [[nodiscard]] consteval bool valid_format(std::
 class PayloadWriter
 {
   public:
-    explicit PayloadWriter(std::span<std::byte> output) noexcept : output_(output) {}
+    explicit PayloadWriter(std::span<std::byte> output) : output_(output) {}
 
-    template <typename T> [[nodiscard]] bool append(const T& value) noexcept
+    template <typename T> [[nodiscard]] bool append(const T& value)
     {
         return append_bytes(std::as_bytes(std::span{&value, std::size_t{1}}));
     }
 
-    [[nodiscard]] bool append_bytes(std::span<const std::byte> bytes) noexcept
+    [[nodiscard]] bool append_bytes(std::span<const std::byte> bytes)
     {
         if (offset_ + bytes.size() > output_.size()) {
             return false;
@@ -127,7 +127,7 @@ class PayloadWriter
         return true;
     }
 
-    [[nodiscard]] std::size_t size() const noexcept
+    [[nodiscard]] std::size_t size() const
     {
         return offset_;
     }
@@ -206,7 +206,7 @@ template <typename... Arguments>
 }
 
 [[nodiscard]] inline Result<void, Error> encode_text(CaptureRequest& request,
-                                                     std::string_view text) noexcept
+                                                     std::string_view text)
 {
     const auto copied = std::min(text.size(), request.payload.size());
     std::memcpy(request.payload.data(), text.data(), copied);
@@ -218,7 +218,7 @@ template <typename... Arguments>
 }
 
 [[nodiscard]] inline Result<std::size_t, Error> render_text(RecordView record,
-                                                             std::span<char> output) noexcept
+                                                             std::span<char> output)
 {
     const auto copied = std::min(record.payload.size(), output.size());
     std::memcpy(output.data(), record.payload.data(), copied);
@@ -239,7 +239,7 @@ struct BridgedLine
  * dedicated source column, not a generic placeholder) split it back out here
  * instead of duplicating this parsing per sink.
  */
-[[nodiscard]] inline BridgedLine split_bridged_text(std::string_view rendered) noexcept
+[[nodiscard]] inline BridgedLine split_bridged_text(std::string_view rendered)
 {
     const auto separator = rendered.find(": ");
     if (separator == std::string_view::npos) {
@@ -251,9 +251,9 @@ struct BridgedLine
 class TextWriter
 {
   public:
-    explicit TextWriter(std::span<char> output) noexcept : output_(output) {}
+    explicit TextWriter(std::span<char> output) : output_(output) {}
 
-    void append(char value) noexcept
+    void append(char value)
     {
         if (size_ < output_.size()) {
             output_[size_++] = value;
@@ -262,7 +262,7 @@ class TextWriter
         }
     }
 
-    void append(std::string_view value) noexcept
+    void append(std::string_view value)
     {
         const auto copied =
             std::min(value.size(), output_.size() - std::min(size_, output_.size()));
@@ -273,12 +273,12 @@ class TextWriter
         truncated_ = truncated_ || copied != value.size();
     }
 
-    [[nodiscard]] std::size_t size() const noexcept
+    [[nodiscard]] std::size_t size() const
     {
         return size_;
     }
 
-    [[nodiscard]] bool truncated() const noexcept
+    [[nodiscard]] bool truncated() const
     {
         return truncated_;
     }
@@ -311,7 +311,7 @@ struct ArgumentView
     return ArgumentView{.header = header, .bytes = value};
 }
 
-template <typename T> [[nodiscard]] T read_scalar(std::span<const std::byte> bytes) noexcept
+template <typename T> [[nodiscard]] T read_scalar(std::span<const std::byte> bytes)
 {
     T value{};
     if (bytes.size() == sizeof(T)) {
@@ -321,7 +321,7 @@ template <typename T> [[nodiscard]] T read_scalar(std::span<const std::byte> byt
 }
 
 inline void render_argument(TextWriter& output, const ArgumentView& argument,
-                            std::string_view specification) noexcept
+                            std::string_view specification)
 {
     std::array<char, 64> buffer{};
     const bool hexadecimal = specification.find('x') != std::string_view::npos ||
@@ -381,7 +381,7 @@ inline void render_argument(TextWriter& output, const ArgumentView& argument,
 }
 
 [[nodiscard]] inline Result<std::size_t, Error> render_native(RecordView record,
-                                                              std::span<char> output) noexcept
+                                                              std::span<char> output)
 {
     if (record.payload.size() < sizeof(NativePayloadHeader)) {
         return fail<Error>({.status = solar::Status::ProtocolError,
@@ -449,12 +449,12 @@ template <typename... Arguments> class FormatString
         }
     }
 
-    [[nodiscard]] constexpr const char* data() const noexcept
+    [[nodiscard]] constexpr const char* data() const
     {
         return format_;
     }
 
-    [[nodiscard]] constexpr std::size_t size() const noexcept
+    [[nodiscard]] constexpr std::size_t size() const
     {
         return size_;
     }

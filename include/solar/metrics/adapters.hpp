@@ -8,12 +8,12 @@ namespace solar::metrics
 /** Read-only inspection view over one typed metric. */
 template <typename Metrics, typename Metric> struct Inspect
 {
-    [[nodiscard]] static auto read(Metrics& metrics) noexcept
+    [[nodiscard]] static auto read(Metrics& metrics)
     {
         return metrics.template get<Metric>();
     }
 
-    [[nodiscard]] static auto read() noexcept
+    [[nodiscard]] static auto read()
         requires requires { Metrics::template get<Metric>(); }
     {
         return Metrics::template get<Metric>();

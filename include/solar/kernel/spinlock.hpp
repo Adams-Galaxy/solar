@@ -32,7 +32,7 @@ class SpinLock
         Guard& operator=(Guard&&) = delete;
 
       private:
-        Guard(k_spinlock& lock, k_spinlock_key_t key) noexcept : lock_(&lock), key_(key) {}
+        Guard(k_spinlock& lock, k_spinlock_key_t key) : lock_(&lock), key_(key) {}
 
         friend class SpinLock;
         friend class SpinLockRef;
@@ -48,11 +48,11 @@ class SpinLock
     SpinLock(SpinLock&&) = delete;
     SpinLock& operator=(SpinLock&&) = delete;
 
-    [[nodiscard]] Guard acquire() noexcept;
+    [[nodiscard]] Guard acquire();
 
-    [[nodiscard]] std::optional<Guard> try_acquire() noexcept;
+    [[nodiscard]] std::optional<Guard> try_acquire();
 
-    [[nodiscard]] SpinLockRef ref() noexcept;
+    [[nodiscard]] SpinLockRef ref();
 
   private:
     k_spinlock lock_{};
@@ -62,14 +62,14 @@ class SpinLock
 class SpinLockRef
 {
   public:
-    explicit constexpr SpinLockRef(k_spinlock& lock) noexcept : lock_(&lock) {}
+    explicit constexpr SpinLockRef(k_spinlock& lock) : lock_(&lock) {}
 
-    [[nodiscard]] SpinLock::Guard acquire() const noexcept
+    [[nodiscard]] SpinLock::Guard acquire() const
     {
         return SpinLock::Guard{*lock_, k_spin_lock(lock_)};
     }
 
-    [[nodiscard]] std::optional<SpinLock::Guard> try_acquire() const noexcept
+    [[nodiscard]] std::optional<SpinLock::Guard> try_acquire() const
     {
         k_spinlock_key_t key{};
         if (k_spin_trylock(lock_, &key) != 0) {
@@ -78,7 +78,7 @@ class SpinLockRef
         return SpinLock::Guard{*lock_, key};
     }
 
-    [[nodiscard]] constexpr k_spinlock* native_handle() const noexcept
+    [[nodiscard]] constexpr k_spinlock* native_handle() const
     {
         return lock_;
     }
@@ -87,17 +87,17 @@ class SpinLockRef
     k_spinlock* lock_;
 };
 
-inline SpinLockRef SpinLock::ref() noexcept
+inline SpinLockRef SpinLock::ref()
 {
     return SpinLockRef{lock_};
 }
 
-inline SpinLock::Guard SpinLock::acquire() noexcept
+inline SpinLock::Guard SpinLock::acquire()
 {
     return ref().acquire();
 }
 
-inline std::optional<SpinLock::Guard> SpinLock::try_acquire() noexcept
+inline std::optional<SpinLock::Guard> SpinLock::try_acquire()
 {
     return ref().try_acquire();
 }

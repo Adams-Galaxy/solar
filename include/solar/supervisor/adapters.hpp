@@ -8,7 +8,7 @@ namespace solar::supervisor
 /** Evaluates one external health probe and records it in a Monitor. */
 template <typename Monitor, typename Check, typename Probe> struct Evaluate
 {
-    [[nodiscard]] static Result<void> poll() noexcept
+    [[nodiscard]] static Result<void> poll()
     {
         auto condition = Probe::condition();
         if (!condition) {

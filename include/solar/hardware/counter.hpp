@@ -29,25 +29,25 @@ template <auto Spec> struct Counter : hardware::Endpoint<Spec>
 
     using Base = hardware::Endpoint<Spec>;
 
-    [[nodiscard]] static Result<void, Error> start() noexcept
+    [[nodiscard]] static Result<void, Error> start()
     {
         return hardware::detail::native_result(counter_start(Base::native_device()),
                                                Operation::Start, Base::path());
     }
 
-    [[nodiscard]] static Result<void, Error> stop() noexcept
+    [[nodiscard]] static Result<void, Error> stop()
     {
         return hardware::detail::native_result(counter_stop(Base::native_device()), Operation::Stop,
                                                Base::path());
     }
 
-    [[nodiscard]] static Result<void, Error> reset() noexcept
+    [[nodiscard]] static Result<void, Error> reset()
     {
         return hardware::detail::native_result(counter_reset(Base::native_device()),
                                                Operation::Configure, Base::path());
     }
 
-    [[nodiscard]] static Result<std::uint32_t, Error> value() noexcept
+    [[nodiscard]] static Result<std::uint32_t, Error> value()
     {
         std::uint32_t ticks{};
         const auto result = counter_get_value(Base::native_device(), &ticks);
@@ -58,7 +58,7 @@ template <auto Spec> struct Counter : hardware::Endpoint<Spec>
         return ticks;
     }
 
-    [[nodiscard]] static Result<std::uint64_t, Error> value64() noexcept
+    [[nodiscard]] static Result<std::uint64_t, Error> value64()
     {
         std::uint64_t ticks{};
         const auto result = counter_get_value_64(Base::native_device(), &ticks);
@@ -69,23 +69,23 @@ template <auto Spec> struct Counter : hardware::Endpoint<Spec>
         return ticks;
     }
 
-    [[nodiscard]] static std::uint32_t frequency() noexcept
+    [[nodiscard]] static std::uint32_t frequency()
     {
         return counter_get_frequency(Base::native_device());
     }
 
-    [[nodiscard]] static std::uint32_t top() noexcept
+    [[nodiscard]] static std::uint32_t top()
     {
         return counter_get_top_value(Base::native_device());
     }
 
-    [[nodiscard]] static bool interrupt_pending() noexcept
+    [[nodiscard]] static bool interrupt_pending()
     {
         return counter_get_pending_int(Base::native_device()) != 0U;
     }
 
     template <typename Rep, typename Period>
-    [[nodiscard]] static std::uint64_t ticks(std::chrono::duration<Rep, Period> duration) noexcept
+    [[nodiscard]] static std::uint64_t ticks(std::chrono::duration<Rep, Period> duration)
     {
         const auto nanoseconds =
             std::chrono::duration_cast<std::chrono::nanoseconds>(duration).count();
@@ -104,7 +104,7 @@ template <typename CounterT> struct Top
     inline static std::atomic<TopHandler> handler{};
 
     [[nodiscard]] static Result<void, Error> set(std::uint32_t ticks, TopHandler callback = nullptr,
-                                                 std::uint32_t flags = 0U) noexcept
+                                                 std::uint32_t flags = 0U)
     {
         handler.store(callback, std::memory_order_release);
         counter_top_cfg configuration{
@@ -122,13 +122,13 @@ template <typename CounterT> struct Top
         return result;
     }
 
-    [[nodiscard]] static std::uint32_t value() noexcept
+    [[nodiscard]] static std::uint32_t value()
     {
         return counter_get_top_value(CounterT::native_device());
     }
 
   private:
-    static void trampoline(const device*, void*) noexcept
+    static void trampoline(const device*, void*)
     {
         if (const auto callback = handler.load(std::memory_order_acquire); callback != nullptr) {
             callback();
@@ -143,7 +143,7 @@ template <typename CounterT, std::uint8_t Channel> struct Alarm
     inline static std::atomic<AlarmHandler> handler{};
 
     [[nodiscard]] static Result<void, Error> set(std::uint32_t ticks, bool absolute = false,
-                                                 AlarmHandler callback = nullptr) noexcept
+                                                 AlarmHandler callback = nullptr)
     {
         if (Channel >= counter_get_num_of_channels(CounterT::native_device())) {
             return fail<Error>({.status = solar::Status::Invalid,
@@ -168,7 +168,7 @@ template <typename CounterT, std::uint8_t Channel> struct Alarm
         return result;
     }
 
-    [[nodiscard]] static Result<void, Error> cancel() noexcept
+    [[nodiscard]] static Result<void, Error> cancel()
     {
         auto result = hardware::detail::native_result(
             counter_cancel_channel_alarm(CounterT::native_device(), Channel), Operation::Cancel,
@@ -180,7 +180,7 @@ template <typename CounterT, std::uint8_t Channel> struct Alarm
     }
 
   private:
-    static void trampoline(const device*, std::uint8_t, std::uint32_t ticks, void*) noexcept
+    static void trampoline(const device*, std::uint8_t, std::uint32_t ticks, void*)
     {
         if (const auto callback = handler.load(std::memory_order_acquire); callback != nullptr) {
             callback(ticks);

@@ -18,12 +18,12 @@
 namespace solar::remote::frame
 {
 
-[[nodiscard]] constexpr std::size_t max_encoded_size(std::size_t decoded_size) noexcept
+[[nodiscard]] constexpr std::size_t max_encoded_size(std::size_t decoded_size)
 {
     return decoded_size + decoded_size / 254U + 2U;
 }
 
-[[nodiscard]] constexpr std::uint32_t crc32c(std::span<const std::byte> input) noexcept
+[[nodiscard]] constexpr std::uint32_t crc32c(std::span<const std::byte> input)
 {
     std::uint32_t crc = 0xFFFFFFFFU;
     for (const auto value : input) {
@@ -35,7 +35,7 @@ namespace solar::remote::frame
     return ~crc;
 }
 
-[[nodiscard]] inline std::uint32_t integrity_crc32c(std::span<const std::byte> input) noexcept
+[[nodiscard]] inline std::uint32_t integrity_crc32c(std::span<const std::byte> input)
 {
 #if defined(__ZEPHYR__)
     return crc32_c(0, reinterpret_cast<const std::uint8_t*>(input.data()), input.size(), true,
@@ -46,7 +46,7 @@ namespace solar::remote::frame
 }
 
 [[nodiscard]] inline Result<std::size_t, Error> cobs_encode(std::span<const std::byte> input,
-                                                            std::span<std::byte> output) noexcept
+                                                            std::span<std::byte> output)
 {
 #if defined(__ZEPHYR__)
     struct Output
@@ -104,7 +104,7 @@ namespace solar::remote::frame
 }
 
 [[nodiscard]] inline Result<std::size_t, Error> cobs_decode(std::span<const std::byte> input,
-                                                            std::span<std::byte> output) noexcept
+                                                            std::span<std::byte> output)
 {
 #if defined(__ZEPHYR__)
     struct Output
@@ -163,7 +163,7 @@ namespace solar::remote::frame
 [[nodiscard]] inline Result<std::size_t, Error> encode(const protocol::Envelope& authored,
                                                        std::span<const std::byte> payload,
                                                        std::span<std::byte> scratch,
-                                                       std::span<std::byte> output) noexcept
+                                                       std::span<std::byte> output)
 {
     if (payload.size() > UINT16_MAX ||
         scratch.size() < protocol::envelope_size + payload.size() + protocol::crc_size) {
@@ -196,7 +196,7 @@ struct Decoded
 };
 
 [[nodiscard]] inline Result<Decoded, Error> decode(std::span<const std::byte> encoded,
-                                                   std::span<std::byte> scratch) noexcept
+                                                   std::span<std::byte> scratch)
 {
     auto decoded_size = cobs_decode(encoded, scratch);
     if (!decoded_size) {
@@ -282,16 +282,16 @@ template <std::size_t MaxEncodedBytes, std::size_t MaxDecodedBytes> class Stream
         return record;
     }
 
-    [[nodiscard]] constexpr FeedRecord record() const noexcept
+    [[nodiscard]] constexpr FeedRecord record() const
     {
         return totals_;
     }
-    [[nodiscard]] constexpr std::size_t pending_bytes() const noexcept
+    [[nodiscard]] constexpr std::size_t pending_bytes() const
     {
         return encoded_size_;
     }
 
-    constexpr void reset() noexcept
+    constexpr void reset()
     {
         encoded_size_ = 0;
         dropping_ = false;

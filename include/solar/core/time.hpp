@@ -32,18 +32,18 @@ struct DurationValue
         : nanoseconds(std::chrono::duration_cast<std::chrono::nanoseconds>(value).count())
     {}
 
-    [[nodiscard]] constexpr std::chrono::nanoseconds duration() const noexcept
+    [[nodiscard]] constexpr std::chrono::nanoseconds duration() const
     {
         return std::chrono::nanoseconds{nanoseconds};
     }
 
-    [[nodiscard]] constexpr bool positive() const noexcept
+    [[nodiscard]] constexpr bool positive() const
     {
         return nanoseconds > 0;
     }
 
-    friend constexpr bool operator==(DurationValue, DurationValue) noexcept = default;
-    friend constexpr auto operator<=>(DurationValue, DurationValue) noexcept = default;
+    friend constexpr bool operator==(DurationValue, DurationValue) = default;
+    friend constexpr auto operator<=>(DurationValue, DurationValue) = default;
 };
 
 namespace literals

@@ -89,7 +89,7 @@ enum class IntrospectionTarget : std::uint32_t
     Manifest = 4,
 };
 
-[[nodiscard]] constexpr Flags operator|(Flags left, Flags right) noexcept
+[[nodiscard]] constexpr Flags operator|(Flags left, Flags right)
 {
     return static_cast<Flags>(static_cast<std::uint8_t>(left) | static_cast<std::uint8_t>(right));
 }
@@ -163,7 +163,7 @@ enum class ErrorCode : std::uint16_t
     return Status::Error;
 }
 
-[[nodiscard]] constexpr bool valid(Kind kind) noexcept
+[[nodiscard]] constexpr bool valid(Kind kind)
 {
     const auto value = static_cast<std::uint8_t>(kind);
     return value >= static_cast<std::uint8_t>(Kind::ClientHello) &&
@@ -188,22 +188,22 @@ struct Envelope
 
     constexpr bool operator==(const Envelope&) const = default;
 
-    [[nodiscard]] constexpr OperationKind operation() const noexcept
+    [[nodiscard]] constexpr OperationKind operation() const
     {
         return static_cast<OperationKind>(reserved & 0xFFU);
     }
 
-    constexpr void set_operation(OperationKind operation_kind) noexcept
+    constexpr void set_operation(OperationKind operation_kind)
     {
         reserved = (reserved & 0xFFFFFF00U) | static_cast<std::uint8_t>(operation_kind);
     }
 
-    [[nodiscard]] constexpr SubscriptionKind subscription() const noexcept
+    [[nodiscard]] constexpr SubscriptionKind subscription() const
     {
         return static_cast<SubscriptionKind>(reserved & 0xFFU);
     }
 
-    constexpr void set_subscription(SubscriptionKind subscription_kind) noexcept
+    constexpr void set_subscription(SubscriptionKind subscription_kind)
     {
         reserved = (reserved & 0xFFFFFF00U) | static_cast<std::uint8_t>(subscription_kind);
     }
@@ -398,7 +398,7 @@ constexpr void put_u64(std::span<std::byte> output, std::size_t offset, std::uin
 } // namespace detail
 
 [[nodiscard]] constexpr std::array<std::byte, server_information_size>
-encode(const ServerInformation& information) noexcept
+encode(const ServerInformation& information)
 {
     std::array<std::byte, server_information_size> output{};
     output[0] = std::byte{1};
@@ -415,7 +415,7 @@ encode(const ServerInformation& information) noexcept
 }
 
 [[nodiscard]] constexpr Result<ServerInformation, Error>
-decode_server_information(std::span<const std::byte> input) noexcept
+decode_server_information(std::span<const std::byte> input)
 {
     if (input.size() != server_information_size || input[0] != std::byte{1} ||
         input[1] != static_cast<std::byte>(major_version)) {
@@ -433,7 +433,7 @@ decode_server_information(std::span<const std::byte> input) noexcept
 }
 
 [[nodiscard]] constexpr std::array<std::byte, manifest_request_size>
-encode(const ManifestRequest& request) noexcept
+encode(const ManifestRequest& request)
 {
     std::array<std::byte, manifest_request_size> output{};
     detail::put_u32(output, 0, request.offset);
@@ -442,7 +442,7 @@ encode(const ManifestRequest& request) noexcept
 }
 
 [[nodiscard]] constexpr Result<ManifestRequest, Error>
-decode_manifest_request(std::span<const std::byte> input) noexcept
+decode_manifest_request(std::span<const std::byte> input)
 {
     if (input.size() != manifest_request_size || detail::get_u16(input, 6) != 0) {
         return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::Decode});
@@ -454,7 +454,7 @@ decode_manifest_request(std::span<const std::byte> input) noexcept
 }
 
 [[nodiscard]] constexpr std::array<std::byte, subscription_policy_size>
-encode(const SubscriptionRequest& request) noexcept
+encode(const SubscriptionRequest& request)
 {
     std::array<std::byte, subscription_policy_size> output{};
     detail::put_u32(output, 0, request.minimum_interval_us);
@@ -465,7 +465,7 @@ encode(const SubscriptionRequest& request) noexcept
 }
 
 [[nodiscard]] constexpr std::array<std::byte, subscription_policy_size>
-encode(const SubscriptionPolicy& policy) noexcept
+encode(const SubscriptionPolicy& policy)
 {
     std::array<std::byte, subscription_policy_size> output{};
     detail::put_u32(output, 0, policy.minimum_interval_us);
@@ -476,7 +476,7 @@ encode(const SubscriptionPolicy& policy) noexcept
 }
 
 [[nodiscard]] constexpr Result<SubscriptionRequest, Error>
-decode_subscription_request(std::span<const std::byte> input) noexcept
+decode_subscription_request(std::span<const std::byte> input)
 {
     if (input.size() != subscription_policy_size) {
         return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::Decode});
@@ -490,7 +490,7 @@ decode_subscription_request(std::span<const std::byte> input) noexcept
 }
 
 [[nodiscard]] constexpr Result<SubscriptionPolicy, Error>
-decode_subscription_policy(std::span<const std::byte> input) noexcept
+decode_subscription_policy(std::span<const std::byte> input)
 {
     if (input.size() != subscription_policy_size) {
         return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::Decode});
@@ -508,7 +508,7 @@ decode_subscription_policy(std::span<const std::byte> input) noexcept
 }
 
 [[nodiscard]] constexpr std::array<std::byte, credit_grant_size>
-encode(const CreditGrant& grant) noexcept
+encode(const CreditGrant& grant)
 {
     std::array<std::byte, credit_grant_size> output{};
     detail::put_u32(output, 0, grant.token);
@@ -518,7 +518,7 @@ encode(const CreditGrant& grant) noexcept
 }
 
 [[nodiscard]] constexpr Result<CreditGrant, Error>
-decode_credit_grant(std::span<const std::byte> input) noexcept
+decode_credit_grant(std::span<const std::byte> input)
 {
     if (input.size() != credit_grant_size) {
         return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::Decode});
@@ -531,7 +531,7 @@ decode_credit_grant(std::span<const std::byte> input) noexcept
 }
 
 [[nodiscard]] constexpr std::array<std::byte, in_stream_open_response_size>
-encode(const InStreamOpenResponse& response) noexcept
+encode(const InStreamOpenResponse& response)
 {
     std::array<std::byte, in_stream_open_response_size> output{};
     const auto policy = encode(response.policy);
@@ -541,7 +541,7 @@ encode(const InStreamOpenResponse& response) noexcept
 }
 
 [[nodiscard]] constexpr Result<InStreamOpenResponse, Error>
-decode_in_stream_open_response(std::span<const std::byte> input) noexcept
+decode_in_stream_open_response(std::span<const std::byte> input)
 {
     if (input.size() != in_stream_open_response_size) {
         return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::Decode});
@@ -555,7 +555,7 @@ decode_in_stream_open_response(std::span<const std::byte> input) noexcept
 }
 
 [[nodiscard]] constexpr std::array<std::byte, in_stream_close_request_size>
-encode(const InStreamCloseRequest& request) noexcept
+encode(const InStreamCloseRequest& request)
 {
     std::array<std::byte, in_stream_close_request_size> output{};
     detail::put_u32(output, 0, request.token);
@@ -563,7 +563,7 @@ encode(const InStreamCloseRequest& request) noexcept
 }
 
 [[nodiscard]] constexpr Result<InStreamCloseRequest, Error>
-decode_in_stream_close_request(std::span<const std::byte> input) noexcept
+decode_in_stream_close_request(std::span<const std::byte> input)
 {
     if (input.size() != in_stream_close_request_size) {
         return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::Decode});
@@ -576,7 +576,7 @@ decode_in_stream_close_request(std::span<const std::byte> input) noexcept
 }
 
 [[nodiscard]] constexpr std::array<std::byte, in_stream_closed_size>
-encode(const InStreamClosed& closed) noexcept
+encode(const InStreamClosed& closed)
 {
     std::array<std::byte, in_stream_closed_size> output{};
     detail::put_u32(output, 0, closed.token);
@@ -585,7 +585,7 @@ encode(const InStreamClosed& closed) noexcept
 }
 
 [[nodiscard]] constexpr Result<InStreamClosed, Error>
-decode_in_stream_closed(std::span<const std::byte> input) noexcept
+decode_in_stream_closed(std::span<const std::byte> input)
 {
     if (input.size() != in_stream_closed_size || input[5] != std::byte{} ||
         input[6] != std::byte{} || input[7] != std::byte{}) {
@@ -601,7 +601,7 @@ decode_in_stream_closed(std::span<const std::byte> input) noexcept
 }
 
 [[nodiscard]] constexpr std::array<std::byte, ping_request_size>
-encode(const PingRequest& request) noexcept
+encode(const PingRequest& request)
 {
     std::array<std::byte, ping_request_size> output{};
     detail::put_u64(output, 0, request.nonce);
@@ -610,7 +610,7 @@ encode(const PingRequest& request) noexcept
 }
 
 [[nodiscard]] constexpr Result<PingRequest, Error>
-decode_ping_request(std::span<const std::byte> input) noexcept
+decode_ping_request(std::span<const std::byte> input)
 {
     if (input.size() != ping_request_size) {
         return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::Decode});
@@ -622,7 +622,7 @@ decode_ping_request(std::span<const std::byte> input) noexcept
 }
 
 [[nodiscard]] constexpr std::array<std::byte, ping_response_size>
-encode(const PingResponse& response) noexcept
+encode(const PingResponse& response)
 {
     std::array<std::byte, ping_response_size> output{};
     detail::put_u64(output, 0, response.nonce);
@@ -633,7 +633,7 @@ encode(const PingResponse& response) noexcept
 }
 
 [[nodiscard]] constexpr Result<PingResponse, Error>
-decode_ping_response(std::span<const std::byte> input) noexcept
+decode_ping_response(std::span<const std::byte> input)
 {
     if (input.size() != ping_response_size) {
         return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::Decode});
@@ -647,7 +647,7 @@ decode_ping_response(std::span<const std::byte> input) noexcept
 }
 
 [[nodiscard]] constexpr std::array<std::byte, introspection_summary_size>
-encode(const IntrospectionSummary& summary) noexcept
+encode(const IntrospectionSummary& summary)
 {
     std::array<std::byte, introspection_summary_size> output{};
     output[0] = std::byte{1};
@@ -666,7 +666,7 @@ encode(const IntrospectionSummary& summary) noexcept
 }
 
 [[nodiscard]] constexpr Result<IntrospectionSummary, Error>
-decode_introspection_summary(std::span<const std::byte> input) noexcept
+decode_introspection_summary(std::span<const std::byte> input)
 {
     if (input.size() != introspection_summary_size || input[0] != std::byte{1} ||
         input[1] != static_cast<std::byte>(major_version)) {
@@ -685,7 +685,7 @@ decode_introspection_summary(std::span<const std::byte> input) noexcept
 }
 
 [[nodiscard]] constexpr std::array<std::byte, collection_request_size>
-encode(const CollectionRequest& request) noexcept
+encode(const CollectionRequest& request)
 {
     std::array<std::byte, collection_request_size> output{};
     detail::put_u16(output, 0, request.offset);
@@ -694,7 +694,7 @@ encode(const CollectionRequest& request) noexcept
 }
 
 [[nodiscard]] constexpr Result<CollectionRequest, Error>
-decode_collection_request(std::span<const std::byte> input) noexcept
+decode_collection_request(std::span<const std::byte> input)
 {
     if (input.size() != collection_request_size) {
         return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::Decode});
@@ -704,7 +704,7 @@ decode_collection_request(std::span<const std::byte> input) noexcept
 }
 
 [[nodiscard]] constexpr Result<CollectionPageHeader, Error>
-decode_collection_page_header(std::span<const std::byte> input) noexcept
+decode_collection_page_header(std::span<const std::byte> input)
 {
     if (input.size() < collection_page_header_size || input[0] != std::byte{1}) {
         return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::Decode});
@@ -718,7 +718,7 @@ decode_collection_page_header(std::span<const std::byte> input) noexcept
 }
 
 [[nodiscard]] constexpr std::array<std::byte, collection_query_request_size>
-encode(const CollectionQueryRequest& request) noexcept
+encode(const CollectionQueryRequest& request)
 {
     std::array<std::byte, collection_query_request_size> output{};
     detail::put_u32(output, 0, request.stable_id);
@@ -729,7 +729,7 @@ encode(const CollectionQueryRequest& request) noexcept
 }
 
 [[nodiscard]] constexpr Result<CollectionQueryRequest, Error>
-decode_collection_query_request(std::span<const std::byte> input) noexcept
+decode_collection_query_request(std::span<const std::byte> input)
 {
     if (input.size() != collection_query_request_size) {
         return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::Decode});
@@ -743,7 +743,7 @@ decode_collection_query_request(std::span<const std::byte> input) noexcept
 }
 
 [[nodiscard]] constexpr std::array<std::byte, batch_header_size>
-encode(const BatchHeader& header) noexcept
+encode(const BatchHeader& header)
 {
     std::array<std::byte, batch_header_size> output{};
     detail::put_u16(output, 0, header.count);
@@ -753,7 +753,7 @@ encode(const BatchHeader& header) noexcept
 }
 
 [[nodiscard]] constexpr Result<BatchHeader, Error>
-decode_batch_header(std::span<const std::byte> input) noexcept
+decode_batch_header(std::span<const std::byte> input)
 {
     if (input.size() < batch_header_size) {
         return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::Decode});
@@ -767,7 +767,7 @@ decode_batch_header(std::span<const std::byte> input) noexcept
 }
 
 [[nodiscard]] constexpr Result<std::array<std::byte, envelope_size>, Error>
-encode(const Envelope& envelope) noexcept
+encode(const Envelope& envelope)
 {
     if (envelope.major != major_version || !valid(envelope.kind) ||
         (static_cast<std::uint8_t>(envelope.flags) & 0xF0U) != 0 || envelope.fragment_count == 0 ||
@@ -793,7 +793,7 @@ encode(const Envelope& envelope) noexcept
     return output;
 }
 
-[[nodiscard]] constexpr Result<Envelope, Error> decode(std::span<const std::byte> input) noexcept
+[[nodiscard]] constexpr Result<Envelope, Error> decode(std::span<const std::byte> input)
 {
     if (input.size() < envelope_size) {
         return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::FrameDecode});

@@ -43,17 +43,17 @@ enum class Capability : std::uint16_t
 
 using CapabilitySet = std::uint16_t;
 
-[[nodiscard]] constexpr CapabilitySet capability(Capability value) noexcept
+[[nodiscard]] constexpr CapabilitySet capability(Capability value)
 {
     return static_cast<CapabilitySet>(value);
 }
 
-[[nodiscard]] constexpr CapabilitySet operator|(Capability left, Capability right) noexcept
+[[nodiscard]] constexpr CapabilitySet operator|(Capability left, Capability right)
 {
     return capability(left) | capability(right);
 }
 
-[[nodiscard]] constexpr CapabilitySet operator|(CapabilitySet left, Capability right) noexcept
+[[nodiscard]] constexpr CapabilitySet operator|(CapabilitySet left, Capability right)
 {
     return left | capability(right);
 }

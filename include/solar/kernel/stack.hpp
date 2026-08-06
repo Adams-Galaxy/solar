@@ -35,7 +35,7 @@ concept StackValue = (std::unsigned_integral<T> && sizeof(T) <= sizeof(stack_dat
 namespace detail
 {
 
-template <StackValue T> [[nodiscard]] constexpr stack_data_t stack_pack(T value) noexcept
+template <StackValue T> [[nodiscard]] constexpr stack_data_t stack_pack(T value)
 {
     if constexpr (std::is_pointer_v<T>) {
         return reinterpret_cast<stack_data_t>(value);
@@ -44,7 +44,7 @@ template <StackValue T> [[nodiscard]] constexpr stack_data_t stack_pack(T value)
     }
 }
 
-template <StackValue T> [[nodiscard]] constexpr T stack_unpack(stack_data_t value) noexcept
+template <StackValue T> [[nodiscard]] constexpr T stack_unpack(stack_data_t value)
 {
     if constexpr (std::is_pointer_v<T>) {
         return reinterpret_cast<T>(value);
@@ -58,9 +58,9 @@ template <StackValue T> [[nodiscard]] constexpr T stack_unpack(stack_data_t valu
 template <StackValue T> class StackRef
 {
   public:
-    explicit constexpr StackRef(k_stack& stack) noexcept : stack_(&stack) {}
+    explicit constexpr StackRef(k_stack& stack) : stack_(&stack) {}
 
-    [[nodiscard]] Result<void> push(T value) const noexcept
+    [[nodiscard]] Result<void> push(T value) const
     {
         const int result = k_stack_push(stack_, detail::stack_pack(value));
         if (result == 0) {
@@ -71,7 +71,7 @@ template <StackValue T> class StackRef
              .native = result});
     }
 
-    [[nodiscard]] Result<T> pop(Timeout timeout = Timeout::forever()) const noexcept
+    [[nodiscard]] Result<T> pop(Timeout timeout = Timeout::forever()) const
     {
         if (in_isr()) {
             return fail<Error>({.status = Status::Invalid});
@@ -79,28 +79,28 @@ template <StackValue T> class StackRef
         return pop_native(timeout);
     }
 
-    [[nodiscard]] Result<T> pop(const Deadline& deadline) const noexcept
+    [[nodiscard]] Result<T> pop(const Deadline& deadline) const
     {
         return pop(deadline.remaining());
     }
 
-    [[nodiscard]] Result<T> try_pop() const noexcept
+    [[nodiscard]] Result<T> try_pop() const
     {
         return pop(Timeout::no_wait());
     }
 
-    [[nodiscard]] Result<T> try_pop_isr() const noexcept
+    [[nodiscard]] Result<T> try_pop_isr() const
     {
         return pop_native(Timeout::no_wait());
     }
 
-    [[nodiscard]] constexpr k_stack* native_handle() const noexcept
+    [[nodiscard]] constexpr k_stack* native_handle() const
     {
         return stack_;
     }
 
   private:
-    [[nodiscard]] Result<T> pop_native(Timeout timeout) const noexcept
+    [[nodiscard]] Result<T> pop_native(Timeout timeout) const
     {
         stack_data_t value{};
         const int result = k_stack_pop(stack_, &value, timeout.native_handle());
@@ -125,7 +125,7 @@ template <StackValue T, std::size_t Capacity> class Stack
                   "SOLAR_DIAGNOSTIC_STACK_ZERO_CAPACITY: kernel stack capacity must be non-zero");
 
   public:
-    Stack() noexcept
+    Stack()
     {
         k_stack_init(&stack_, storage_.data(), static_cast<std::uint32_t>(storage_.size()));
     }
@@ -135,27 +135,27 @@ template <StackValue T, std::size_t Capacity> class Stack
     Stack(Stack&&) = delete;
     Stack& operator=(Stack&&) = delete;
 
-    [[nodiscard]] Result<void> push(T value) noexcept
+    [[nodiscard]] Result<void> push(T value)
     {
         return ref().push(value);
     }
-    [[nodiscard]] Result<T> pop(Timeout timeout = Timeout::forever()) noexcept
+    [[nodiscard]] Result<T> pop(Timeout timeout = Timeout::forever())
     {
         return ref().pop(timeout);
     }
-    [[nodiscard]] Result<T> pop(const Deadline& deadline) noexcept
+    [[nodiscard]] Result<T> pop(const Deadline& deadline)
     {
         return ref().pop(deadline);
     }
-    [[nodiscard]] Result<T> try_pop() noexcept
+    [[nodiscard]] Result<T> try_pop()
     {
         return ref().try_pop();
     }
-    [[nodiscard]] Result<T> try_pop_isr() noexcept
+    [[nodiscard]] Result<T> try_pop_isr()
     {
         return ref().try_pop_isr();
     }
-    [[nodiscard]] StackRef<T> ref() noexcept
+    [[nodiscard]] StackRef<T> ref()
     {
         return StackRef<T>{stack_};
     }

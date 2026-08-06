@@ -151,6 +151,8 @@ function(solar_add_header_module target)
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>)
     target_compile_features(${target} INTERFACE cxx_std_23)
+    target_compile_options(${target} INTERFACE
+        $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-fno-exceptions -fno-rtti>)
 endfunction()
 
 solar_add_header_module(solar_core)
@@ -217,6 +219,11 @@ target_compile_features(solar INTERFACE cxx_std_23)
 target_link_libraries(solar INTERFACE solar_core solar_kernel solar_hardware
     solar_parameters solar_events solar_metrics solar_logging solar_persistence
     solar_execution solar_supervisor solar_system solar_remote)
+
+set(SOLAR_ERROR_TRACE_DEPTH "0" CACHE STRING
+    "Frames retained by Traced<E, N> at N = kErrorTraceDepth (host builds; Zephyr uses CONFIG_SOLAR_ERROR_TRACE_DEPTH)")
+target_compile_definitions(solar INTERFACE
+    CONFIG_SOLAR_ERROR_TRACE_DEPTH=${SOLAR_ERROR_TRACE_DEPTH})
 
 include(CTest)
 

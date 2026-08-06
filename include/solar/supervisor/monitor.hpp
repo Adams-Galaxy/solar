@@ -33,13 +33,13 @@ template <typename SchemaT> class Monitor;
 template <typename... Checks> class Monitor<Schema<Checks...>>
 {
   public:
-    [[nodiscard]] Result<void> initialize() noexcept
+    [[nodiscard]] Result<void> initialize()
     {
         SpinGuard lock{mutex_};
         slots_ = {};
         return {};
     }
-    template <typename Check> [[nodiscard]] Result<void> report(Condition condition) noexcept
+    template <typename Check> [[nodiscard]] Result<void> report(Condition condition)
     {
         static_assert(contains_v<Check, TypeList<Checks...>>);
         SpinGuard lock{mutex_};
@@ -48,13 +48,13 @@ template <typename... Checks> class Monitor<Schema<Checks...>>
         ++slot.revision;
         return {};
     }
-    template <typename Check> [[nodiscard]] CheckSlot<Check> state() const noexcept
+    template <typename Check> [[nodiscard]] CheckSlot<Check> state() const
     {
         static_assert(contains_v<Check, TypeList<Checks...>>);
         SpinGuard lock{mutex_};
         return std::get<CheckSlot<Check>>(slots_);
     }
-    [[nodiscard]] Condition overall() const noexcept
+    [[nodiscard]] Condition overall() const
     {
         SpinGuard lock{mutex_};
         Condition result{Condition::Unknown};
@@ -72,19 +72,19 @@ template <typename... Checks> class Monitor<Schema<Checks...>>
 template <typename Application, typename SchemaT> struct StaticMonitor
 {
     inline static Monitor<SchemaT> storage{};
-    [[nodiscard]] static Result<void> initialize() noexcept
+    [[nodiscard]] static Result<void> initialize()
     {
         return storage.initialize();
     }
-    template <typename Check> [[nodiscard]] static auto report(Condition value) noexcept
+    template <typename Check> [[nodiscard]] static auto report(Condition value)
     {
         return storage.template report<Check>(value);
     }
-    template <typename Check> [[nodiscard]] static auto state() noexcept
+    template <typename Check> [[nodiscard]] static auto state()
     {
         return storage.template state<Check>();
     }
-    [[nodiscard]] static Condition overall() noexcept
+    [[nodiscard]] static Condition overall()
     {
         return storage.overall();
     }

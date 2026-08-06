@@ -24,7 +24,7 @@ namespace solar::remote::cbor
 namespace detail
 {
 
-[[nodiscard]] constexpr std::uint16_t float_to_half(float value) noexcept
+[[nodiscard]] constexpr std::uint16_t float_to_half(float value)
 {
     const auto bits = std::bit_cast<std::uint32_t>(value);
     const auto sign = static_cast<std::uint16_t>((bits >> 16U) & 0x8000U);
@@ -54,7 +54,7 @@ namespace detail
     return static_cast<std::uint16_t>(sign | (exponent << 10U) | (mantissa >> 13U));
 }
 
-[[nodiscard]] constexpr float half_to_float(std::uint16_t value) noexcept
+[[nodiscard]] constexpr float half_to_float(std::uint16_t value)
 {
     const auto sign = static_cast<std::uint32_t>(value & 0x8000U) << 16U;
     auto exponent = static_cast<std::uint32_t>((value >> 10U) & 0x1FU);
@@ -194,7 +194,7 @@ template <typename Value, typename... FieldTypes> struct Codec<Value, Fields<Fie
     }
 
     static Result<std::size_t, Error> encode(const Value& value,
-                                             std::span<std::byte> output) noexcept
+                                             std::span<std::byte> output)
     {
         const auto count = (std::size_t{} + ... + present<FieldTypes>(value));
         auto* begin = reinterpret_cast<std::uint8_t*>(output.data());
@@ -242,7 +242,7 @@ template <typename Value, typename... FieldTypes> struct Codec<Value, Fields<Fie
         return (decode_field<Indices, FieldTypes>(key, state, value, seen, reason) || ...);
     }
 
-    static Result<Value, Error> decode(std::span<const std::byte> input) noexcept
+    static Result<Value, Error> decode(std::span<const std::byte> input)
     {
         static_assert(sizeof...(FieldTypes) <= 64,
                       "SOLAR_DIAGNOSTIC_REMOTE_CBOR_FIELDS: initial decoder supports 64 fields");
@@ -295,7 +295,7 @@ template <typename Value, typename... FieldTypes> struct Codec<Value, Fields<Fie
 
 template <typename Value>
 [[nodiscard]] Result<std::size_t, Error> encode(const Value& value,
-                                                std::span<std::byte> output) noexcept
+                                                std::span<std::byte> output)
 {
     static_assert(validate_schema<Value>());
     static_assert(Schema<Value>::codec == Codec::Cbor,
@@ -313,7 +313,7 @@ template <typename Value>
 }
 
 template <typename Value>
-[[nodiscard]] Result<Value, Error> decode(std::span<const std::byte> input) noexcept
+[[nodiscard]] Result<Value, Error> decode(std::span<const std::byte> input)
 {
     static_assert(validate_schema<Value>());
     static_assert(Schema<Value>::codec == Codec::Cbor,
@@ -336,13 +336,13 @@ template <typename Value>
 }
 #else
 template <typename Value>
-[[nodiscard]] Result<std::size_t, Error> encode(const Value&, std::span<std::byte>) noexcept
+[[nodiscard]] Result<std::size_t, Error> encode(const Value&, std::span<std::byte>)
 {
     return fail<Error>({Status::NotSupported, Reason::Disabled, Operation::Encode});
 }
 
 template <typename Value>
-[[nodiscard]] Result<Value, Error> decode(std::span<const std::byte>) noexcept
+[[nodiscard]] Result<Value, Error> decode(std::span<const std::byte>)
 {
     return fail<Error>({Status::NotSupported, Reason::Disabled, Operation::Decode});
 }

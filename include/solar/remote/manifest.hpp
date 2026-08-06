@@ -106,27 +106,27 @@ enum class ReplacementKind : std::uint8_t
     Reject = 2,
 };
 
-[[nodiscard]] constexpr std::uint8_t bits(RecordFlags value) noexcept
+[[nodiscard]] constexpr std::uint8_t bits(RecordFlags value)
 {
     return static_cast<std::uint8_t>(value);
 }
 
-[[nodiscard]] constexpr std::uint8_t bits(FieldFlags value) noexcept
+[[nodiscard]] constexpr std::uint8_t bits(FieldFlags value)
 {
     return static_cast<std::uint8_t>(value);
 }
 
-[[nodiscard]] constexpr std::uint8_t bits(EnumFlags value) noexcept
+[[nodiscard]] constexpr std::uint8_t bits(EnumFlags value)
 {
     return static_cast<std::uint8_t>(value);
 }
 
-[[nodiscard]] constexpr std::uint8_t bits(CapabilityFlags value) noexcept
+[[nodiscard]] constexpr std::uint8_t bits(CapabilityFlags value)
 {
     return static_cast<std::uint8_t>(value);
 }
 
-[[nodiscard]] constexpr std::uint8_t bits(InStreamFlags value) noexcept
+[[nodiscard]] constexpr std::uint8_t bits(InStreamFlags value)
 {
     return static_cast<std::uint8_t>(value);
 }

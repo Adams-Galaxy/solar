@@ -93,6 +93,18 @@ config SOLAR_DIAGNOSTIC_DETAIL
 	bool "Retain detailed diagnostics"
 	default y
 
+config SOLAR_ERROR_TRACE_DEPTH
+	int "Traced<E, N> frame depth"
+	range 0 32
+	default 0
+	help
+	  Frames retained by Traced<E, N> at N = kErrorTraceDepth, one
+	  project-wide compile-time knob (solar/core/status.hpp). Zero is the
+	  production default: Traced<E, 0> has identical layout to E and
+	  with_context() compiles to a no-op. Raise it (e.g. on a debug build)
+	  to have fail_as() accumulate a chain of boundary crossings for
+	  troubleshooting.
+
 menu "Kernel integration"
 
 config SOLAR_KERNEL_STACK_DIAGNOSTICS

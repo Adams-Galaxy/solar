@@ -53,13 +53,13 @@ struct ServiceRunner
 
 #if defined(__ZEPHYR__)
     /** Exact Zephyr scheduling value selected by the Application run policy. */
-    [[nodiscard]] static consteval kernel::Priority scheduled_priority() noexcept
+    [[nodiscard]] static consteval kernel::Priority scheduled_priority()
     {
         return PriorityPolicy::resolve();
     }
 
     /** Fully resolved scheduling policy used by build-time application inspection. */
-    [[nodiscard]] static consteval ServiceScheduling scheduling() noexcept
+    [[nodiscard]] static consteval ServiceScheduling scheduling()
     {
         constexpr auto priority = scheduled_priority();
         return {.stack_size = StackBytes,
@@ -69,7 +69,7 @@ struct ServiceRunner
     }
 #endif
 
-    [[nodiscard]] static Result<void> initialize() noexcept
+    [[nodiscard]] static Result<void> initialize()
     {
         if constexpr (requires {
                           { Service::initialize() } -> std::same_as<Result<void>>;
@@ -99,7 +99,7 @@ struct ServiceRunner
 #endif
     }
 
-    [[nodiscard]] static Result<void> start() noexcept
+    [[nodiscard]] static Result<void> start()
     {
 #if defined(__ZEPHYR__)
         return thread_.start();
@@ -108,7 +108,7 @@ struct ServiceRunner
 #endif
     }
 
-    [[nodiscard]] static Result<void> stop() noexcept
+    [[nodiscard]] static Result<void> stop()
     {
 #if defined(__ZEPHYR__)
         auto requested = stop_source_.request_stop();
@@ -127,7 +127,7 @@ struct ServiceRunner
         return {};
     }
 
-    [[nodiscard]] static Result<void> deinitialize() noexcept
+    [[nodiscard]] static Result<void> deinitialize()
     {
         if constexpr (requires {
                           { Service::deinitialize() } -> std::same_as<Result<void>>;

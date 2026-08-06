@@ -44,7 +44,7 @@ struct LinkEventSink
     void* context{};
     Notify notify_function{};
 
-    void notify(LinkEvent event) const noexcept
+    void notify(LinkEvent event) const
     {
         if (notify_function != nullptr) {
             notify_function(context, event);
@@ -67,7 +67,7 @@ struct LinkError
 class TxLease
 {
   public:
-    TxLease(std::span<const std::byte> bytes, LeaseHandle handle) noexcept
+    TxLease(std::span<const std::byte> bytes, LeaseHandle handle)
         : bytes_(bytes), handle_(handle)
     {}
 
@@ -76,12 +76,12 @@ class TxLease
     TxLease(TxLease&&) noexcept = default;
     TxLease& operator=(TxLease&&) noexcept = default;
 
-    [[nodiscard]] std::span<const std::byte> bytes() const noexcept
+    [[nodiscard]] std::span<const std::byte> bytes() const
     {
         return bytes_;
     }
 
-    [[nodiscard]] LeaseHandle handle() const noexcept
+    [[nodiscard]] LeaseHandle handle() const
     {
         return handle_;
     }

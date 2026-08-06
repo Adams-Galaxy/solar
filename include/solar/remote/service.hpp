@@ -119,7 +119,7 @@ struct ReassemblySlot
     std::array<std::byte, CONFIG_SOLAR_REMOTE_MAX_MESSAGE_BYTES> payload{};
 };
 
-[[nodiscard]] constexpr OutputLane lane_for(protocol::Kind kind, std::uint32_t request_id) noexcept
+[[nodiscard]] constexpr OutputLane lane_for(protocol::Kind kind, std::uint32_t request_id)
 {
     switch (kind) {
     case protocol::Kind::ClientHello:
@@ -388,7 +388,7 @@ template <typename ArchitectureT, typename RuntimeContextT> struct Service
     using Dependencies = solar::TypeList<FacilityType>;
     template <typename DataT> struct DataWork
     {
-        [[nodiscard]] static Result<void> execute() noexcept
+        [[nodiscard]] static Result<void> execute()
         {
             return detail::process_action_work<RuntimeContext>(DataT::descriptor.id.value, false);
         }
@@ -396,7 +396,7 @@ template <typename ArchitectureT, typename RuntimeContextT> struct Service
 
     template <typename ActionT> struct ActionWork
     {
-        [[nodiscard]] static Result<void> execute() noexcept
+        [[nodiscard]] static Result<void> execute()
         {
             return detail::process_action_work<RuntimeContext>(ActionT::descriptor.id.value, true);
         }
@@ -446,7 +446,7 @@ template <typename ArchitectureT, typename RuntimeContextT> struct Service
 
     template <typename DataT> struct PollWork
     {
-        [[nodiscard]] static Result<void> execute() noexcept
+        [[nodiscard]] static Result<void> execute()
         {
             return detail::process_poll_work<RuntimeContext>(DataT::descriptor.id.value);
         }
@@ -454,7 +454,7 @@ template <typename ArchitectureT, typename RuntimeContextT> struct Service
 
     template <typename DataT> struct InStreamWork
     {
-        [[nodiscard]] static Result<void> execute() noexcept
+        [[nodiscard]] static Result<void> execute()
         {
             return detail::process_in_stream_work<RuntimeContext>(DataT::descriptor.id.value);
         }
@@ -599,7 +599,7 @@ template <typename ArchitectureT, typename RuntimeContextT> struct Service
     inline static std::atomic_uint32_t processed_events{};
     inline static std::atomic_uint32_t event_high_water{};
 
-    static void update_event_high_water() noexcept
+    static void update_event_high_water()
     {
         auto observed = event_high_water.load(std::memory_order_relaxed);
         const auto current = static_cast<std::uint32_t>(events.size());
@@ -609,7 +609,7 @@ template <typename ArchitectureT, typename RuntimeContextT> struct Service
         }
     }
 
-    static void post(detail::ServiceEvent event) noexcept
+    static void post(detail::ServiceEvent event)
     {
         const auto posted = kernel::in_isr() ? events.try_send_isr(event) : events.try_send(event);
         if (!posted) {
@@ -619,12 +619,12 @@ template <typename ArchitectureT, typename RuntimeContextT> struct Service
         }
     }
 
-    static void notify_stop() noexcept
+    static void notify_stop()
     {
         (void)events.try_send_front(detail::ServiceEvent{.kind = detail::ServiceEvent::Kind::Stop});
     }
 
-    [[nodiscard]] static Result<void> notify_publication(std::uint16_t endpoint) noexcept
+    [[nodiscard]] static Result<void> notify_publication(std::uint16_t endpoint)
     {
         const auto status = events.try_send(detail::ServiceEvent{
             .kind = detail::ServiceEvent::Kind::Publication,
@@ -638,7 +638,7 @@ template <typename ArchitectureT, typename RuntimeContextT> struct Service
         return status;
     }
 
-    template <typename LinkT, std::uint16_t Index> static Result<void> open_link() noexcept
+    template <typename LinkT, std::uint16_t Index> static Result<void> open_link()
     {
         using State = detail::LinkState<Service, LinkT, Index>;
         auto result = LinkT::open(LinkEventSink{.notify_function = &State::notify});
@@ -652,7 +652,7 @@ template <typename ArchitectureT, typename RuntimeContextT> struct Service
     [[nodiscard]] static Result<void, Error>
     transmit(protocol::Kind kind, std::span<const std::byte> payload = {},
              std::uint32_t request_id = 0, std::uint32_t target = 0,
-             protocol::Flags flags = protocol::Flags::None, std::uint32_t reserved = 0) noexcept
+             protocol::Flags flags = protocol::Flags::None, std::uint32_t reserved = 0)
     {
         using State = detail::LinkState<Service, LinkT, Index>;
         if (payload.size() > CONFIG_SOLAR_REMOTE_MAX_MESSAGE_BYTES) {
@@ -736,7 +736,7 @@ template <typename ArchitectureT, typename RuntimeContextT> struct Service
         return {};
     }
 
-    template <typename LinkT, std::uint16_t Index> static void stage_fragment() noexcept
+    template <typename LinkT, std::uint16_t Index> static void stage_fragment()
     {
         using State = detail::LinkState<Service, LinkT, Index>;
         auto guard = State::output_lock.acquire();
@@ -776,7 +776,7 @@ template <typename ArchitectureT, typename RuntimeContextT> struct Service
         }
     }
 
-    template <typename LinkT, std::uint16_t Index> static void try_start_transmit() noexcept
+    template <typename LinkT, std::uint16_t Index> static void try_start_transmit()
     {
         using State = detail::LinkState<Service, LinkT, Index>;
         stage_response<LinkT, Index>();
@@ -872,7 +872,7 @@ template <typename ArchitectureT, typename RuntimeContextT> struct Service
     }
 
     template <typename LinkT, std::uint16_t Index>
-    [[nodiscard]] static bool reserve_response(std::uint32_t request, std::uint32_t target) noexcept
+    [[nodiscard]] static bool reserve_response(std::uint32_t request, std::uint32_t target)
     {
         using State = detail::LinkState<Service, LinkT, Index>;
         auto guard = State::response_lock.acquire();
@@ -896,7 +896,7 @@ template <typename ArchitectureT, typename RuntimeContextT> struct Service
     }
 
     template <typename LinkT, std::uint16_t Index>
-    static void release_response(std::uint32_t request) noexcept
+    static void release_response(std::uint32_t request)
     {
         using State = detail::LinkState<Service, LinkT, Index>;
         auto guard = State::response_lock.acquire();
@@ -912,7 +912,7 @@ template <typename ArchitectureT, typename RuntimeContextT> struct Service
     template <typename LinkT, std::uint16_t Index>
     [[nodiscard]] static Result<void, Error> respond(std::uint32_t request, std::uint32_t target,
                                                      std::span<const std::byte> payload,
-                                                     bool domain_error = false) noexcept
+                                                     bool domain_error = false)
     {
         using State = detail::LinkState<Service, LinkT, Index>;
         if (payload.size() > CONFIG_SOLAR_REMOTE_RESPONSE_CACHE_BYTES) {
@@ -945,7 +945,7 @@ template <typename ArchitectureT, typename RuntimeContextT> struct Service
     }
 
     template <typename LinkT, std::uint16_t Index>
-    [[nodiscard]] static Result<void, Error> replay_response(std::uint32_t request) noexcept
+    [[nodiscard]] static Result<void, Error> replay_response(std::uint32_t request)
     {
         using State = detail::LinkState<Service, LinkT, Index>;
         auto guard = State::response_lock.acquire();
@@ -968,7 +968,7 @@ template <typename ArchitectureT, typename RuntimeContextT> struct Service
         return {};
     }
 
-    template <typename LinkT, std::uint16_t Index> static void stage_response() noexcept
+    template <typename LinkT, std::uint16_t Index> static void stage_response()
     {
         using State = detail::LinkState<Service, LinkT, Index>;
         auto guard = State::response_lock.acquire();
@@ -987,7 +987,7 @@ template <typename ArchitectureT, typename RuntimeContextT> struct Service
     }
 
     template <typename LinkT, std::uint16_t Index>
-    static void acknowledge_response(std::uint32_t request) noexcept
+    static void acknowledge_response(std::uint32_t request)
     {
         using State = detail::LinkState<Service, LinkT, Index>;
         auto guard = State::response_lock.acquire();
@@ -1001,7 +1001,7 @@ template <typename ArchitectureT, typename RuntimeContextT> struct Service
     }
 
     template <typename LinkT, std::uint16_t Index>
-    [[nodiscard]] static bool response_cached(std::uint32_t request) noexcept
+    [[nodiscard]] static bool response_cached(std::uint32_t request)
     {
         using State = detail::LinkState<Service, LinkT, Index>;
         auto guard = State::response_lock.acquire();
@@ -1013,15 +1013,22 @@ template <typename ArchitectureT, typename RuntimeContextT> struct Service
 
     template <typename LinkT, std::uint16_t Index>
     [[nodiscard]] static Result<void, Error>
-    protocol_error(std::uint32_t request, std::uint32_t target, protocol::ErrorCode code) noexcept
+    protocol_error(std::uint32_t request, std::uint32_t target, protocol::ErrorCode code)
     {
+        // protocol_error transmits directly and bypasses the responses[]
+        // reservation table entirely, so any reservation a caller made for
+        // this request (via reserve_response) would otherwise leak forever
+        // -- CONFIG_SOLAR_REMOTE_MAX_REQUESTS is small and slots never
+        // recover without a reboot. release_response is a no-op if nothing
+        // was reserved, so this is safe for every call site unconditionally.
+        release_response<LinkT, Index>(request);
         std::array<std::byte, 2> payload{};
         protocol::detail::put_u16(payload, 0, static_cast<std::uint16_t>(code));
         return transmit<LinkT, Index>(protocol::Kind::Error, payload, request, target,
                                       protocol::Flags::ErrorPayload);
     }
 
-    [[nodiscard]] static constexpr std::array<std::byte, 16> hello_payload() noexcept
+    [[nodiscard]] static constexpr std::array<std::byte, 16> hello_payload()
     {
         std::array<std::byte, 16> payload{};
         payload[0] = static_cast<std::byte>(protocol::major_version);
@@ -1040,18 +1047,18 @@ template <typename ArchitectureT, typename RuntimeContextT> struct Service
         return payload;
     }
 
-    [[nodiscard]] static auto introspection_summary_payload() noexcept
+    [[nodiscard]] static auto introspection_summary_payload()
     {
         return protocol::encode(detail::introspection_summary<RuntimeContext>());
     }
 
-    [[nodiscard]] static auto server_information_payload() noexcept
+    [[nodiscard]] static auto server_information_payload()
     {
         return protocol::encode(detail::server_information<RuntimeContext>());
     }
 
     template <typename LinkT, std::uint16_t Index>
-    static void process_introspection(const frame::Decoded& decoded) noexcept
+    static void process_introspection(const frame::Decoded& decoded)
     {
         using State = detail::LinkState<Service, LinkT, Index>;
         constexpr auto observe =
@@ -1120,14 +1127,14 @@ template <typename ArchitectureT, typename RuntimeContextT> struct Service
     }
 
     [[nodiscard]] static constexpr bool has_flag(protocol::Flags flags,
-                                                 protocol::Flags flag) noexcept
+                                                 protocol::Flags flag)
     {
         return (static_cast<std::uint8_t>(flags) & static_cast<std::uint8_t>(flag)) != 0;
     }
 
     template <typename LinkT, std::uint16_t Index>
     [[nodiscard]] static Result<std::optional<frame::Decoded>, Error>
-    reassemble(const frame::Decoded& decoded) noexcept
+    reassemble(const frame::Decoded& decoded)
     {
         using State = detail::LinkState<Service, LinkT, Index>;
         const bool fragmented = has_flag(decoded.envelope.flags, protocol::Flags::Fragmented);
@@ -1218,7 +1225,7 @@ template <typename ArchitectureT, typename RuntimeContextT> struct Service
     }
 
     template <typename LinkT, std::uint16_t Index>
-    static void handle_frame(const frame::Decoded& decoded) noexcept
+    static void handle_frame(const frame::Decoded& decoded)
     {
         using State = detail::LinkState<Service, LinkT, Index>;
         State::accepted_frames.fetch_add(1, std::memory_order_relaxed);
@@ -1326,7 +1333,7 @@ template <typename ArchitectureT, typename RuntimeContextT> struct Service
     }
 
     template <typename... LinkTypes, std::size_t... Indices>
-    static Result<void> open_links(TypeList<LinkTypes...>, std::index_sequence<Indices...>) noexcept
+    static Result<void> open_links(TypeList<LinkTypes...>, std::index_sequence<Indices...>)
     {
         Result<void> result{};
         ((result ? result = open_link<LinkTypes, static_cast<std::uint16_t>(Indices)>() : result),
@@ -1334,7 +1341,7 @@ template <typename ArchitectureT, typename RuntimeContextT> struct Service
         return result;
     }
 
-    [[nodiscard]] static Result<void> init() noexcept
+    [[nodiscard]] static Result<void> init()
     {
         events.purge();
         dropped_events.store(0, std::memory_order_relaxed);
@@ -1344,7 +1351,7 @@ template <typename ArchitectureT, typename RuntimeContextT> struct Service
         return {};
     }
 
-    [[nodiscard]] static Result<void> start() noexcept
+    [[nodiscard]] static Result<void> start()
     {
         auto result = open_links(Links{}, std::make_index_sequence<list_size_v<Links>>{});
         if (!result) {
@@ -1355,20 +1362,20 @@ template <typename ArchitectureT, typename RuntimeContextT> struct Service
         return {};
     }
 
-    template <typename... LinkTypes> static void close_links(TypeList<LinkTypes...>) noexcept
+    template <typename... LinkTypes> static void close_links(TypeList<LinkTypes...>)
     {
         (LinkTypes::close(), ...);
     }
 
     template <std::size_t... Indices>
-    static void reset_sessions(std::index_sequence<Indices...>) noexcept
+    static void reset_sessions(std::index_sequence<Indices...>)
     {
         (detail::reset_session<RuntimeContext>(static_cast<std::uint16_t>(Indices),
                                                InStreamCloseReason::Reset),
          ...);
     }
 
-    [[nodiscard]] static Result<void> stop() noexcept
+    [[nodiscard]] static Result<void> stop()
     {
         open.store(false, std::memory_order_release);
         reset_sessions(std::make_index_sequence<list_size_v<Links>>{});
@@ -1376,14 +1383,14 @@ template <typename ArchitectureT, typename RuntimeContextT> struct Service
         return {};
     }
 
-    [[nodiscard]] static Result<void> deinit() noexcept
+    [[nodiscard]] static Result<void> deinit()
     {
         events.purge();
         return {};
     }
 
     template <typename LinkT, std::uint16_t Index>
-    static void process_link_event(const LinkEvent& event) noexcept
+    static void process_link_event(const LinkEvent& event)
     {
         using State = detail::LinkState<Service, LinkT, Index>;
         switch (event.kind) {
@@ -1459,7 +1466,7 @@ template <typename ArchitectureT, typename RuntimeContextT> struct Service
                 break;
             }
             const auto feed =
-                State::decoder.feed(*bytes, [](const frame::Decoded& decoded) noexcept {
+                State::decoder.feed(*bytes, [](const frame::Decoded& decoded) {
                     handle_frame<LinkT, Index>(decoded);
                 });
             State::rejected_frames.fetch_add(
@@ -1485,7 +1492,7 @@ template <typename ArchitectureT, typename RuntimeContextT> struct Service
         try_start_transmit<LinkT, Index>();
     }
 
-    [[nodiscard]] static ServiceRecord record() noexcept
+    [[nodiscard]] static ServiceRecord record()
     {
         return {
             .ready = FacilityType::ready.load(std::memory_order_acquire),
@@ -1498,7 +1505,7 @@ template <typename ArchitectureT, typename RuntimeContextT> struct Service
     }
 
     template <typename LinkT, std::uint16_t Index>
-    [[nodiscard]] static LinkRecord link_record() noexcept
+    [[nodiscard]] static LinkRecord link_record()
     {
         using State = detail::LinkState<Service, LinkT, Index>;
         return {
@@ -1532,7 +1539,7 @@ template <typename ArchitectureT, typename RuntimeContextT> struct Service
 
     template <typename... LinkTypes, std::size_t... Indices>
     static void dispatch(detail::ServiceEvent event, TypeList<LinkTypes...>,
-                         std::index_sequence<Indices...>) noexcept
+                         std::index_sequence<Indices...>)
     {
         if (event.kind == detail::ServiceEvent::Kind::Output) {
             ((event.subject == Indices
@@ -1555,24 +1562,24 @@ template <typename ArchitectureT, typename RuntimeContextT> struct Service
     }
 
     template <typename... LinkTypes, std::size_t... Indices>
-    static void drain_outputs(TypeList<LinkTypes...>, std::index_sequence<Indices...>) noexcept
+    static void drain_outputs(TypeList<LinkTypes...>, std::index_sequence<Indices...>)
     {
         (try_start_transmit<LinkTypes, static_cast<std::uint16_t>(Indices)>(), ...);
     }
 
-    template <typename LinkT> static void poll_link() noexcept
+    template <typename LinkT> static void poll_link()
     {
         if constexpr (requires { LinkT::poll(); }) {
             LinkT::poll();
         }
     }
 
-    template <typename... LinkTypes> static void poll_links(TypeList<LinkTypes...>) noexcept
+    template <typename... LinkTypes> static void poll_links(TypeList<LinkTypes...>)
     {
         (poll_link<LinkTypes>(), ...);
     }
 
-    template <typename LinkT, std::uint16_t Index> static void expire_reassembly() noexcept
+    template <typename LinkT, std::uint16_t Index> static void expire_reassembly()
     {
         using State = detail::LinkState<Service, LinkT, Index>;
         const auto now = kernel::now_ticks();
@@ -1587,12 +1594,12 @@ template <typename ArchitectureT, typename RuntimeContextT> struct Service
 
     template <typename... LinkTypes, std::size_t... Indices>
     static void expire_reassemblies(TypeList<LinkTypes...>,
-                                    std::index_sequence<Indices...>) noexcept
+                                    std::index_sequence<Indices...>)
     {
         (expire_reassembly<LinkTypes, static_cast<std::uint16_t>(Indices)>(), ...);
     }
 
-    [[nodiscard]] static Result<void> pump_once(kernel::Timeout timeout) noexcept
+    [[nodiscard]] static Result<void> pump_once(kernel::Timeout timeout)
     {
         auto event = events.receive(timeout);
         if (!event) {
@@ -1607,7 +1614,7 @@ template <typename ArchitectureT, typename RuntimeContextT> struct Service
         return {};
     }
 
-    [[nodiscard]] static Result<void> run(kernel::StopToken stop) noexcept
+    [[nodiscard]] static Result<void> run(kernel::StopToken stop)
     {
         const auto maintenance = kernel::to_ticks_ceil(std::chrono::milliseconds{50});
         auto wait_ticks = maintenance;

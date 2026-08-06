@@ -16,12 +16,12 @@
 namespace solar::kernel::this_thread
 {
 
-[[nodiscard]] inline NativeThread id() noexcept
+[[nodiscard]] inline NativeThread id()
 {
     return k_current_get();
 }
 
-[[nodiscard]] inline Result<ThreadRef> ref() noexcept
+[[nodiscard]] inline Result<ThreadRef> ref()
 {
     if (in_isr()) {
         return fail<Error>({.status = Status::Invalid});
@@ -29,7 +29,7 @@ namespace solar::kernel::this_thread
     return ThreadRef{*k_current_get()};
 }
 
-[[nodiscard]] inline Result<Priority> priority() noexcept
+[[nodiscard]] inline Result<Priority> priority()
 {
     if (in_isr()) {
         return fail<Error>({.status = Status::Invalid});
@@ -37,7 +37,7 @@ namespace solar::kernel::this_thread
     return Priority::from_native(k_thread_priority_get(k_current_get()));
 }
 
-[[nodiscard]] inline Result<void> set_priority(Priority priority) noexcept
+[[nodiscard]] inline Result<void> set_priority(Priority priority)
 {
     if (in_isr()) {
         return fail<Error>({.status = Status::Invalid});
@@ -46,7 +46,7 @@ namespace solar::kernel::this_thread
     return {};
 }
 
-[[nodiscard]] inline Result<Milliseconds> sleep_for(Timeout timeout) noexcept
+[[nodiscard]] inline Result<Milliseconds> sleep_for(Timeout timeout)
 {
     if (in_isr()) {
         return fail<Error>({.status = Status::Invalid});
@@ -56,17 +56,17 @@ namespace solar::kernel::this_thread
 
 template <typename Rep, typename Period>
 [[nodiscard]] inline Result<Milliseconds>
-sleep_for(std::chrono::duration<Rep, Period> duration) noexcept
+sleep_for(std::chrono::duration<Rep, Period> duration)
 {
     return sleep_for(Timeout::after(duration));
 }
 
-[[nodiscard]] inline Result<Milliseconds> sleep_until(const Deadline& deadline) noexcept
+[[nodiscard]] inline Result<Milliseconds> sleep_until(const Deadline& deadline)
 {
     return sleep_for(deadline.remaining());
 }
 
-[[nodiscard]] inline Result<void> yield() noexcept
+[[nodiscard]] inline Result<void> yield()
 {
     if (!k_can_yield()) {
         return fail<Error>({.status = in_isr() ? Status::Invalid : Status::NotReady});
@@ -76,7 +76,7 @@ sleep_for(std::chrono::duration<Rep, Period> duration) noexcept
 }
 
 /** Suspend the current thread until another context resumes it. */
-[[nodiscard]] inline Result<void> suspend() noexcept
+[[nodiscard]] inline Result<void> suspend()
 {
     if (in_isr()) {
         return fail<Error>({.status = Status::Invalid});
@@ -86,7 +86,7 @@ sleep_for(std::chrono::duration<Rep, Period> duration) noexcept
 }
 
 /** Abort the current thread. On success this function cannot return. */
-[[nodiscard]] inline Result<void> abort() noexcept
+[[nodiscard]] inline Result<void> abort()
 {
     if (in_isr()) {
         return fail<Error>({.status = Status::Invalid});
@@ -97,7 +97,7 @@ sleep_for(std::chrono::duration<Rep, Period> duration) noexcept
 
 template <typename Rep, typename Period>
 [[nodiscard]] inline Result<void>
-busy_wait_for(std::chrono::duration<Rep, Period> duration) noexcept
+busy_wait_for(std::chrono::duration<Rep, Period> duration)
 {
     if (duration <= std::chrono::duration<Rep, Period>::zero()) {
         return {};

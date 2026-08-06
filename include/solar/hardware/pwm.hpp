@@ -22,7 +22,7 @@ struct DutyCycle
 {
     std::uint32_t parts_per_million{};
 
-    [[nodiscard]] static constexpr DutyCycle percent(std::uint32_t value) noexcept
+    [[nodiscard]] static constexpr DutyCycle percent(std::uint32_t value)
     {
         return DutyCycle{value > UINT32_MAX / 10'000U ? UINT32_MAX : value * 10'000U};
     }
@@ -57,7 +57,7 @@ template <auto Spec> struct Output : hardware::Endpoint<Spec>
     using Base = hardware::Endpoint<Spec>;
 
     [[nodiscard]] static Result<void, Error> set_cycles(std::uint32_t period,
-                                                        std::uint32_t pulse) noexcept
+                                                        std::uint32_t pulse)
     {
         if (pulse > period) {
             return fail<Error>({.status = solar::Status::Invalid,
@@ -75,7 +75,7 @@ template <auto Spec> struct Output : hardware::Endpoint<Spec>
     template <typename PeriodRep, typename PeriodRatio, typename PulseRep, typename PulseRatio>
     [[nodiscard]] static Result<void, Error>
     set(std::chrono::duration<PeriodRep, PeriodRatio> period,
-        std::chrono::duration<PulseRep, PulseRatio> pulse) noexcept
+        std::chrono::duration<PulseRep, PulseRatio> pulse)
     {
         const auto period_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(period).count();
         const auto pulse_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(pulse).count();
@@ -92,7 +92,7 @@ template <auto Spec> struct Output : hardware::Endpoint<Spec>
                                                Operation::Write, Base::path());
     }
 
-    [[nodiscard]] static Result<void, Error> set(DutyCycle duty) noexcept
+    [[nodiscard]] static Result<void, Error> set(DutyCycle duty)
     {
         if (duty.parts_per_million > 1'000'000U) {
             return fail<Error>({.status = solar::Status::Invalid,
@@ -110,7 +110,7 @@ template <auto Spec> struct Output : hardware::Endpoint<Spec>
             Base::path());
     }
 
-    [[nodiscard]] static Result<void, Error> off() noexcept
+    [[nodiscard]] static Result<void, Error> off()
     {
         return hardware::detail::native_result(pwm_set_pulse_dt(&Base::descriptor_value.native, 0),
                                                Operation::Disable, Base::path());
@@ -130,7 +130,7 @@ template <auto Spec> struct Capture : hardware::Endpoint<Spec>
     using Sample = CaptureSample;
 
     [[nodiscard]] static Result<Sample, Error> capture(pwm_flags_t mode = PWM_CAPTURE_TYPE_BOTH,
-                                                       k_timeout_t timeout = K_FOREVER) noexcept
+                                                       k_timeout_t timeout = K_FOREVER)
     {
         if (State::handler.load(std::memory_order_acquire) != nullptr) {
             return fail<Error>({.status = solar::Status::Busy,
@@ -153,7 +153,7 @@ template <auto Spec> struct Capture : hardware::Endpoint<Spec>
 
     [[nodiscard]] static Result<void, Error>
     install(CaptureHandler handler,
-            pwm_flags_t mode = PWM_CAPTURE_TYPE_BOTH | PWM_CAPTURE_MODE_CONTINUOUS) noexcept
+            pwm_flags_t mode = PWM_CAPTURE_TYPE_BOTH | PWM_CAPTURE_MODE_CONTINUOUS)
     {
         if (handler == nullptr) {
             return fail<Error>({.status = solar::Status::Invalid,
@@ -181,7 +181,7 @@ template <auto Spec> struct Capture : hardware::Endpoint<Spec>
         return {};
     }
 
-    [[nodiscard]] static Result<void, Error> enable() noexcept
+    [[nodiscard]] static Result<void, Error> enable()
     {
         if (State::handler.load(std::memory_order_acquire) == nullptr) {
             return fail<Error>({.status = solar::Status::NotReady,
@@ -195,14 +195,14 @@ template <auto Spec> struct Capture : hardware::Endpoint<Spec>
             Operation::Enable, Base::path());
     }
 
-    [[nodiscard]] static Result<void, Error> disable() noexcept
+    [[nodiscard]] static Result<void, Error> disable()
     {
         return hardware::detail::native_result(
             pwm_disable_capture(Base::native_device(), Base::descriptor_value.native.channel),
             Operation::Disable, Base::path());
     }
 
-    [[nodiscard]] static Result<void, Error> uninstall() noexcept
+    [[nodiscard]] static Result<void, Error> uninstall()
     {
         if (State::handler.load(std::memory_order_acquire) == nullptr) {
             return {};
@@ -214,14 +214,14 @@ template <auto Spec> struct Capture : hardware::Endpoint<Spec>
         return result;
     }
 
-    [[nodiscard]] static bool installed() noexcept
+    [[nodiscard]] static bool installed()
     {
         return State::handler.load(std::memory_order_acquire) != nullptr;
     }
 
   private:
     static void trampoline(const device*, std::uint32_t, std::uint32_t period, std::uint32_t pulse,
-                           int status, void*) noexcept
+                           int status, void*)
     {
         const auto callback = State::handler.load(std::memory_order_acquire);
         if (callback == nullptr) {

@@ -17,7 +17,7 @@ struct Token
 class Gate
 {
   public:
-    [[nodiscard]] Result<Token, Error> begin() noexcept
+    [[nodiscard]] Result<Token, Error> begin()
     {
         bool expected{};
         if (!active_.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
@@ -30,25 +30,25 @@ class Gate
         return Token{generation};
     }
 
-    [[nodiscard]] bool active(Token token) const noexcept
+    [[nodiscard]] bool active(Token token) const
     {
         return active_.load(std::memory_order_acquire) &&
                generation_.load(std::memory_order_acquire) == token.generation;
     }
 
-    [[nodiscard]] Result<void, Error> complete(Token token) noexcept
+    [[nodiscard]] Result<void, Error> complete(Token token)
     {
         return finish(token, Operation::Complete, Reason::StaleCompletion);
     }
 
-    [[nodiscard]] Result<void, Error> cancel(Token token) noexcept
+    [[nodiscard]] Result<void, Error> cancel(Token token)
     {
         return finish(token, Operation::Cancel, Reason::Cancelled);
     }
 
   private:
     [[nodiscard]] Result<void, Error> finish(Token token, Operation operation,
-                                             Reason stale_reason) noexcept
+                                             Reason stale_reason)
     {
         if (generation_.load(std::memory_order_acquire) != token.generation) {
             return fail<Error>({.status = solar::Status::Invalid,

@@ -15,7 +15,7 @@ template <typename Runtime, typename Stream> struct StreamSink
 {
     using Value = typename Stream::Value;
 
-    [[nodiscard]] static Result<void> write(const Value& value) noexcept
+    [[nodiscard]] static Result<void> write(const Value& value)
     {
         auto published = Runtime::template publish<Stream>(value);
         if (!published) {
@@ -25,7 +25,7 @@ template <typename Runtime, typename Stream> struct StreamSink
         return {};
     }
 
-    static void observe(const Value& value) noexcept
+    static void observe(const Value& value)
     {
         (void)write(value);
     }

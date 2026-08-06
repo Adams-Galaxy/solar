@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import socket
 from dataclasses import asdict, dataclass
 from typing import Any
 from urllib.parse import urlparse, urlunparse
@@ -199,8 +200,12 @@ async def probe_bridge(
         return None
     writer: asyncio.StreamWriter | None = None
     try:
+        # AF_UNSPEC resolution of .local names stalls for seconds on hosts
+        # that don't answer mDNS AAAA queries (observed ~5s on macOS) before
+        # falling back to the working A record. Bridges are always IPv4 LAN
+        # hosts, so skip the dual-stack wait entirely.
         reader, writer = await asyncio.wait_for(
-            asyncio.open_connection(host, port), wait_seconds
+            asyncio.open_connection(host, port, family=socket.AF_INET), wait_seconds
         )
         line = await asyncio.wait_for(reader.readline(), wait_seconds)
         if not line:
@@ -278,7 +283,8 @@ async def tcp_target_reachable(
         return False
     try:
         reader, writer = await asyncio.wait_for(
-            asyncio.open_connection(parsed.hostname, parsed.port), wait_seconds
+            asyncio.open_connection(parsed.hostname, parsed.port, family=socket.AF_INET),
+            wait_seconds,
         )
     except (OSError, TimeoutError):
         return False

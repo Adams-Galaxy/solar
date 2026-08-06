@@ -35,7 +35,7 @@ template <typename Message> class MessageQueueRef
                   "trivially copyable");
 
   public:
-    [[nodiscard]] static Result<MessageQueueRef> borrow(k_msgq& queue) noexcept
+    [[nodiscard]] static Result<MessageQueueRef> borrow(k_msgq& queue)
     {
         k_msgq_attrs attributes{};
         k_msgq_get_attrs(&queue, &attributes);
@@ -46,7 +46,7 @@ template <typename Message> class MessageQueueRef
     }
 
     [[nodiscard]] Result<void> send(const Message& message,
-                                    Timeout timeout = Timeout::forever()) const noexcept
+                                    Timeout timeout = Timeout::forever()) const
     {
         if (in_isr()) {
             return fail<Error>({.status = Status::Invalid});
@@ -54,29 +54,29 @@ template <typename Message> class MessageQueueRef
         return send_native(message, timeout);
     }
 
-    [[nodiscard]] Result<void> send(const Message& message, const Deadline& deadline) const noexcept
+    [[nodiscard]] Result<void> send(const Message& message, const Deadline& deadline) const
     {
         return send(message, deadline.remaining());
     }
 
-    [[nodiscard]] Result<void> try_send(const Message& message) const noexcept
+    [[nodiscard]] Result<void> try_send(const Message& message) const
     {
         return send(message, Timeout::no_wait());
     }
 
-    [[nodiscard]] Result<void> try_send_isr(const Message& message) const noexcept
+    [[nodiscard]] Result<void> try_send_isr(const Message& message) const
     {
         return send_native(message, Timeout::no_wait());
     }
 
-    [[nodiscard]] Result<void> try_send_front(const Message& message) const noexcept
+    [[nodiscard]] Result<void> try_send_front(const Message& message) const
     {
         const int result = k_msgq_put_front(queue_, &message);
         return result == 0 ? Result<void>{}
                            : Result<void>{fail<Error>({.status = Status::Full, .native = result})};
     }
 
-    [[nodiscard]] Result<Message> receive(Timeout timeout = Timeout::forever()) const noexcept
+    [[nodiscard]] Result<Message> receive(Timeout timeout = Timeout::forever()) const
     {
         if (in_isr()) {
             return fail<Error>({.status = Status::Invalid});
@@ -84,22 +84,22 @@ template <typename Message> class MessageQueueRef
         return receive_native(timeout);
     }
 
-    [[nodiscard]] Result<Message> receive(const Deadline& deadline) const noexcept
+    [[nodiscard]] Result<Message> receive(const Deadline& deadline) const
     {
         return receive(deadline.remaining());
     }
 
-    [[nodiscard]] Result<Message> try_receive() const noexcept
+    [[nodiscard]] Result<Message> try_receive() const
     {
         return receive(Timeout::no_wait());
     }
 
-    [[nodiscard]] Result<Message> try_receive_isr() const noexcept
+    [[nodiscard]] Result<Message> try_receive_isr() const
     {
         return receive_native(Timeout::no_wait());
     }
 
-    [[nodiscard]] Result<Message> peek() const noexcept
+    [[nodiscard]] Result<Message> peek() const
     {
         std::array<std::byte, sizeof(Message)> bytes{};
         const int result = k_msgq_peek(queue_, bytes.data());
@@ -109,7 +109,7 @@ template <typename Message> class MessageQueueRef
         return std::bit_cast<Message>(bytes);
     }
 
-    [[nodiscard]] Result<Message> peek_at(std::size_t index) const noexcept
+    [[nodiscard]] Result<Message> peek_at(std::size_t index) const
     {
         if (index > std::numeric_limits<std::uint32_t>::max()) {
             return fail<solar::Error>({.status = solar::Status::Invalid});
@@ -122,31 +122,31 @@ template <typename Message> class MessageQueueRef
         return std::bit_cast<Message>(bytes);
     }
 
-    void purge() const noexcept
+    void purge() const
     {
         k_msgq_purge(queue_);
     }
 
-    [[nodiscard]] std::size_t size() const noexcept
+    [[nodiscard]] std::size_t size() const
     {
         return k_msgq_num_used_get(queue_);
     }
 
-    [[nodiscard]] std::size_t available() const noexcept
+    [[nodiscard]] std::size_t available() const
     {
         return k_msgq_num_free_get(queue_);
     }
 
-    [[nodiscard]] bool empty() const noexcept
+    [[nodiscard]] bool empty() const
     {
         return size() == 0;
     }
-    [[nodiscard]] bool full() const noexcept
+    [[nodiscard]] bool full() const
     {
         return available() == 0;
     }
 
-    [[nodiscard]] MessageQueueAttributes attributes() const noexcept
+    [[nodiscard]] MessageQueueAttributes attributes() const
     {
         k_msgq_attrs native{};
         k_msgq_get_attrs(queue_, &native);
@@ -157,13 +157,13 @@ template <typename Message> class MessageQueueRef
     }
 
   private:
-    [[nodiscard]] Result<void> send_native(const Message& message, Timeout timeout) const noexcept
+    [[nodiscard]] Result<void> send_native(const Message& message, Timeout timeout) const
     {
         return detail::map_wait(k_msgq_put(queue_, &message, timeout.native_handle()), timeout,
                                 Status::Full);
     }
 
-    [[nodiscard]] Result<Message> receive_native(Timeout timeout) const noexcept
+    [[nodiscard]] Result<Message> receive_native(Timeout timeout) const
     {
         std::array<std::byte, sizeof(Message)> bytes{};
         const auto status = detail::map_wait(
@@ -174,7 +174,7 @@ template <typename Message> class MessageQueueRef
         return std::bit_cast<Message>(bytes);
     }
 
-    [[nodiscard]] constexpr k_msgq* native_queue() const noexcept
+    [[nodiscard]] constexpr k_msgq* native_queue() const
     {
         return queue_;
     }
@@ -182,7 +182,7 @@ template <typename Message> class MessageQueueRef
     struct Unchecked
     {};
 
-    constexpr MessageQueueRef(k_msgq& queue, Unchecked) noexcept : queue_(&queue) {}
+    constexpr MessageQueueRef(k_msgq& queue, Unchecked) : queue_(&queue) {}
 
     template <typename, std::size_t> friend class MessageQueue;
     template <std::size_t> friend class PollSet;
@@ -205,7 +205,7 @@ template <typename Message, std::size_t Capacity> class MessageQueue
     using Value = Message;
     static constexpr std::size_t capacity = Capacity;
 
-    MessageQueue() noexcept
+    MessageQueue()
     {
         k_msgq_init(&queue_, reinterpret_cast<char*>(storage_.data()), sizeof(Message), Capacity);
     }
@@ -216,94 +216,94 @@ template <typename Message, std::size_t Capacity> class MessageQueue
     MessageQueue& operator=(MessageQueue&&) = delete;
 
     [[nodiscard]] Result<void> send(const Message& message,
-                                    Timeout timeout = Timeout::forever()) noexcept
+                                    Timeout timeout = Timeout::forever())
     {
         return ref().send(message, timeout);
     }
 
-    [[nodiscard]] Result<void> send(const Message& message, const Deadline& deadline) noexcept
+    [[nodiscard]] Result<void> send(const Message& message, const Deadline& deadline)
     {
         return send(message, deadline.remaining());
     }
 
-    [[nodiscard]] Result<void> try_send(const Message& message) noexcept
+    [[nodiscard]] Result<void> try_send(const Message& message)
     {
         return send(message, Timeout::no_wait());
     }
 
-    [[nodiscard]] Result<void> try_send_isr(const Message& message) noexcept
+    [[nodiscard]] Result<void> try_send_isr(const Message& message)
     {
         return ref().try_send_isr(message);
     }
 
-    [[nodiscard]] Result<void> try_send_front(const Message& message) noexcept
+    [[nodiscard]] Result<void> try_send_front(const Message& message)
     {
         return ref().try_send_front(message);
     }
 
-    [[nodiscard]] Result<Message> receive(Timeout timeout = Timeout::forever()) noexcept
+    [[nodiscard]] Result<Message> receive(Timeout timeout = Timeout::forever())
     {
         return ref().receive(timeout);
     }
 
-    [[nodiscard]] Result<Message> receive(const Deadline& deadline) noexcept
+    [[nodiscard]] Result<Message> receive(const Deadline& deadline)
     {
         return receive(deadline.remaining());
     }
 
-    [[nodiscard]] Result<Message> try_receive() noexcept
+    [[nodiscard]] Result<Message> try_receive()
     {
         return receive(Timeout::no_wait());
     }
 
-    [[nodiscard]] Result<Message> try_receive_isr() noexcept
+    [[nodiscard]] Result<Message> try_receive_isr()
     {
         return ref().try_receive_isr();
     }
 
-    [[nodiscard]] Result<Message> peek() noexcept
+    [[nodiscard]] Result<Message> peek()
     {
         return ref().peek();
     }
 
-    [[nodiscard]] Result<Message> peek_at(std::size_t index) noexcept
+    [[nodiscard]] Result<Message> peek_at(std::size_t index)
     {
         return ref().peek_at(index);
     }
 
-    void purge() noexcept
+    void purge()
     {
         ref().purge();
     }
 
-    [[nodiscard]] std::size_t size() const noexcept
+    [[nodiscard]] std::size_t size() const
     {
         return k_msgq_num_used_get(const_cast<k_msgq*>(&queue_));
     }
 
-    [[nodiscard]] std::size_t available() const noexcept
+    [[nodiscard]] std::size_t available() const
     {
         return k_msgq_num_free_get(const_cast<k_msgq*>(&queue_));
     }
 
-    [[nodiscard]] bool empty() const noexcept
+    [[nodiscard]] bool empty() const
     {
         return size() == 0;
     }
 
-    [[nodiscard]] bool full() const noexcept
+    [[nodiscard]] bool full() const
     {
         return size() == Capacity;
     }
 
-    [[nodiscard]] MessageQueueAttributes attributes() const noexcept
+    [[nodiscard]] MessageQueueAttributes attributes() const
     {
         return MessageQueueRef<Message>{const_cast<k_msgq&>(queue_),
                                         typename MessageQueueRef<Message>::Unchecked{}}
             .attributes();
     }
 
-    [[nodiscard]] MessageQueueRef<Message> ref() noexcept
+    [[nodiscard]] MessageQueueRef<Message> ref()
     {
         return MessageQueueRef<Message>{queue_, typename MessageQueueRef<Message>::Unchecked{}};
     }

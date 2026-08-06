@@ -24,7 +24,7 @@ static_assert(std::atomic<FatalObserver>::is_always_lock_free,
 
 namespace detail
 {
-void latch_fatal(unsigned int native_reason) noexcept
+void latch_fatal(unsigned int native_reason)
 {
     latched_native_reason.store(native_reason, std::memory_order_release);
     if (const auto observer = fatal_observer.load(std::memory_order_acquire); observer != nullptr) {
@@ -39,7 +39,7 @@ void latch_fatal(unsigned int native_reason) noexcept
 
 } // namespace detail
 
-Result<void> install_fatal_observer(FatalObserver observer) noexcept
+Result<void> install_fatal_observer(FatalObserver observer)
 {
     if (observer == nullptr) {
         return fail<Error>({.status = Status::Invalid});
@@ -51,7 +51,7 @@ Result<void> install_fatal_observer(FatalObserver observer) noexcept
     return fail<Error>({.status = expected == observer ? Status::Already : Status::Busy});
 }
 
-Result<FatalError> fatal_reason() noexcept
+Result<FatalError> fatal_reason()
 {
     const auto native = latched_native_reason.load(std::memory_order_acquire);
     if (native == no_fatal_reason) {
@@ -67,7 +67,7 @@ Result<FatalError> fatal_reason() noexcept
 namespace detail
 {
 
-void latch_requested_panic(Status status) noexcept
+void latch_requested_panic(Status status)
 {
     requested_status.store(to_errno(status), std::memory_order_release);
 }

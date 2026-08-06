@@ -43,13 +43,13 @@ namespace static_detail
  * critical section, which prevents exactly this preemption.
  */
 using RecordLock = kernel::SpinLock;
-[[nodiscard]] inline RecordLock::Guard acquire(RecordLock& lock) noexcept
+[[nodiscard]] inline RecordLock::Guard acquire(RecordLock& lock)
 {
     return lock.acquire();
 }
 #else
 using RecordLock = SpinMutex;
-[[nodiscard]] inline SpinGuard acquire(RecordLock& lock) noexcept
+[[nodiscard]] inline SpinGuard acquire(RecordLock& lock)
 {
     return SpinGuard{lock};
 }
@@ -71,7 +71,7 @@ template <typename Tag, typename... Entries> struct CatalogFrom<Tag, TypeList<En
 template <typename Tag, typename Entries>
 using catalog_from_t = typename CatalogFrom<Tag, Entries>::type;
 
-template <typename Sink> [[nodiscard]] Result<void> initialize_sink() noexcept
+template <typename Sink> [[nodiscard]] Result<void> initialize_sink()
 {
     if constexpr (requires { Sink::init(); }) {
         auto result = Sink::init();
@@ -81,7 +81,7 @@ template <typename Sink> [[nodiscard]] Result<void> initialize_sink() noexcept
     return {};
 }
 
-template <typename Sink> [[nodiscard]] Result<void> deinitialize_sink() noexcept
+template <typename Sink> [[nodiscard]] Result<void> deinitialize_sink()
 {
     if constexpr (requires { Sink::deinit(); }) {
         auto result = Sink::deinit();
@@ -92,7 +92,7 @@ template <typename Sink> [[nodiscard]] Result<void> deinitialize_sink() noexcept
 }
 
 template <typename Context, typename Sink>
-[[nodiscard]] Result<void> consume_sink(RecordView record, std::string_view rendered) noexcept
+[[nodiscard]] Result<void> consume_sink(RecordView record, std::string_view rendered)
 {
     if constexpr (requires { Sink::template consume<Context>(record, rendered); }) {
         auto result = Sink::template consume<Context>(record, rendered);
@@ -112,7 +112,7 @@ template <typename Context, typename Sink>
     }
 }
 
-[[nodiscard]] inline Timestamp now_microseconds() noexcept
+[[nodiscard]] inline Timestamp now_microseconds()
 {
 #if defined(__ZEPHYR__)
     return std::chrono::duration_cast<std::chrono::microseconds>(kernel::now().time_since_epoch())
@@ -151,7 +151,7 @@ struct StaticLogger<Application, TypeList<SourceTypes...>, TypeList<DomainTypes.
     using LogSourceCatalog = static_detail::catalog_from_t<SourceTag, TypeList<SourceTypes...>>;
     using LogDomainCatalog = static_detail::catalog_from_t<DomainTag, TypeList<DomainTypes...>>;
 
-    [[nodiscard]] static Result<void> initialize() noexcept
+    [[nodiscard]] static Result<void> initialize()
     {
         {
             // Scoped tightly: on Zephyr this guard is a real k_spinlock, which
@@ -183,7 +183,7 @@ struct StaticLogger<Application, TypeList<SourceTypes...>, TypeList<DomainTypes.
         return result;
     }
 
-    [[nodiscard]] static Result<void> start() noexcept
+    [[nodiscard]] static Result<void> start()
     {
         auto guard = static_detail::acquire(lock_);
         if (!status_.ready) {
@@ -193,7 +193,7 @@ struct StaticLogger<Application, TypeList<SourceTypes...>, TypeList<DomainTypes.
         return {};
     }
 
-    [[nodiscard]] static Result<void> stop() noexcept
+    [[nodiscard]] static Result<void> stop()
     {
         {
             auto guard = static_detail::acquire(lock_);
@@ -202,7 +202,7 @@ struct StaticLogger<Application, TypeList<SourceTypes...>, TypeList<DomainTypes.
         return flush();
     }
 
-    [[nodiscard]] static Result<void> deinitialize() noexcept
+    [[nodiscard]] static Result<void> deinitialize()
     {
         Result<void> result{};
         ((result ? result = static_detail::deinitialize_sink<SinkTypes>() : result), ...);
@@ -259,7 +259,7 @@ struct StaticLogger<Application, TypeList<SourceTypes...>, TypeList<DomainTypes.
      */
     template <typename Source>
     [[nodiscard]] static Result<Receipt, Error> capture_text(Level level, Origin origin,
-                                                              std::string_view text) noexcept
+                                                              std::string_view text)
     {
         static_assert(LogSourceCatalog::template contains<Source>,
                       "SOLAR_LOG_SOURCE_NOT_DECLARED: source is absent from this logger");
@@ -276,13 +276,13 @@ struct StaticLogger<Application, TypeList<SourceTypes...>, TypeList<DomainTypes.
         return capture<Source, domain::Unclassified>(request);
     }
 
-    [[nodiscard]] static FacilityRecord record() noexcept
+    [[nodiscard]] static FacilityRecord record()
     {
         auto guard = static_detail::acquire(lock_);
         return status_;
     }
 
-    [[nodiscard]] static HistoryPage history(Cursor cursor, std::span<Record> output) noexcept
+    [[nodiscard]] static HistoryPage history(Cursor cursor, std::span<Record> output)
     {
         auto guard = static_detail::acquire(lock_);
         HistoryPage page{.next = cursor};
@@ -311,7 +311,7 @@ struct StaticLogger<Application, TypeList<SourceTypes...>, TypeList<DomainTypes.
 
     template <typename Sink>
     [[nodiscard]] static Result<HistoryPage, Error> replay(Cursor cursor,
-                                                           std::span<Record> scratch) noexcept
+                                                           std::span<Record> scratch)
     {
         const auto page = history(cursor, scratch);
         for (std::size_t index{}; index < page.written; ++index) {
@@ -326,7 +326,7 @@ struct StaticLogger<Application, TypeList<SourceTypes...>, TypeList<DomainTypes.
         return page;
     }
 
-    [[nodiscard]] static Result<void> flush() noexcept
+    [[nodiscard]] static Result<void> flush()
     {
         (flush_one<SinkTypes>(), ...);
         return {};
@@ -334,7 +334,7 @@ struct StaticLogger<Application, TypeList<SourceTypes...>, TypeList<DomainTypes.
 
   private:
     template <typename Source, typename Domain>
-    [[nodiscard]] static Result<Receipt, Error> capture(const CaptureRequest& request) noexcept
+    [[nodiscard]] static Result<Receipt, Error> capture(const CaptureRequest& request)
     {
         Record stored{};
         {
@@ -390,7 +390,7 @@ struct StaticLogger<Application, TypeList<SourceTypes...>, TypeList<DomainTypes.
     }
 
     template <typename Sink>
-    [[nodiscard]] static Result<void> deliver(const Record& stored) noexcept
+    [[nodiscard]] static Result<void> deliver(const Record& stored)
     {
         std::array<char,
 #if defined(CONFIG_SOLAR_LOG_RENDER_BUFFER_BYTES)
@@ -410,7 +410,7 @@ struct StaticLogger<Application, TypeList<SourceTypes...>, TypeList<DomainTypes.
             stored.view(), std::string_view{rendered.data(), *result});
     }
 
-    template <typename Sink> static void flush_one() noexcept
+    template <typename Sink> static void flush_one()
     {
         if constexpr (requires { Sink::flush(); }) {
             Sink::flush();

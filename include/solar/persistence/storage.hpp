@@ -24,13 +24,13 @@ concept Storage = requires(T value, std::uint32_t key, std::span<const std::byte
 template <std::size_t Slots, std::size_t MaximumBytes> class MemoryStorage
 {
   public:
-    [[nodiscard]] Result<void> initialize() noexcept
+    [[nodiscard]] Result<void> initialize()
     {
         SpinGuard lock{mutex_};
         entries_ = {};
         return {};
     }
-    [[nodiscard]] Result<void> write(std::uint32_t key, std::span<const std::byte> input) noexcept
+    [[nodiscard]] Result<void> write(std::uint32_t key, std::span<const std::byte> input)
     {
         SpinGuard lock{mutex_};
         if (input.size() > MaximumBytes)
@@ -55,7 +55,7 @@ template <std::size_t Slots, std::size_t MaximumBytes> class MemoryStorage
         return {};
     }
     [[nodiscard]] Result<std::size_t> read(std::uint32_t key,
-                                           std::span<std::byte> output) const noexcept
+                                           std::span<std::byte> output) const
     {
         SpinGuard lock{mutex_};
         for (const auto& entry : entries_)
@@ -85,17 +85,17 @@ template <typename Application, std::size_t Slots, std::size_t MaximumBytes>
 struct StaticMemoryStorage
 {
     inline static MemoryStorage<Slots, MaximumBytes> storage{};
-    [[nodiscard]] static Result<void> initialize() noexcept
+    [[nodiscard]] static Result<void> initialize()
     {
         return storage.initialize();
     }
     [[nodiscard]] static Result<void> write(std::uint32_t key,
-                                            std::span<const std::byte> input) noexcept
+                                            std::span<const std::byte> input)
     {
         return storage.write(key, input);
     }
     [[nodiscard]] static Result<std::size_t> read(std::uint32_t key,
-                                                  std::span<std::byte> output) noexcept
+                                                  std::span<std::byte> output)
     {
         return storage.read(key, output);
     }

@@ -27,12 +27,12 @@ namespace solar::remote::detail
 {
 
 template <typename System, typename Registration>
-[[nodiscard]] Result<void> submit_remote_work() noexcept
+[[nodiscard]] Result<void> submit_remote_work()
 {
     return System::RemoteArchitecture::Scheduler::template submit<Registration>();
 }
 
-template <typename System> void pong_responded() noexcept
+template <typename System> void pong_responded()
 {
     (void)sizeof(System);
     log::system::info("pong responded");
@@ -515,13 +515,13 @@ template <typename DataT> struct PushState
     std::atomic_uint32_t interested_sessions{};
 };
 
-template <typename System, typename DataT> [[nodiscard]] auto& push_state() noexcept
+template <typename System, typename DataT> [[nodiscard]] auto& push_state()
 {
     return System::template StateSlot<DataT, PushStateKey, PushState<DataT>>::value;
 }
 
 template <typename System, Data DataT, bool FromIsr = false>
-[[nodiscard]] Result<WriteReceipt, Error> write_data(typename DataT::Value value) noexcept
+[[nodiscard]] Result<WriteReceipt, Error> write_data(typename DataT::Value value)
 {
     static_assert(System::RemoteDataCatalog::template contains<DataT>,
                   "SOLAR_DIAGNOSTIC_REMOTE_DATA_NOT_REGISTERED: written Data is absent from the "
@@ -596,7 +596,7 @@ template <typename System, Data DataT, bool FromIsr = false>
         .disposition = disposition, .sequence = sequence, .wake_queued = wake_queued};
 }
 
-template <typename System, Data DataT> [[nodiscard]] bool interested_in_data() noexcept
+template <typename System, Data DataT> [[nodiscard]] bool interested_in_data()
 {
     static_assert(System::RemoteDataCatalog::template contains<DataT>,
                   "SOLAR_DIAGNOSTIC_REMOTE_DATA_NOT_REGISTERED: interested Data is absent from "
@@ -608,7 +608,7 @@ template <typename System, Data DataT> [[nodiscard]] bool interested_in_data() n
 }
 
 template <typename System, Data DataT>
-[[nodiscard]] std::optional<typename DataT::Value> take_next() noexcept
+[[nodiscard]] std::optional<typename DataT::Value> take_next()
 {
     auto& state = push_state<System, DataT>();
     auto guard = state.lock.acquire();
@@ -624,14 +624,14 @@ template <typename System, Data DataT>
     return value;
 }
 
-template <typename System, Data DataT> [[nodiscard]] bool push_pending() noexcept
+template <typename System, Data DataT> [[nodiscard]] bool push_pending()
 {
     auto& state = push_state<System, DataT>();
     auto guard = state.lock.acquire();
     return state.size != 0;
 }
 
-template <typename System, Data DataT> void rearm_push() noexcept
+template <typename System, Data DataT> void rearm_push()
 {
     auto& state = push_state<System, DataT>();
     if (!push_pending<System, DataT>() ||
@@ -677,13 +677,13 @@ template <typename DataT> struct LoanState
 template <typename DataT> struct LoanStateKey
 {};
 
-template <typename System, typename DataT> [[nodiscard]] auto& loan_state() noexcept
+template <typename System, typename DataT> [[nodiscard]] auto& loan_state()
 {
     return System::template StateSlot<DataT, LoanStateKey<DataT>, LoanState<DataT>>::value;
 }
 
 template <typename System, typename DataT>
-void abandon_loan(std::uint16_t slot, std::uint16_t generation) noexcept
+void abandon_loan(std::uint16_t slot, std::uint16_t generation)
 {
     auto& state = loan_state<System, DataT>();
     auto guard = state.lock.acquire();
@@ -696,7 +696,7 @@ void abandon_loan(std::uint16_t slot, std::uint16_t generation) noexcept
 }
 
 template <typename System, typename DataT>
-void release_ready_loan(std::uint16_t slot, std::uint16_t generation) noexcept
+void release_ready_loan(std::uint16_t slot, std::uint16_t generation)
 {
     auto& state = loan_state<System, DataT>();
     auto guard = state.lock.acquire();
@@ -709,7 +709,7 @@ void release_ready_loan(std::uint16_t slot, std::uint16_t generation) noexcept
 }
 
 template <typename System, typename DataT>
-[[nodiscard]] Result<Loan<DataT>, Error> try_loan_data() noexcept
+[[nodiscard]] Result<Loan<DataT>, Error> try_loan_data()
 {
     static_assert(has_loaned_v<DataT>);
     static_assert(Schema<typename DataT::Value>::codec == Codec::Packed,
@@ -746,7 +746,7 @@ template <typename System, typename DataT>
 
 template <typename System, typename DataT>
 [[nodiscard]] Result<WriteReceipt, Error> commit_loan_data(Loan<DataT>&& loan,
-                                                           std::size_t size) noexcept
+                                                           std::size_t size)
 {
     static_assert(has_loaned_v<DataT>);
     if (kernel::in_isr()) {
@@ -849,21 +849,21 @@ template <typename TopicT> struct TopicStateKey
 template <typename StreamT> struct StreamStateKey
 {};
 
-template <typename System, typename DataT> [[nodiscard]] auto& watch_state() noexcept
+template <typename System, typename DataT> [[nodiscard]] auto& watch_state()
 {
     using Publication = typename WatchCapability<typename DataT::Capabilities>::type;
     using State = DiscreteState<DataT, Publication>;
     return System::template StateSlot<DataT, WatchStateKey<DataT>, State>::value;
 }
 
-template <typename System, typename TopicT> [[nodiscard]] auto& topic_state() noexcept
+template <typename System, typename TopicT> [[nodiscard]] auto& topic_state()
 {
     using Publication = typename TopicPublication<TopicT>::type;
     using State = DiscreteState<TopicT, Publication>;
     return System::template StateSlot<TopicT, TopicStateKey<TopicT>, State>::value;
 }
 
-template <typename System, typename StreamT> [[nodiscard]] auto& stream_state() noexcept
+template <typename System, typename StreamT> [[nodiscard]] auto& stream_state()
 {
     using Publication = Watch<Latest, MultipleProducers>;
     using State = DiscreteState<StreamT, Publication>;
@@ -873,7 +873,7 @@ template <typename System, typename StreamT> [[nodiscard]] auto& stream_state() 
 template <typename System, typename DeclarationT, typename StateT>
 [[nodiscard]] Result<WriteReceipt, Error>
 write_discrete(StateT& state, std::uint16_t subscription_slot,
-               typename DeclarationT::Value value) noexcept
+               typename DeclarationT::Value value)
 {
     if (kernel::in_isr()) {
         return fail<Error>({Status::Invalid, Reason::InvalidContext, Operation::Publish});
@@ -933,7 +933,7 @@ write_discrete(StateT& state, std::uint16_t subscription_slot,
 }
 
 template <typename System, typename DataT>
-[[nodiscard]] Result<WriteReceipt, Error> publish_watch(typename DataT::Value value) noexcept
+[[nodiscard]] Result<WriteReceipt, Error> publish_watch(typename DataT::Value value)
 {
     static_assert(has_watch_v<DataT>);
     auto& state = watch_state<System, DataT>();
@@ -942,7 +942,7 @@ template <typename System, typename DataT>
 }
 
 template <typename System, typename TopicT>
-[[nodiscard]] Result<WriteReceipt, Error> publish_topic(typename TopicT::Value value) noexcept
+[[nodiscard]] Result<WriteReceipt, Error> publish_topic(typename TopicT::Value value)
 {
     auto& state = topic_state<System, TopicT>();
     return write_discrete<System, TopicT>(state, topic_subscription_slot<System, TopicT>(),
@@ -950,7 +950,7 @@ template <typename System, typename TopicT>
 }
 
 template <typename System, typename StreamT>
-[[nodiscard]] Result<WriteReceipt, Error> publish_stream(typename StreamT::Value value) noexcept
+[[nodiscard]] Result<WriteReceipt, Error> publish_stream(typename StreamT::Value value)
 {
     auto& state = stream_state<System, StreamT>();
     return write_discrete<System, StreamT>(state, stream_subscription_slot<System, StreamT>(),
@@ -959,7 +959,7 @@ template <typename System, typename StreamT>
 
 template <typename DeclarationT, typename PublicationT>
 [[nodiscard]] std::optional<typename DeclarationT::Value>
-take_discrete(DiscreteState<DeclarationT, PublicationT>& state) noexcept
+take_discrete(DiscreteState<DeclarationT, PublicationT>& state)
 {
     auto guard = state.lock.acquire();
     if (state.size == 0) {
@@ -974,14 +974,14 @@ take_discrete(DiscreteState<DeclarationT, PublicationT>& state) noexcept
     return value;
 }
 
-template <typename StateT> [[nodiscard]] bool discrete_pending(StateT& state) noexcept
+template <typename StateT> [[nodiscard]] bool discrete_pending(StateT& state)
 {
     auto guard = state.lock.acquire();
     return state.size != 0;
 }
 
 template <typename System, typename StateT>
-void rearm_discrete(StateT& state, std::uint16_t subscription_slot) noexcept
+void rearm_discrete(StateT& state, std::uint16_t subscription_slot)
 {
     if (!discrete_pending(state) || state.wake_pending.exchange(true, std::memory_order_acq_rel)) {
         return;
@@ -1000,7 +1000,7 @@ template <typename System>
 void publish_subscription_payload(std::span<const std::byte> payload,
                                   std::uint16_t subscription_slot, std::uint32_t target,
                                   protocol::SubscriptionKind subscription_kind,
-                                  protocol::Flags flags = protocol::Flags::None) noexcept
+                                  protocol::Flags flags = protocol::Flags::None)
 {
     using ServiceT = typename System::RemoteService;
     []<typename... LinkTypes, std::size_t... Indices>(
@@ -1051,7 +1051,7 @@ void publish_subscription_payload(std::span<const std::byte> payload,
 
 template <typename System, typename DataT>
 void publish_data_payload(std::span<const std::byte> payload,
-                          protocol::Flags flags = protocol::Flags::None) noexcept
+                          protocol::Flags flags = protocol::Flags::None)
 {
     publish_subscription_payload<System>(payload, data_stream_subscription_slot<System, DataT>(),
                                          DataT::descriptor.id.value,
@@ -1059,7 +1059,7 @@ void publish_data_payload(std::span<const std::byte> payload,
 }
 
 template <typename System, typename DataT>
-void publish_data_value(typename DataT::Value value) noexcept
+void publish_data_value(typename DataT::Value value)
 {
     using Value = typename DataT::Value;
     auto& buffer = PublicationBuffer<System, DataT>::bytes;
@@ -1081,7 +1081,7 @@ void publish_data_value(typename DataT::Value value) noexcept
 template <typename System, typename DeclarationT, typename StateT>
 void publish_discrete_value(
     StateT& state, std::uint16_t subscription_slot, std::uint32_t target,
-    std::optional<protocol::SubscriptionKind> authored_kind = std::nullopt) noexcept
+    std::optional<protocol::SubscriptionKind> authored_kind = std::nullopt)
 {
     using Value = typename DeclarationT::Value;
     auto value = take_discrete(state);
@@ -1123,7 +1123,7 @@ template <typename System, typename DataT> struct BatchBuffer
     inline static std::array<std::byte, capacity> bytes{};
 };
 
-template <typename System, typename DataT> void publish_push_batch() noexcept
+template <typename System, typename DataT> void publish_push_batch()
 {
     using Value = typename DataT::Value;
     using Storage = typename PushState<DataT>::Storage;
@@ -1171,7 +1171,7 @@ struct ReadyLoan
 };
 
 template <typename System, typename DataT>
-[[nodiscard]] std::optional<ReadyLoan> take_ready_loan() noexcept
+[[nodiscard]] std::optional<ReadyLoan> take_ready_loan()
 {
     auto& state = loan_state<System, DataT>();
     auto guard = state.lock.acquire();
@@ -1190,7 +1190,7 @@ template <typename System, typename DataT>
     return std::nullopt;
 }
 
-template <typename System, typename DataT> [[nodiscard]] bool loan_ready() noexcept
+template <typename System, typename DataT> [[nodiscard]] bool loan_ready()
 {
     auto& state = loan_state<System, DataT>();
     auto guard = state.lock.acquire();
@@ -1198,7 +1198,7 @@ template <typename System, typename DataT> [[nodiscard]] bool loan_ready() noexc
                                [](const auto& slot) { return slot.state == LoanSlotState::Ready; });
 }
 
-template <typename System, typename DataT> void rearm_loan() noexcept
+template <typename System, typename DataT> void rearm_loan()
 {
     auto& state = loan_state<System, DataT>();
     if (!loan_ready<System, DataT>() ||
@@ -1211,7 +1211,7 @@ template <typename System, typename DataT> void rearm_loan() noexcept
     }
 }
 
-template <typename System, typename DataT> void publish_ready_loan() noexcept
+template <typename System, typename DataT> void publish_ready_loan()
 {
     auto ready = take_ready_loan<System, DataT>();
     if (!ready) {
@@ -1226,7 +1226,7 @@ template <typename System, typename DataT> void publish_ready_loan() noexcept
 }
 
 template <typename System, typename... DataTypes>
-void process_stream_publication_for(std::uint16_t endpoint, TypeList<DataTypes...>) noexcept
+void process_stream_publication_for(std::uint16_t endpoint, TypeList<DataTypes...>)
 {
     std::uint16_t index{};
     ((endpoint == index++
@@ -1253,7 +1253,7 @@ void process_stream_publication_for(std::uint16_t endpoint, TypeList<DataTypes..
 }
 
 template <typename System, typename... DataTypes>
-void process_watch_publication_for(std::uint16_t endpoint, TypeList<DataTypes...>) noexcept
+void process_watch_publication_for(std::uint16_t endpoint, TypeList<DataTypes...>)
 {
     std::uint16_t index{};
     ((endpoint == index++ ? (
@@ -1272,7 +1272,7 @@ void process_watch_publication_for(std::uint16_t endpoint, TypeList<DataTypes...
 }
 
 template <typename System, typename... TopicTypes>
-void process_topic_publication_for(std::uint16_t endpoint, TypeList<TopicTypes...>) noexcept
+void process_topic_publication_for(std::uint16_t endpoint, TypeList<TopicTypes...>)
 {
     std::uint16_t index{};
     ((endpoint == index++ ? (
@@ -1289,7 +1289,7 @@ void process_topic_publication_for(std::uint16_t endpoint, TypeList<TopicTypes..
 
 template <typename System, typename... StreamTypes>
 void process_stream_endpoint_publication_for(std::uint16_t endpoint,
-                                             TypeList<StreamTypes...>) noexcept
+                                             TypeList<StreamTypes...>)
 {
     std::uint16_t index{};
     ((endpoint == index++ ? (
@@ -1305,7 +1305,7 @@ void process_stream_endpoint_publication_for(std::uint16_t endpoint,
      ...);
 }
 
-template <typename System> void process_publication(std::uint16_t endpoint) noexcept
+template <typename System> void process_publication(std::uint16_t endpoint)
 {
     using DataTypes = declarations_of_t<typename System::RemoteDataCatalog::EntryTypes>;
     using TopicTypes = declarations_of_t<typename System::RemoteTopicCatalog::EntryTypes>;
@@ -1338,18 +1338,18 @@ struct PollState
     std::atomic_uint32_t failures{};
 };
 
-template <typename System, typename DataT> [[nodiscard]] auto& poll_state() noexcept
+template <typename System, typename DataT> [[nodiscard]] auto& poll_state()
 {
     return System::template StateSlot<DataT, PollStateKey<DataT>, PollState>::value;
 }
 
-template <ErrorType ErrorT> [[nodiscard]] Status poll_error_status(const ErrorT& error) noexcept
+template <ErrorType ErrorT> [[nodiscard]] Status poll_error_status(const ErrorT& error)
 {
     return status_of(error);
 }
 
 template <typename System, typename DataT>
-[[nodiscard]] Result<typename DataT::Value> acquire_poll_value() noexcept
+[[nodiscard]] Result<typename DataT::Value> acquire_poll_value()
 {
     using Value = typename DataT::Value;
     using Capability = typename PollCapability<typename DataT::Capabilities>::type;
@@ -1395,7 +1395,7 @@ template <typename System, typename DataT>
     }
 }
 
-template <typename System, typename DataT> [[nodiscard]] Result<void> execute_poll() noexcept
+template <typename System, typename DataT> [[nodiscard]] Result<void> execute_poll()
 {
     auto& state = poll_state<System, DataT>();
     auto value = acquire_poll_value<System, DataT>();
@@ -1410,7 +1410,7 @@ template <typename System, typename DataT> [[nodiscard]] Result<void> execute_po
 
 template <typename System, typename... DataTypes>
 [[nodiscard]] Result<void> process_poll_work_for(std::uint32_t target,
-                                                 TypeList<DataTypes...>) noexcept
+                                                 TypeList<DataTypes...>)
 {
     bool matched{};
     Result<void> result{fail<solar::Error>({.status = solar::Status::NotFound})};
@@ -1427,7 +1427,7 @@ template <typename System, typename... DataTypes>
 }
 
 template <typename System>
-[[nodiscard]] Result<void> process_poll_work(std::uint32_t target) noexcept
+[[nodiscard]] Result<void> process_poll_work(std::uint32_t target)
 {
     using DataTypes = declarations_of_t<typename System::RemoteDataCatalog::EntryTypes>;
     return process_poll_work_for<System>(target, DataTypes{});
@@ -1435,7 +1435,7 @@ template <typename System>
 
 template <typename System, typename DataT, typename... LinkTypes, std::size_t... Indices>
 [[nodiscard]] std::optional<std::uint32_t>
-effective_poll_interval(TypeList<LinkTypes...>, std::index_sequence<Indices...>) noexcept
+effective_poll_interval(TypeList<LinkTypes...>, std::index_sequence<Indices...>)
 {
     constexpr auto endpoint = System::RemoteDataCatalog::template Entry<DataT>::local_id.value;
     std::optional<std::uint32_t> interval;
@@ -1455,7 +1455,7 @@ effective_poll_interval(TypeList<LinkTypes...>, std::index_sequence<Indices...>)
 }
 
 template <typename System, typename DataT>
-[[nodiscard]] kernel::Tick process_poll_release() noexcept
+[[nodiscard]] kernel::Tick process_poll_release()
 {
     constexpr auto maintenance = kernel::to_ticks_ceil(std::chrono::milliseconds{50});
     if constexpr (!has_poll_v<DataT>) {
@@ -1501,7 +1501,7 @@ template <typename System, typename DataT>
 }
 
 template <typename System, typename... DataTypes>
-[[nodiscard]] kernel::Tick process_poll_releases_for(TypeList<DataTypes...>) noexcept
+[[nodiscard]] kernel::Tick process_poll_releases_for(TypeList<DataTypes...>)
 {
     constexpr auto maintenance = kernel::to_ticks_ceil(std::chrono::milliseconds{50});
     kernel::Tick next = maintenance;
@@ -1509,7 +1509,7 @@ template <typename System, typename... DataTypes>
     return next;
 }
 
-template <typename System> [[nodiscard]] std::int64_t process_poll_releases() noexcept
+template <typename System> [[nodiscard]] std::int64_t process_poll_releases()
 {
     using DataTypes = declarations_of_t<typename System::RemoteDataCatalog::EntryTypes>;
     return process_poll_releases_for<System>(DataTypes{});
@@ -1530,7 +1530,7 @@ template <typename System, typename LinkT, std::uint16_t LinkIndex, typename Dat
 Result<bool, protocol::ErrorCode>
 update_data_subscription(std::uint32_t target, bool enable, protocol::SubscriptionKind kind,
                          const protocol::SubscriptionRequest& request,
-                         protocol::SubscriptionPolicy& effective) noexcept
+                         protocol::SubscriptionPolicy& effective)
 {
     if (target != DataT::descriptor.id.value) {
         return false;
@@ -1617,7 +1617,7 @@ template <typename System, typename LinkT, std::uint16_t LinkIndex, typename Top
 Result<bool, protocol::ErrorCode>
 update_topic_subscription(std::uint32_t target, bool enable, protocol::SubscriptionKind kind,
                           const protocol::SubscriptionRequest& request,
-                          protocol::SubscriptionPolicy& effective) noexcept
+                          protocol::SubscriptionPolicy& effective)
 {
     if (kind != protocol::SubscriptionKind::Topic || target != TopicT::descriptor.id.value) {
         return false;
@@ -1671,7 +1671,7 @@ template <typename System, typename LinkT, std::uint16_t LinkIndex, typename Str
 Result<bool, protocol::ErrorCode>
 update_stream_subscription(std::uint32_t target, bool enable, protocol::SubscriptionKind kind,
                            const protocol::SubscriptionRequest& request,
-                           protocol::SubscriptionPolicy& effective) noexcept
+                           protocol::SubscriptionPolicy& effective)
 {
     if (kind != protocol::SubscriptionKind::Stream || target != StreamT::descriptor.id.value) {
         return false;
@@ -1724,7 +1724,7 @@ Result<bool, protocol::ErrorCode>
 update_subscription(std::uint32_t target, bool enable, protocol::SubscriptionKind kind,
                     const protocol::SubscriptionRequest& request,
                     protocol::SubscriptionPolicy& effective, TypeList<DataTypes...>,
-                    auto topic_types, auto stream_types) noexcept
+                    auto topic_types, auto stream_types)
 {
     Result<bool, protocol::ErrorCode> result{false};
     ((result&& !* result ? result = update_data_subscription<System, LinkT, LinkIndex, DataTypes>(
@@ -1749,7 +1749,7 @@ update_subscription(std::uint32_t target, bool enable, protocol::SubscriptionKin
 }
 
 template <typename System, typename LinkT, std::uint16_t LinkIndex, typename... DataTypes>
-void reset_link_subscriptions(TypeList<DataTypes...>) noexcept
+void reset_link_subscriptions(TypeList<DataTypes...>)
 {
     protocol::SubscriptionRequest request{};
     protocol::SubscriptionPolicy effective{};
@@ -1764,7 +1764,7 @@ void reset_link_subscriptions(TypeList<DataTypes...>) noexcept
 }
 
 template <typename System, typename LinkT, std::uint16_t LinkIndex, typename... TopicTypes>
-void reset_link_topic_subscriptions(TypeList<TopicTypes...>) noexcept
+void reset_link_topic_subscriptions(TypeList<TopicTypes...>)
 {
     protocol::SubscriptionRequest request{};
     protocol::SubscriptionPolicy effective{};
@@ -1775,7 +1775,7 @@ void reset_link_topic_subscriptions(TypeList<TopicTypes...>) noexcept
 }
 
 template <typename System, typename LinkT, std::uint16_t LinkIndex, typename... StreamTypes>
-void reset_link_stream_subscriptions(TypeList<StreamTypes...>) noexcept
+void reset_link_stream_subscriptions(TypeList<StreamTypes...>)
 {
     protocol::SubscriptionRequest request{};
     protocol::SubscriptionPolicy effective{};
@@ -1787,7 +1787,7 @@ void reset_link_stream_subscriptions(TypeList<StreamTypes...>) noexcept
 
 template <typename System, typename... LinkTypes, std::size_t... Indices>
 void reset_session_link(std::uint16_t link, TypeList<LinkTypes...>,
-                        std::index_sequence<Indices...>) noexcept
+                        std::index_sequence<Indices...>)
 {
     using DataTypes = declarations_of_t<typename System::RemoteDataCatalog::EntryTypes>;
     using TopicTypes = declarations_of_t<typename System::RemoteTopicCatalog::EntryTypes>;
@@ -1868,7 +1868,7 @@ struct InStreamTokenState
 struct InStreamTokenStateKey
 {};
 
-template <typename System> [[nodiscard]] std::uint32_t next_in_stream_token() noexcept
+template <typename System> [[nodiscard]] std::uint32_t next_in_stream_token()
 {
     auto& state = System::template StateSlot<InStreamTokenStateKey, InStreamTokenStateKey,
                                              InStreamTokenState>::value;
@@ -1879,13 +1879,13 @@ template <typename System> [[nodiscard]] std::uint32_t next_in_stream_token() no
     return token;
 }
 
-template <typename System, typename DataT> [[nodiscard]] auto& in_stream_state() noexcept
+template <typename System, typename DataT> [[nodiscard]] auto& in_stream_state()
 {
     using State = InStreamState<System, DataT>;
     return System::template StateSlot<DataT, InStreamStateKey<DataT>, State>::value;
 }
 
-template <typename System, typename DataT> void initialize_in_stream_state() noexcept
+template <typename System, typename DataT> void initialize_in_stream_state()
 {
     if constexpr (has_in_stream_v<DataT>) {
         auto& state = in_stream_state<System, DataT>();
@@ -1897,19 +1897,19 @@ template <typename System, typename DataT> void initialize_in_stream_state() noe
 }
 
 template <typename System, typename... DataTypes>
-void initialize_in_stream_states(TypeList<DataTypes...>) noexcept
+void initialize_in_stream_states(TypeList<DataTypes...>)
 {
     (initialize_in_stream_state<System, DataTypes>(), ...);
 }
 
-template <typename System> void initialize_in_stream_runtime() noexcept
+template <typename System> void initialize_in_stream_runtime()
 {
     using DataTypes = declarations_of_t<typename System::RemoteDataCatalog::EntryTypes>;
     initialize_in_stream_states<System>(DataTypes{});
 }
 
 template <typename System, typename DataT, typename LinkT, std::uint16_t LinkIndex>
-void send_in_stream_credit(std::uint16_t credits, std::uint32_t correlation = 0) noexcept
+void send_in_stream_credit(std::uint16_t credits, std::uint32_t correlation = 0)
 {
     if (credits == 0) {
         return;
@@ -1935,7 +1935,7 @@ void send_in_stream_credit(std::uint16_t credits, std::uint32_t correlation = 0)
 }
 
 template <typename System, typename DataT, typename LinkT, std::uint16_t LinkIndex>
-void restore_in_stream_credit(std::uint32_t token, std::uint32_t generation) noexcept
+void restore_in_stream_credit(std::uint32_t token, std::uint32_t generation)
 {
     auto& state = in_stream_state<System, DataT>();
     {
@@ -1962,7 +1962,7 @@ void restore_in_stream_credit(std::uint32_t token, std::uint32_t generation) noe
 
 template <typename System, typename DataT, typename... LinkTypes, std::size_t... Indices>
 void send_in_stream_credit_on_link(std::uint16_t link, std::uint16_t credits,
-                                   TypeList<LinkTypes...>, std::index_sequence<Indices...>) noexcept
+                                   TypeList<LinkTypes...>, std::index_sequence<Indices...>)
 {
     ((link == Indices
           ? (send_in_stream_credit<System, DataT, LinkTypes, static_cast<std::uint16_t>(Indices)>(
@@ -1973,7 +1973,7 @@ void send_in_stream_credit_on_link(std::uint16_t link, std::uint16_t credits,
 }
 
 template <typename Policy>
-[[nodiscard]] bool invoke_in_stream_open_policy(const InStreamOpenContext& context) noexcept
+[[nodiscard]] bool invoke_in_stream_open_policy(const InStreamOpenContext& context)
 {
     if constexpr (!remote::detail::IsOnOpen<Policy>::value) {
         return true;
@@ -2005,13 +2005,13 @@ template <typename Policy>
 
 template <typename... Policies>
 [[nodiscard]] bool invoke_in_stream_open(TypeList<Policies...>,
-                                         const InStreamOpenContext& context) noexcept
+                                         const InStreamOpenContext& context)
 {
     return (invoke_in_stream_open_policy<Policies>(context) && ...);
 }
 
 template <typename Policy>
-void invoke_in_stream_close_policy(const InStreamCloseContext& context) noexcept
+void invoke_in_stream_close_policy(const InStreamCloseContext& context)
 {
     if constexpr (remote::detail::IsOnClose<Policy>::value) {
         constexpr auto callback = remote::detail::IsOnClose<Policy>::callback;
@@ -2028,12 +2028,12 @@ void invoke_in_stream_close_policy(const InStreamCloseContext& context) noexcept
 }
 
 template <typename... Policies>
-void invoke_in_stream_close(TypeList<Policies...>, const InStreamCloseContext& context) noexcept
+void invoke_in_stream_close(TypeList<Policies...>, const InStreamCloseContext& context)
 {
     (invoke_in_stream_close_policy<Policies>(context), ...);
 }
 
-template <typename System, typename DataT> [[nodiscard]] bool run_in_stream_lifecycle() noexcept
+template <typename System, typename DataT> [[nodiscard]] bool run_in_stream_lifecycle()
 {
     if constexpr (!has_in_stream_v<DataT>) {
         return false;
@@ -2069,7 +2069,7 @@ template <typename System, typename DataT> [[nodiscard]] bool run_in_stream_life
 }
 
 template <typename System, typename DataT>
-[[nodiscard]] bool execute_in_stream_open_lifecycle(const InStreamOpenContext& context) noexcept
+[[nodiscard]] bool execute_in_stream_open_lifecycle(const InStreamOpenContext& context)
 {
     using Traits = InStreamTraits<DataT>;
     if constexpr (Traits::Lifecycle::open_count == 0) {
@@ -2100,7 +2100,7 @@ template <typename System, typename DataT>
 }
 
 template <typename System, typename DataT>
-void execute_in_stream_close_lifecycle(const InStreamCloseContext& context) noexcept
+void execute_in_stream_close_lifecycle(const InStreamCloseContext& context)
 {
     using Traits = InStreamTraits<DataT>;
     if constexpr (Traits::Lifecycle::close_count == 0) {
@@ -2128,7 +2128,7 @@ void execute_in_stream_close_lifecycle(const InStreamCloseContext& context) noex
 }
 
 template <typename System, typename DataT, typename LinkT, std::uint16_t LinkIndex>
-void send_in_stream_closed(std::uint32_t token, InStreamCloseReason reason) noexcept
+void send_in_stream_closed(std::uint32_t token, InStreamCloseReason reason)
 {
     const auto payload = protocol::encode(protocol::InStreamClosed{
         .token = token,
@@ -2142,7 +2142,7 @@ void send_in_stream_closed(std::uint32_t token, InStreamCloseReason reason) noex
 template <typename System, typename DataT, typename... LinkTypes, std::size_t... Indices>
 void send_in_stream_closed_on_link(std::uint16_t link, std::uint32_t token,
                                    InStreamCloseReason reason, TypeList<LinkTypes...>,
-                                   std::index_sequence<Indices...>) noexcept
+                                   std::index_sequence<Indices...>)
 {
     ((link == Indices
           ? (send_in_stream_closed<System, DataT, LinkTypes, static_cast<std::uint16_t>(Indices)>(
@@ -2154,7 +2154,7 @@ void send_in_stream_closed_on_link(std::uint16_t link, std::uint32_t token,
 
 template <typename System, typename DataT>
 [[nodiscard]] std::uint32_t close_in_stream_link(std::uint16_t link, InStreamCloseReason reason,
-                                                 bool notify) noexcept
+                                                 bool notify)
 {
     if constexpr (has_in_stream_v<DataT>) {
         auto& state = in_stream_state<System, DataT>();
@@ -2197,17 +2197,17 @@ template <typename System, typename DataT>
 }
 
 template <typename System, typename DataT>
-void reset_in_stream_link(std::uint16_t link, InStreamCloseReason reason) noexcept
+void reset_in_stream_link(std::uint16_t link, InStreamCloseReason reason)
 {
     (void)close_in_stream_link<System, DataT>(link, reason, false);
 }
 
-template <typename System> void open_session(std::uint16_t) noexcept {}
+template <typename System> void open_session(std::uint16_t) {}
 
-template <typename System> void cancel_session_requests(std::uint16_t link) noexcept;
+template <typename System> void cancel_session_requests(std::uint16_t link);
 
 template <typename System>
-void reset_session(std::uint16_t link, InStreamCloseReason reason) noexcept
+void reset_session(std::uint16_t link, InStreamCloseReason reason)
 {
     cancel_session_requests<System>(link);
     using DataTypes = declarations_of_t<typename System::RemoteDataCatalog::EntryTypes>;
@@ -2250,7 +2250,7 @@ inline constexpr bool asynchronous_action_v = [] {
 
 template <typename ActionT>
 void call_asynchronous_action(const action_request_t<ActionT>& request,
-                              Responder<ActionT> responder) noexcept
+                              Responder<ActionT> responder)
 {
     if constexpr (std::is_same_v<action_request_t<ActionT>, Empty> &&
                   requires { ActionT::execute(std::move(responder)); }) {
@@ -2318,12 +2318,17 @@ template <typename System, typename DataT> struct QueryBuffer
 
 template <typename System, typename LinkT, std::uint16_t LinkIndex, typename DataT>
 void send_query_value(const typename DataT::Value& value,
-                      const protocol::Envelope& envelope) noexcept
+                      const protocol::Envelope& envelope)
 {
     using ServiceT = typename System::RemoteService;
     using State = LinkState<ServiceT, LinkT, LinkIndex>;
     if (State::session.load(std::memory_order_acquire) != SessionState::Active ||
         State::epoch.load(std::memory_order_acquire) != envelope.session_epoch) {
+        // The caller already reserved a response slot for this request; a
+        // stale session/epoch must still release it, or the slot leaks
+        // permanently (CONFIG_SOLAR_REMOTE_MAX_REQUESTS is small and never
+        // recovers without a reboot).
+        ServiceT::template release_response<LinkT, LinkIndex>(envelope.request_id);
         return;
     }
     auto& output = QueryBuffer<System, DataT>::output;
@@ -2338,12 +2343,17 @@ void send_query_value(const typename DataT::Value& value,
 }
 
 template <typename System, typename LinkT, std::uint16_t LinkIndex, typename ErrorT>
-void send_query_error(const ErrorT& error, const protocol::Envelope& envelope) noexcept
+void send_query_error(const ErrorT& error, const protocol::Envelope& envelope)
 {
     using ServiceT = typename System::RemoteService;
     using State = LinkState<ServiceT, LinkT, LinkIndex>;
     if (State::session.load(std::memory_order_acquire) != SessionState::Active ||
         State::epoch.load(std::memory_order_acquire) != envelope.session_epoch) {
+        // The caller already reserved a response slot for this request; a
+        // stale session/epoch must still release it, or the slot leaks
+        // permanently (CONFIG_SOLAR_REMOTE_MAX_REQUESTS is small and never
+        // recovers without a reboot).
+        ServiceT::template release_response<LinkT, LinkIndex>(envelope.request_id);
         return;
     }
     static_assert(SchemaType<ErrorT>,
@@ -2360,12 +2370,17 @@ void send_query_error(const ErrorT& error, const protocol::Envelope& envelope) n
 }
 
 template <typename System, typename LinkT, std::uint16_t LinkIndex>
-void send_empty_response(const protocol::Envelope& envelope) noexcept
+void send_empty_response(const protocol::Envelope& envelope)
 {
     using ServiceT = typename System::RemoteService;
     using State = LinkState<ServiceT, LinkT, LinkIndex>;
     if (State::session.load(std::memory_order_acquire) != SessionState::Active ||
         State::epoch.load(std::memory_order_acquire) != envelope.session_epoch) {
+        // The caller already reserved a response slot for this request; a
+        // stale session/epoch must still release it, or the slot leaks
+        // permanently (CONFIG_SOLAR_REMOTE_MAX_REQUESTS is small and never
+        // recovers without a reboot).
+        ServiceT::template release_response<LinkT, LinkIndex>(envelope.request_id);
         return;
     }
     std::array<std::byte, Schema<Empty>::max_encoded_size> output{};
@@ -2380,11 +2395,17 @@ void send_empty_response(const protocol::Envelope& envelope) noexcept
 }
 
 template <typename System, typename LinkT, std::uint16_t LinkIndex, typename DataT>
-void execute_query(const protocol::Envelope& envelope) noexcept
+void execute_query(const protocol::Envelope& envelope)
 {
-    using State = LinkState<typename System::RemoteService, LinkT, LinkIndex>;
+    using ServiceT = typename System::RemoteService;
+    using State = LinkState<ServiceT, LinkT, LinkIndex>;
     if (State::session.load(std::memory_order_acquire) != SessionState::Active ||
         State::epoch.load(std::memory_order_acquire) != envelope.session_epoch) {
+        // The caller already reserved a response slot for this request; a
+        // stale session/epoch must still release it, or the slot leaks
+        // permanently (CONFIG_SOLAR_REMOTE_MAX_REQUESTS is small and never
+        // recovers without a reboot).
+        ServiceT::template release_response<LinkT, LinkIndex>(envelope.request_id);
         return;
     }
     using Value = typename DataT::Value;
@@ -2435,11 +2456,17 @@ void execute_query(const protocol::Envelope& envelope) noexcept
 }
 
 template <typename System, typename LinkT, std::uint16_t LinkIndex, typename DataT>
-void execute_update(const typename DataT::Value& value, const protocol::Envelope& envelope) noexcept
+void execute_update(const typename DataT::Value& value, const protocol::Envelope& envelope)
 {
-    using State = LinkState<typename System::RemoteService, LinkT, LinkIndex>;
+    using ServiceT = typename System::RemoteService;
+    using State = LinkState<ServiceT, LinkT, LinkIndex>;
     if (State::session.load(std::memory_order_acquire) != SessionState::Active ||
         State::epoch.load(std::memory_order_acquire) != envelope.session_epoch) {
+        // The caller already reserved a response slot for this request; a
+        // stale session/epoch must still release it, or the slot leaks
+        // permanently (CONFIG_SOLAR_REMOTE_MAX_REQUESTS is small and never
+        // recovers without a reboot).
+        ServiceT::template release_response<LinkT, LinkIndex>(envelope.request_id);
         return;
     }
     using Value = typename DataT::Value;
@@ -2467,7 +2494,7 @@ void execute_update(const typename DataT::Value& value, const protocol::Envelope
 }
 
 template <typename DataT>
-[[nodiscard]] Result<void> invoke_in_stream_consumer(const typename DataT::Value& value) noexcept
+[[nodiscard]] Result<void> invoke_in_stream_consumer(const typename DataT::Value& value)
 {
     using Capability = typename InStreamTraits<DataT>::Capability;
     constexpr auto consumer = IsInStream<Capability>::consumer;
@@ -2491,7 +2518,7 @@ template <typename DataT>
 }
 
 template <typename System, typename DataT, typename LinkT, std::uint16_t LinkIndex>
-void return_in_stream_credit(std::uint32_t token, std::uint32_t generation) noexcept
+void return_in_stream_credit(std::uint32_t token, std::uint32_t generation)
 {
     using LinkStateT = LinkState<typename System::RemoteService, LinkT, LinkIndex>;
     if (LinkStateT::session.load(std::memory_order_acquire) != SessionState::Active) {
@@ -2515,7 +2542,7 @@ void return_in_stream_credit(std::uint32_t token, std::uint32_t generation) noex
 template <typename System, typename DataT, typename... LinkTypes, std::size_t... Indices>
 void return_in_stream_credit_on_link(std::uint16_t link, std::uint32_t token,
                                      std::uint32_t generation, TypeList<LinkTypes...>,
-                                     std::index_sequence<Indices...>) noexcept
+                                     std::index_sequence<Indices...>)
 {
     ((link == Indices
           ? (return_in_stream_credit<System, DataT, LinkTypes, static_cast<std::uint16_t>(Indices)>(
@@ -2525,7 +2552,7 @@ void return_in_stream_credit_on_link(std::uint16_t link, std::uint32_t token,
      ...);
 }
 
-template <typename System, typename DataT> bool run_pending_in_stream() noexcept
+template <typename System, typename DataT> bool run_pending_in_stream()
 {
     if constexpr (!has_in_stream_v<DataT>) {
         return false;
@@ -2622,7 +2649,7 @@ template <typename DataT> struct PendingUpdate
 template <typename DataT> struct PendingUpdateKey
 {};
 
-template <typename System, typename DataT> [[nodiscard]] auto& pending_update() noexcept
+template <typename System, typename DataT> [[nodiscard]] auto& pending_update()
 {
     return System::template StateSlot<DataT, PendingUpdateKey<DataT>, PendingUpdate<DataT>>::value;
 }
@@ -2630,7 +2657,7 @@ template <typename System, typename DataT> [[nodiscard]] auto& pending_update() 
 template <typename DataT> struct PendingQueryKey
 {};
 
-template <typename System, typename DataT> [[nodiscard]] auto& pending_query() noexcept
+template <typename System, typename DataT> [[nodiscard]] auto& pending_query()
 {
     return System::template StateSlot<DataT, PendingQueryKey<DataT>, PendingQuery<DataT>>::value;
 }
@@ -2641,20 +2668,20 @@ template <typename ActionT> struct PendingActionKey
 template <typename ActionT> struct AsynchronousActionKey
 {};
 
-template <typename System, typename ActionT> [[nodiscard]] auto& pending_action() noexcept
+template <typename System, typename ActionT> [[nodiscard]] auto& pending_action()
 {
     return System::template StateSlot<ActionT, PendingActionKey<ActionT>,
                                       PendingAction<ActionT>>::value;
 }
 
-template <typename System, typename ActionT> [[nodiscard]] auto& asynchronous_action() noexcept
+template <typename System, typename ActionT> [[nodiscard]] auto& asynchronous_action()
 {
     return System::template StateSlot<ActionT, AsynchronousActionKey<ActionT>,
                                       AsynchronousActionState<ActionT>>::value;
 }
 
 template <typename System, typename ActionT>
-[[nodiscard]] bool claim_asynchronous_action(ResponderToken token) noexcept
+[[nodiscard]] bool claim_asynchronous_action(ResponderToken token)
 {
     auto& state = asynchronous_action<System, ActionT>();
     auto guard = state.lock.acquire();
@@ -2667,7 +2694,7 @@ template <typename System, typename ActionT>
 }
 
 template <typename System, typename ActionT>
-[[nodiscard]] bool asynchronous_action_cancelled(ResponderToken token) noexcept
+[[nodiscard]] bool asynchronous_action_cancelled(ResponderToken token)
 {
     auto& state = asynchronous_action<System, ActionT>();
     auto guard = state.lock.acquire();
@@ -2677,7 +2704,7 @@ template <typename System, typename ActionT>
 }
 
 template <typename System, typename ActionT>
-bool cancel_pending_action(std::uint16_t link, std::uint32_t request) noexcept
+bool cancel_pending_action(std::uint16_t link, std::uint32_t request)
 {
     auto& pending = pending_action<System, ActionT>();
     {
@@ -2701,7 +2728,7 @@ bool cancel_pending_action(std::uint16_t link, std::uint32_t request) noexcept
 }
 
 template <typename System, typename DataT>
-bool cancel_pending_query(std::uint16_t link, std::uint32_t request) noexcept
+bool cancel_pending_query(std::uint16_t link, std::uint32_t request)
 {
     if constexpr (!has_query_v<DataT>) {
         return false;
@@ -2718,7 +2745,7 @@ bool cancel_pending_query(std::uint16_t link, std::uint32_t request) noexcept
 }
 
 template <typename System, typename DataT>
-bool cancel_pending_update(std::uint16_t link, std::uint32_t request) noexcept
+bool cancel_pending_update(std::uint16_t link, std::uint32_t request)
 {
     if constexpr (!has_update_v<DataT>) {
         return false;
@@ -2736,7 +2763,7 @@ bool cancel_pending_update(std::uint16_t link, std::uint32_t request) noexcept
 
 template <typename System, typename... ActionTypes, typename... DataTypes>
 bool cancel_pending_request(std::uint16_t link, std::uint32_t request, TypeList<ActionTypes...>,
-                            TypeList<DataTypes...>) noexcept
+                            TypeList<DataTypes...>)
 {
     const bool action = (cancel_pending_action<System, ActionTypes>(link, request) || ...);
     if (action) {
@@ -2749,7 +2776,7 @@ bool cancel_pending_request(std::uint16_t link, std::uint32_t request, TypeList<
     return (cancel_pending_update<System, DataTypes>(link, request) || ...);
 }
 
-template <typename System, typename ActionT> void cancel_link_action(std::uint16_t link) noexcept
+template <typename System, typename ActionT> void cancel_link_action(std::uint16_t link)
 {
     auto& pending = pending_action<System, ActionT>();
     {
@@ -2769,7 +2796,7 @@ template <typename System, typename ActionT> void cancel_link_action(std::uint16
     }
 }
 
-template <typename System, typename DataT> void cancel_link_data(std::uint16_t link) noexcept
+template <typename System, typename DataT> void cancel_link_data(std::uint16_t link)
 {
     if constexpr (has_query_v<DataT>) {
         auto& query = pending_query<System, DataT>();
@@ -2791,13 +2818,13 @@ template <typename System, typename DataT> void cancel_link_data(std::uint16_t l
 
 template <typename System, typename... ActionTypes, typename... DataTypes>
 void cancel_link_requests(std::uint16_t link, TypeList<ActionTypes...>,
-                          TypeList<DataTypes...>) noexcept
+                          TypeList<DataTypes...>)
 {
     (cancel_link_action<System, ActionTypes>(link), ...);
     (cancel_link_data<System, DataTypes>(link), ...);
 }
 
-template <typename System> void cancel_session_requests(std::uint16_t link) noexcept
+template <typename System> void cancel_session_requests(std::uint16_t link)
 {
     using Actions = declarations_of_t<typename System::RemoteActionCatalog::EntryTypes>;
     using DataTypes = declarations_of_t<typename System::RemoteDataCatalog::EntryTypes>;
@@ -2807,12 +2834,17 @@ template <typename System> void cancel_session_requests(std::uint16_t link) noex
 template <typename System, typename LinkT, std::uint16_t LinkIndex, typename ActionT,
           typename Value>
 [[nodiscard]] Result<void> send_asynchronous_action_result(ResponderToken token, Value&& value,
-                                                           bool domain_error) noexcept
+                                                           bool domain_error)
 {
     using ServiceT = typename System::RemoteService;
     using State = LinkState<ServiceT, LinkT, LinkIndex>;
     if (State::session.load(std::memory_order_acquire) != SessionState::Active ||
         State::epoch.load(std::memory_order_acquire) != token.epoch) {
+        // The caller already reserved a response slot for this request; a
+        // stale session/epoch must still release it, or the slot leaks
+        // permanently (CONFIG_SOLAR_REMOTE_MAX_REQUESTS is small and never
+        // recovers without a reboot).
+        ServiceT::template release_response<LinkT, LinkIndex>(token.request);
         return fail<solar::Error>({.status = solar::Status::NotReady});
     }
     auto& output = ActionBuffers<System, ActionT>::output;
@@ -2837,7 +2869,7 @@ template <typename System, typename ActionT, typename Value, typename... LinkTyp
 [[nodiscard]] Result<void>
 send_asynchronous_action_result_on_link(ResponderToken token, Value&& value, bool domain_error,
                                         TypeList<LinkTypes...>,
-                                        std::index_sequence<Indices...>) noexcept
+                                        std::index_sequence<Indices...>)
 {
     Result<void> result = fail<solar::Error>({.status = solar::Status::NotFound});
     ((token.link == Indices
@@ -2852,7 +2884,7 @@ send_asynchronous_action_result_on_link(ResponderToken token, Value&& value, boo
 
 template <typename System, typename ActionT, typename Value>
 [[nodiscard]] Result<void> complete_asynchronous_action(ResponderToken token, Value&& value,
-                                                        bool domain_error) noexcept
+                                                        bool domain_error)
 {
     if (!claim_asynchronous_action<System, ActionT>(token)) {
         return fail<solar::Error>({.status = solar::Status::NotReady});
@@ -2881,7 +2913,7 @@ complete_asynchronous_action_failure(ResponderToken token, action_error_t<Action
 }
 
 template <typename System, typename LinkT, std::uint16_t LinkIndex, typename ActionT>
-void abandon_asynchronous_action_on_link(ResponderToken token) noexcept
+void abandon_asynchronous_action_on_link(ResponderToken token)
 {
     using ServiceT = typename System::RemoteService;
     (void)ServiceT::template protocol_error<LinkT, LinkIndex>(
@@ -2890,7 +2922,7 @@ void abandon_asynchronous_action_on_link(ResponderToken token) noexcept
 
 template <typename System, typename ActionT, typename... LinkTypes, std::size_t... Indices>
 void abandon_asynchronous_action_on_link(ResponderToken token, TypeList<LinkTypes...>,
-                                         std::index_sequence<Indices...>) noexcept
+                                         std::index_sequence<Indices...>)
 {
     ((token.link == Indices
           ? (abandon_asynchronous_action_on_link<
@@ -2901,7 +2933,7 @@ void abandon_asynchronous_action_on_link(ResponderToken token, TypeList<LinkType
 }
 
 template <typename System, typename ActionT>
-void abandon_asynchronous_action(ResponderToken token) noexcept
+void abandon_asynchronous_action(ResponderToken token)
 {
     if (!claim_asynchronous_action<System, ActionT>(token)) {
         return;
@@ -2914,12 +2946,17 @@ void abandon_asynchronous_action(ResponderToken token) noexcept
 
 template <typename System, typename LinkT, std::uint16_t LinkIndex, typename ActionT>
 [[nodiscard]] bool execute_owned_action(const action_request_t<ActionT>& request,
-                                        const protocol::Envelope& envelope) noexcept
+                                        const protocol::Envelope& envelope)
 {
     using ServiceT = typename System::RemoteService;
     using State = LinkState<ServiceT, LinkT, LinkIndex>;
     if (State::session.load(std::memory_order_acquire) != SessionState::Active ||
         State::epoch.load(std::memory_order_acquire) != envelope.session_epoch) {
+        // The caller already reserved a response slot for this request; a
+        // stale session/epoch must still release it, or the slot leaks
+        // permanently (CONFIG_SOLAR_REMOTE_MAX_REQUESTS is small and never
+        // recovers without a reboot).
+        ServiceT::template release_response<LinkT, LinkIndex>(envelope.request_id);
         return false;
     }
     if constexpr (asynchronous_action_v<ActionT>) {
@@ -2951,6 +2988,9 @@ template <typename System, typename LinkT, std::uint16_t LinkIndex, typename Act
         auto result = invoke_action_handler<ActionT>(request);
         if (State::session.load(std::memory_order_acquire) != SessionState::Active ||
             State::epoch.load(std::memory_order_acquire) != envelope.session_epoch) {
+            // Same as above: the reservation made before invoking the
+            // handler must still be released on a stale session/epoch.
+            ServiceT::template release_response<LinkT, LinkIndex>(envelope.request_id);
             return false;
         }
         auto& output = ActionBuffers<System, ActionT>::output;
@@ -2982,7 +3022,7 @@ template <typename System, typename ActionT, typename... LinkTypes, std::size_t.
 [[nodiscard]] bool
 execute_action_on_link(std::uint16_t link, const action_request_t<ActionT>& request,
                        const protocol::Envelope& envelope, TypeList<LinkTypes...>,
-                       std::index_sequence<Indices...>) noexcept
+                       std::index_sequence<Indices...>)
 {
     bool retained{};
     ((link == Indices
@@ -2994,7 +3034,7 @@ execute_action_on_link(std::uint16_t link, const action_request_t<ActionT>& requ
     return retained;
 }
 
-template <typename System, typename ActionT> bool run_pending_action() noexcept
+template <typename System, typename ActionT> bool run_pending_action()
 {
     auto& pending = pending_action<System, ActionT>();
     std::optional<action_request_t<ActionT>> request;
@@ -3021,7 +3061,7 @@ template <typename System, typename ActionT> bool run_pending_action() noexcept
 
 template <typename System, typename DataT, typename... LinkTypes, std::size_t... Indices>
 void execute_query_on_link(std::uint16_t link, const protocol::Envelope& envelope,
-                           TypeList<LinkTypes...>, std::index_sequence<Indices...>) noexcept
+                           TypeList<LinkTypes...>, std::index_sequence<Indices...>)
 {
     ((link == Indices
           ? (execute_query<System, LinkTypes, static_cast<std::uint16_t>(Indices), DataT>(envelope),
@@ -3030,7 +3070,7 @@ void execute_query_on_link(std::uint16_t link, const protocol::Envelope& envelop
      ...);
 }
 
-template <typename System, typename DataT> bool run_pending_query() noexcept
+template <typename System, typename DataT> bool run_pending_query()
 {
     if constexpr (!has_query_v<DataT>) {
         return false;
@@ -3058,7 +3098,7 @@ template <typename System, typename DataT> bool run_pending_query() noexcept
 template <typename System, typename DataT, typename... LinkTypes, std::size_t... Indices>
 void execute_update_on_link(std::uint16_t link, const typename DataT::Value& value,
                             const protocol::Envelope& envelope, TypeList<LinkTypes...>,
-                            std::index_sequence<Indices...>) noexcept
+                            std::index_sequence<Indices...>)
 {
     ((link == Indices
           ? (execute_update<System, LinkTypes, static_cast<std::uint16_t>(Indices), DataT>(
@@ -3068,7 +3108,7 @@ void execute_update_on_link(std::uint16_t link, const typename DataT::Value& val
      ...);
 }
 
-template <typename System, typename DataT> bool run_pending_update() noexcept
+template <typename System, typename DataT> bool run_pending_update()
 {
     if constexpr (!has_update_v<DataT>) {
         return false;
@@ -3096,14 +3136,14 @@ template <typename System, typename DataT> bool run_pending_update() noexcept
 }
 
 template <typename System, typename... ActionTypes>
-[[nodiscard]] Result<void> process_action_work_for(TypeList<ActionTypes...>) noexcept
+[[nodiscard]] Result<void> process_action_work_for(TypeList<ActionTypes...>)
 {
     (static_cast<void>(run_pending_action<System, ActionTypes>()), ...);
     return {};
 }
 
 template <typename System>
-[[nodiscard]] Result<void> process_action_work(std::uint32_t target, bool action) noexcept
+[[nodiscard]] Result<void> process_action_work(std::uint32_t target, bool action)
 {
     if (action) {
         using Actions = declarations_of_t<typename System::RemoteActionCatalog::EntryTypes>;
@@ -3133,7 +3173,7 @@ template <typename System>
 
 template <typename System, typename... DataTypes>
 [[nodiscard]] Result<void> process_in_stream_work_for(std::uint32_t target,
-                                                      TypeList<DataTypes...>) noexcept
+                                                      TypeList<DataTypes...>)
 {
     bool found{};
     ((target == DataTypes::descriptor.id.value
@@ -3147,7 +3187,7 @@ template <typename System, typename... DataTypes>
 }
 
 template <typename System>
-[[nodiscard]] Result<void> process_in_stream_work(std::uint32_t target) noexcept
+[[nodiscard]] Result<void> process_in_stream_work(std::uint32_t target)
 {
     using DataTypes = declarations_of_t<typename System::RemoteDataCatalog::EntryTypes>;
     auto result = process_in_stream_work_for<System>(target, DataTypes{});
@@ -3159,7 +3199,7 @@ template <typename System>
 }
 
 template <typename System, typename LinkT, std::uint16_t LinkIndex, typename ActionT>
-void execute_action_request(const frame::Decoded& decoded) noexcept
+void execute_action_request(const frame::Decoded& decoded)
 {
     using ServiceT = typename System::RemoteService;
     using State = LinkState<ServiceT, LinkT, LinkIndex>;
@@ -3256,7 +3296,7 @@ void execute_action_request(const frame::Decoded& decoded) noexcept
 }
 
 template <typename System, typename LinkT, std::uint16_t LinkIndex, typename DataT>
-void execute_query_request(const frame::Decoded& decoded) noexcept
+void execute_query_request(const frame::Decoded& decoded)
 {
     using ServiceT = typename System::RemoteService;
     using State = LinkState<ServiceT, LinkT, LinkIndex>;
@@ -3330,7 +3370,7 @@ void execute_query_request(const frame::Decoded& decoded) noexcept
 }
 
 template <typename System, typename LinkT, std::uint16_t LinkIndex, typename DataT>
-void execute_update_request(const frame::Decoded& decoded) noexcept
+void execute_update_request(const frame::Decoded& decoded)
 {
     using ServiceT = typename System::RemoteService;
     using State = LinkState<ServiceT, LinkT, LinkIndex>;
@@ -3411,7 +3451,7 @@ void execute_update_request(const frame::Decoded& decoded) noexcept
 }
 
 template <typename System, typename LinkT, std::uint16_t LinkIndex, typename DataT>
-void execute_in_stream_frame(const frame::Decoded& decoded) noexcept
+void execute_in_stream_frame(const frame::Decoded& decoded)
 {
     using ServiceT = typename System::RemoteService;
     using State = LinkState<ServiceT, LinkT, LinkIndex>;
@@ -3540,7 +3580,7 @@ void execute_in_stream_frame(const frame::Decoded& decoded) noexcept
 }
 
 template <typename System, typename LinkT, std::uint16_t LinkIndex, typename... ActionTypes>
-bool dispatch_action(const frame::Decoded& decoded, TypeList<ActionTypes...>) noexcept
+bool dispatch_action(const frame::Decoded& decoded, TypeList<ActionTypes...>)
 {
     return ((decoded.envelope.target == ActionTypes::descriptor.id.value
                  ? (execute_action_request<System, LinkT, LinkIndex, ActionTypes>(decoded), true)
@@ -3549,7 +3589,7 @@ bool dispatch_action(const frame::Decoded& decoded, TypeList<ActionTypes...>) no
 }
 
 template <typename System, typename LinkT, std::uint16_t LinkIndex, typename... DataTypes>
-bool dispatch_query(const frame::Decoded& decoded, TypeList<DataTypes...>) noexcept
+bool dispatch_query(const frame::Decoded& decoded, TypeList<DataTypes...>)
 {
     return ((decoded.envelope.target == DataTypes::descriptor.id.value
                  ? (execute_query_request<System, LinkT, LinkIndex, DataTypes>(decoded), true)
@@ -3558,7 +3598,7 @@ bool dispatch_query(const frame::Decoded& decoded, TypeList<DataTypes...>) noexc
 }
 
 template <typename System, typename LinkT, std::uint16_t LinkIndex, typename... DataTypes>
-bool dispatch_update(const frame::Decoded& decoded, TypeList<DataTypes...>) noexcept
+bool dispatch_update(const frame::Decoded& decoded, TypeList<DataTypes...>)
 {
     return ((decoded.envelope.target == DataTypes::descriptor.id.value
                  ? (execute_update_request<System, LinkT, LinkIndex, DataTypes>(decoded), true)
@@ -3567,7 +3607,7 @@ bool dispatch_update(const frame::Decoded& decoded, TypeList<DataTypes...>) noex
 }
 
 template <typename System, typename LinkT, std::uint16_t LinkIndex, typename... DataTypes>
-bool dispatch_in_stream(const frame::Decoded& decoded, TypeList<DataTypes...>) noexcept
+bool dispatch_in_stream(const frame::Decoded& decoded, TypeList<DataTypes...>)
 {
     return ((decoded.envelope.target == DataTypes::descriptor.id.value
                  ? (execute_in_stream_frame<System, LinkT, LinkIndex, DataTypes>(decoded), true)
@@ -3575,7 +3615,7 @@ bool dispatch_in_stream(const frame::Decoded& decoded, TypeList<DataTypes...>) n
             ...);
 }
 
-template <typename System, typename DataT> [[nodiscard]] bool in_stream_is_active() noexcept
+template <typename System, typename DataT> [[nodiscard]] bool in_stream_is_active()
 {
     if constexpr (!has_in_stream_v<DataT>) {
         return false;
@@ -3588,7 +3628,7 @@ template <typename System, typename DataT> [[nodiscard]] bool in_stream_is_activ
 }
 
 template <typename System, typename Group, typename DataT>
-[[nodiscard]] bool in_stream_group_is_active_for() noexcept
+[[nodiscard]] bool in_stream_group_is_active_for()
 {
     if constexpr (!has_in_stream_v<DataT>) {
         return false;
@@ -3601,12 +3641,12 @@ template <typename System, typename Group, typename DataT>
 }
 
 template <typename System, typename Group, typename... DataTypes>
-[[nodiscard]] bool in_stream_group_is_active(TypeList<DataTypes...>) noexcept
+[[nodiscard]] bool in_stream_group_is_active(TypeList<DataTypes...>)
 {
     return (in_stream_group_is_active_for<System, Group, DataTypes>() || ...);
 }
 
-template <typename System, typename Group, typename DataT> void close_in_stream_group_for() noexcept
+template <typename System, typename Group, typename DataT> void close_in_stream_group_for()
 {
     if constexpr (has_in_stream_v<DataT>) {
         if constexpr (InStreamTraits<DataT>::exclusive &&
@@ -3621,14 +3661,14 @@ template <typename System, typename Group, typename DataT> void close_in_stream_
 }
 
 template <typename System, typename Group, typename... DataTypes>
-void close_in_stream_group(TypeList<DataTypes...>) noexcept
+void close_in_stream_group(TypeList<DataTypes...>)
 {
     (close_in_stream_group_for<System, Group, DataTypes>(), ...);
 }
 
 template <typename System, typename DataT>
 [[nodiscard]] Result<protocol::InStreamOpenResponse, protocol::ErrorCode>
-open_in_stream(std::uint16_t link, const protocol::SubscriptionRequest& request) noexcept
+open_in_stream(std::uint16_t link, const protocol::SubscriptionRequest& request)
 {
     constexpr auto codec = Schema<typename DataT::Value>::codec;
     if (request.flags != 0 || request.batch_size > 1 ||
@@ -3706,7 +3746,7 @@ open_in_stream(std::uint16_t link, const protocol::SubscriptionRequest& request)
 }
 
 template <typename System, typename LinkT, std::uint16_t LinkIndex, typename DataT>
-bool process_in_stream_subscription_for(const frame::Decoded& decoded, bool enable) noexcept
+bool process_in_stream_subscription_for(const frame::Decoded& decoded, bool enable)
 {
     if (decoded.envelope.target != DataT::descriptor.id.value) {
         return false;
@@ -3789,7 +3829,7 @@ bool process_in_stream_subscription_for(const frame::Decoded& decoded, bool enab
 
 template <typename System, typename LinkT, std::uint16_t LinkIndex, typename... DataTypes>
 bool process_in_stream_subscription_target(const frame::Decoded& decoded, bool enable,
-                                           TypeList<DataTypes...>) noexcept
+                                           TypeList<DataTypes...>)
 {
     return (
         process_in_stream_subscription_for<System, LinkT, LinkIndex, DataTypes>(decoded, enable) ||
@@ -3797,7 +3837,7 @@ bool process_in_stream_subscription_target(const frame::Decoded& decoded, bool e
 }
 
 template <typename System, typename LinkT, std::uint16_t LinkIndex>
-bool admit_request_id(const frame::Decoded& decoded) noexcept
+bool admit_request_id(const frame::Decoded& decoded)
 {
     using ServiceT = typename System::RemoteService;
     using State = LinkState<ServiceT, LinkT, LinkIndex>;
@@ -3830,7 +3870,7 @@ bool admit_request_id(const frame::Decoded& decoded) noexcept
 }
 
 template <typename System, typename LinkT, std::uint16_t LinkIndex>
-void process_subscription(const frame::Decoded& decoded, bool enable) noexcept
+void process_subscription(const frame::Decoded& decoded, bool enable)
 {
     using ServiceT = typename System::RemoteService;
     using State = LinkState<ServiceT, LinkT, LinkIndex>;
@@ -3916,7 +3956,7 @@ void process_subscription(const frame::Decoded& decoded, bool enable) noexcept
 }
 
 template <typename System, typename LinkT, std::uint16_t LinkIndex>
-void process_link_application_frame(const frame::Decoded& decoded) noexcept
+void process_link_application_frame(const frame::Decoded& decoded)
 {
     using ServiceT = typename System::RemoteService;
     if (decoded.envelope.kind == protocol::Kind::ResponseAck) {
@@ -3989,7 +4029,7 @@ void process_link_application_frame(const frame::Decoded& decoded) noexcept
 
 template <typename System, typename... LinkTypes, std::size_t... Indices>
 void dispatch_application_link(std::uint16_t link, const frame::Decoded& decoded,
-                               TypeList<LinkTypes...>, std::index_sequence<Indices...>) noexcept
+                               TypeList<LinkTypes...>, std::index_sequence<Indices...>)
 {
     ((link == Indices
           ? (process_link_application_frame<System, LinkTypes, static_cast<std::uint16_t>(Indices)>(
@@ -4000,7 +4040,7 @@ void dispatch_application_link(std::uint16_t link, const frame::Decoded& decoded
 }
 
 template <typename System>
-void process_application_frame(std::uint16_t link, const frame::Decoded& decoded) noexcept
+void process_application_frame(std::uint16_t link, const frame::Decoded& decoded)
 {
     using Links = typename System::RemoteArchitecture::Links;
     dispatch_application_link<System>(link, decoded, Links{},
@@ -4008,7 +4048,7 @@ void process_application_frame(std::uint16_t link, const frame::Decoded& decoded
 }
 
 template <typename System>
-[[nodiscard]] protocol::IntrospectionSummary introspection_summary() noexcept
+[[nodiscard]] protocol::IntrospectionSummary introspection_summary()
 {
     return {
         .schemas = static_cast<std::uint16_t>(manifest::Image<System>::schema_count),
@@ -4022,7 +4062,7 @@ template <typename System>
     };
 }
 
-template <typename System> [[nodiscard]] protocol::ServerInformation server_information() noexcept
+template <typename System> [[nodiscard]] protocol::ServerInformation server_information()
 {
     return {
         .maximum_frame_bytes = CONFIG_SOLAR_REMOTE_MAX_FRAME_BYTES,
@@ -4047,7 +4087,7 @@ template <typename System> [[nodiscard]] protocol::ServerInformation server_info
 
 template <typename System>
 [[nodiscard]] Result<std::size_t, Error> manifest_chunk(std::span<const std::byte> request_bytes,
-                                                        std::span<std::byte> output) noexcept
+                                                        std::span<std::byte> output)
 {
     auto request = protocol::decode_manifest_request(request_bytes);
     constexpr auto& image = manifest::Image<System>::bytes;

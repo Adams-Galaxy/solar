@@ -56,31 +56,31 @@ template <std::size_t BlockBytes> class MemorySlabBlock
         return *this;
     }
 
-    [[nodiscard]] std::span<std::byte, BlockBytes> bytes() noexcept
+    [[nodiscard]] std::span<std::byte, BlockBytes> bytes()
     {
         return std::span<std::byte, BlockBytes>{static_cast<std::byte*>(memory_), BlockBytes};
     }
 
-    [[nodiscard]] std::span<const std::byte, BlockBytes> bytes() const noexcept
+    [[nodiscard]] std::span<const std::byte, BlockBytes> bytes() const
     {
         return std::span<const std::byte, BlockBytes>{static_cast<const std::byte*>(memory_),
                                                       BlockBytes};
     }
 
-    [[nodiscard]] void* data() noexcept
+    [[nodiscard]] void* data()
     {
         return memory_;
     }
-    [[nodiscard]] const void* data() const noexcept
+    [[nodiscard]] const void* data() const
     {
         return memory_;
     }
-    explicit operator bool() const noexcept
+    explicit operator bool() const
     {
         return memory_ != nullptr;
     }
 
-    void reset() noexcept
+    void reset()
     {
         if (slab_ != nullptr && memory_ != nullptr) {
             k_mem_slab_free(slab_, memory_);
@@ -89,14 +89,14 @@ template <std::size_t BlockBytes> class MemorySlabBlock
         memory_ = nullptr;
     }
 
-    [[nodiscard]] void* release() noexcept
+    [[nodiscard]] void* release()
     {
         slab_ = nullptr;
         return std::exchange(memory_, nullptr);
     }
 
   private:
-    MemorySlabBlock(k_mem_slab& slab, void* memory) noexcept : slab_(&slab), memory_(memory) {}
+    MemorySlabBlock(k_mem_slab& slab, void* memory) : slab_(&slab), memory_(memory) {}
 
     friend class MemorySlabRef<BlockBytes>;
 
@@ -113,9 +113,9 @@ template <std::size_t BlockBytes> class MemorySlabRef
   public:
     using Block = MemorySlabBlock<BlockBytes>;
 
-    explicit constexpr MemorySlabRef(k_mem_slab& slab) noexcept : slab_(&slab) {}
+    explicit constexpr MemorySlabRef(k_mem_slab& slab) : slab_(&slab) {}
 
-    [[nodiscard]] Result<Block> allocate(Timeout timeout = Timeout::forever()) const noexcept
+    [[nodiscard]] Result<Block> allocate(Timeout timeout = Timeout::forever()) const
     {
         if (in_isr()) {
             return fail<solar::Error>({.status = solar::Status::Invalid});
@@ -123,38 +123,38 @@ template <std::size_t BlockBytes> class MemorySlabRef
         return allocate_native(timeout);
     }
 
-    [[nodiscard]] Result<Block> allocate(const Deadline& deadline) const noexcept
+    [[nodiscard]] Result<Block> allocate(const Deadline& deadline) const
     {
         return allocate(deadline.remaining());
     }
 
-    [[nodiscard]] Result<Block> try_allocate() const noexcept
+    [[nodiscard]] Result<Block> try_allocate() const
     {
         return allocate(Timeout::no_wait());
     }
 
-    [[nodiscard]] Result<Block> try_allocate_isr() const noexcept
+    [[nodiscard]] Result<Block> try_allocate_isr() const
     {
         return allocate_native(Timeout::no_wait());
     }
 
-    void release(void* block) const noexcept
+    void release(void* block) const
     {
         if (block != nullptr) {
             k_mem_slab_free(slab_, block);
         }
     }
 
-    [[nodiscard]] std::size_t used() const noexcept
+    [[nodiscard]] std::size_t used() const
     {
         return k_mem_slab_num_used_get(slab_);
     }
-    [[nodiscard]] std::size_t available() const noexcept
+    [[nodiscard]] std::size_t available() const
     {
         return k_mem_slab_num_free_get(slab_);
     }
 
-    [[nodiscard]] Result<MemorySlabStatistics> statistics() const noexcept
+    [[nodiscard]] Result<MemorySlabStatistics> statistics() const
     {
         sys_memory_stats native{};
         const int result = k_mem_slab_runtime_stats_get(slab_, &native);
@@ -166,7 +166,7 @@ template <std::size_t BlockBytes> class MemorySlabRef
                                     .maximum_allocated_bytes = native.max_allocated_bytes};
     }
 
-    [[nodiscard]] Result<void> reset_maximum_usage() const noexcept
+    [[nodiscard]] Result<void> reset_maximum_usage() const
     {
 #if defined(CONFIG_MEM_SLAB_TRACE_MAX_UTILIZATION)
         return detail::map_native(k_mem_slab_runtime_stats_reset_max(slab_));
@@ -176,7 +176,7 @@ template <std::size_t BlockBytes> class MemorySlabRef
     }
 
   private:
-    [[nodiscard]] Result<Block> allocate_native(Timeout timeout) const noexcept
+    [[nodiscard]] Result<Block> allocate_native(Timeout timeout) const
     {
 
         void* memory{};
@@ -223,7 +223,7 @@ class MemorySlab
     static constexpr std::size_t capacity = BlockCount;
     static constexpr std::size_t storage_stride = block_stride;
 
-    MemorySlab() noexcept
+    MemorySlab()
     {
         const int result = k_mem_slab_init(&slab_, storage_.data(), block_stride, BlockCount);
         __ASSERT_NO_MSG(result == 0);
@@ -240,52 +240,52 @@ class MemorySlab
     MemorySlab(MemorySlab&&) = delete;
     MemorySlab& operator=(MemorySlab&&) = delete;
 
-    [[nodiscard]] Result<Block> allocate(Timeout timeout = Timeout::forever()) noexcept
+    [[nodiscard]] Result<Block> allocate(Timeout timeout = Timeout::forever())
     {
         return ref().allocate(timeout);
     }
 
-    [[nodiscard]] Result<Block> allocate(const Deadline& deadline) noexcept
+    [[nodiscard]] Result<Block> allocate(const Deadline& deadline)
     {
         return allocate(deadline.remaining());
     }
 
-    [[nodiscard]] Result<Block> try_allocate() noexcept
+    [[nodiscard]] Result<Block> try_allocate()
     {
         return allocate(Timeout::no_wait());
     }
 
-    [[nodiscard]] Result<Block> try_allocate_isr() noexcept
+    [[nodiscard]] Result<Block> try_allocate_isr()
     {
         return ref().try_allocate_isr();
     }
 
-    void release(void* block) noexcept
+    void release(void* block)
     {
         ref().release(block);
     }
 
-    [[nodiscard]] std::size_t used() const noexcept
+    [[nodiscard]] std::size_t used() const
     {
         return k_mem_slab_num_used_get(const_cast<k_mem_slab*>(&slab_));
     }
 
-    [[nodiscard]] std::size_t available() const noexcept
+    [[nodiscard]] std::size_t available() const
     {
         return k_mem_slab_num_free_get(const_cast<k_mem_slab*>(&slab_));
     }
 
-    [[nodiscard]] Result<MemorySlabStatistics> statistics() const noexcept
+    [[nodiscard]] Result<MemorySlabStatistics> statistics() const
     {
         return MemorySlabRef<BlockBytes>{const_cast<k_mem_slab&>(slab_)}.statistics();
     }
 
-    [[nodiscard]] Result<void> reset_maximum_usage() noexcept
+    [[nodiscard]] Result<void> reset_maximum_usage()
     {
         return ref().reset_maximum_usage();
     }
 
-    [[nodiscard]] MemorySlabRef<BlockBytes> ref() noexcept
+    [[nodiscard]] MemorySlabRef<BlockBytes> ref()
     {
         return MemorySlabRef<BlockBytes>{slab_};
     }

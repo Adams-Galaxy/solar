@@ -12,45 +12,45 @@ namespace solar::kernel
 class Deadline
 {
   public:
-    Deadline() noexcept : value_(sys_timepoint_calc(K_NO_WAIT)) {}
+    Deadline() : value_(sys_timepoint_calc(K_NO_WAIT)) {}
 
-    [[nodiscard]] static Deadline after(Timeout timeout) noexcept
+    [[nodiscard]] static Deadline after(Timeout timeout)
     {
         return Deadline{sys_timepoint_calc(timeout.native_handle())};
     }
 
     template <typename Rep, typename Period>
-    [[nodiscard]] static Deadline after(std::chrono::duration<Rep, Period> duration) noexcept
+    [[nodiscard]] static Deadline after(std::chrono::duration<Rep, Period> duration)
     {
         return after(Timeout::after(duration));
     }
 
-    [[nodiscard]] static Deadline forever() noexcept
+    [[nodiscard]] static Deadline forever()
     {
         return after(Timeout::forever());
     }
 
-    [[nodiscard]] static Deadline from_native(k_timepoint_t timepoint) noexcept
+    [[nodiscard]] static Deadline from_native(k_timepoint_t timepoint)
     {
         return Deadline{timepoint};
     }
 
-    [[nodiscard]] Timeout remaining() const noexcept
+    [[nodiscard]] Timeout remaining() const
     {
         return Timeout::from_native(sys_timepoint_timeout(value_));
     }
 
-    [[nodiscard]] bool expired() const noexcept
+    [[nodiscard]] bool expired() const
     {
         return sys_timepoint_expired(value_);
     }
 
-    [[nodiscard]] k_timepoint_t native_handle() const noexcept
+    [[nodiscard]] k_timepoint_t native_handle() const
     {
         return value_;
     }
 
-    friend std::strong_ordering operator<=>(const Deadline& left, const Deadline& right) noexcept
+    friend std::strong_ordering operator<=>(const Deadline& left, const Deadline& right)
     {
         const int comparison = sys_timepoint_cmp(left.value_, right.value_);
         if (comparison < 0) {
@@ -62,13 +62,13 @@ class Deadline
         return std::strong_ordering::equal;
     }
 
-    friend bool operator==(const Deadline& left, const Deadline& right) noexcept
+    friend bool operator==(const Deadline& left, const Deadline& right)
     {
         return sys_timepoint_cmp(left.value_, right.value_) == 0;
     }
 
   private:
-    explicit Deadline(k_timepoint_t value) noexcept : value_(value) {}
+    explicit Deadline(k_timepoint_t value) : value_(value) {}
 
     k_timepoint_t value_{};
 };

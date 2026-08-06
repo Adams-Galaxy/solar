@@ -29,7 +29,7 @@ template <typename T>
 concept InspectionProvider =
     requires { typename T::Inspection; } && TypeListType<typename T::Inspection>;
 
-template <typename T> [[nodiscard]] Result<void> initialize(T& value) noexcept
+template <typename T> [[nodiscard]] Result<void> initialize(T& value)
 {
     if constexpr (requires {
                       { value.initialize() } -> std::same_as<Result<void>>;
@@ -39,7 +39,7 @@ template <typename T> [[nodiscard]] Result<void> initialize(T& value) noexcept
     return {};
 }
 
-template <typename T> [[nodiscard]] Result<void> start(T& value) noexcept
+template <typename T> [[nodiscard]] Result<void> start(T& value)
 {
     if constexpr (requires {
                       { value.start() } -> std::same_as<Result<void>>;
@@ -49,7 +49,7 @@ template <typename T> [[nodiscard]] Result<void> start(T& value) noexcept
     return {};
 }
 
-template <typename T> [[nodiscard]] Result<void> stop(T& value) noexcept
+template <typename T> [[nodiscard]] Result<void> stop(T& value)
 {
     if constexpr (requires {
                       { value.stop() } -> std::same_as<Result<void>>;
@@ -59,7 +59,7 @@ template <typename T> [[nodiscard]] Result<void> stop(T& value) noexcept
     return {};
 }
 
-template <typename T> [[nodiscard]] Result<void> deinitialize(T& value) noexcept
+template <typename T> [[nodiscard]] Result<void> deinitialize(T& value)
 {
     if constexpr (requires {
                       { value.deinitialize() } -> std::same_as<Result<void>>;
@@ -83,27 +83,27 @@ template <typename Application, typename Identity, typename Owner> struct Static
 
     inline static Owner storage{};
 
-    [[nodiscard]] static Owner& instance() noexcept
+    [[nodiscard]] static Owner& instance()
     {
         return storage;
     }
-    [[nodiscard]] static const Owner& instance_const() noexcept
+    [[nodiscard]] static const Owner& instance_const()
     {
         return storage;
     }
-    [[nodiscard]] static Result<void> initialize() noexcept
+    [[nodiscard]] static Result<void> initialize()
     {
         return module::initialize(storage);
     }
-    [[nodiscard]] static Result<void> start() noexcept
+    [[nodiscard]] static Result<void> start()
     {
         return module::start(storage);
     }
-    [[nodiscard]] static Result<void> stop() noexcept
+    [[nodiscard]] static Result<void> stop()
     {
         return module::stop(storage);
     }
-    [[nodiscard]] static Result<void> deinitialize() noexcept
+    [[nodiscard]] static Result<void> deinitialize()
     {
         return module::deinitialize(storage);
     }
@@ -166,25 +166,25 @@ template <typename Device> struct AsModule
         return std::string_view{};
     }();
 
-    [[nodiscard]] static Result<void> initialize() noexcept
+    [[nodiscard]] static Result<void> initialize()
     {
         if constexpr (requires { Device::init(); })
             return module::detail::adapt([] { return Device::init(); });
         return {};
     }
-    [[nodiscard]] static Result<void> start() noexcept
+    [[nodiscard]] static Result<void> start()
     {
         if constexpr (requires { Device::start(); })
             return module::detail::adapt([] { return Device::start(); });
         return {};
     }
-    [[nodiscard]] static Result<void> stop() noexcept
+    [[nodiscard]] static Result<void> stop()
     {
         if constexpr (requires { Device::stop(); })
             return module::detail::adapt([] { return Device::stop(); });
         return {};
     }
-    [[nodiscard]] static Result<void> deinitialize() noexcept
+    [[nodiscard]] static Result<void> deinitialize()
     {
         if constexpr (requires { Device::deinit(); })
             return module::detail::adapt([] { return Device::deinit(); });

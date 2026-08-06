@@ -8,7 +8,7 @@
 namespace solar::kernel::detail
 {
 
-[[nodiscard]] constexpr Result<void> map_native(int result) noexcept
+[[nodiscard]] constexpr Result<void> map_native(int result)
 {
     if (result == 0) {
         return {};
@@ -17,7 +17,7 @@ namespace solar::kernel::detail
 }
 
 [[nodiscard]] constexpr Result<void> map_wait(int result, Timeout timeout,
-                                              Status immediate_status) noexcept
+                                              Status immediate_status)
 {
     if (result == 0) {
         return {};

@@ -35,7 +35,7 @@ template <auto Spec> struct Channel : hardware::Endpoint<Spec>
 
     using Base = hardware::Endpoint<Spec>;
 
-    [[nodiscard]] static Result<void, Error> setup() noexcept
+    [[nodiscard]] static Result<void, Error> setup()
     {
         if (auto ready = Base::require_ready(); !ready) {
             return ready;
@@ -44,13 +44,13 @@ template <auto Spec> struct Channel : hardware::Endpoint<Spec>
                                                Operation::Configure, Base::path());
     }
 
-    [[nodiscard]] static Result<void, Error> read(adc_sequence& sequence) noexcept
+    [[nodiscard]] static Result<void, Error> read(adc_sequence& sequence)
     {
         return hardware::detail::native_result(
             adc_read_dt(&Base::descriptor_value.native, &sequence), Operation::Read, Base::path());
     }
 
-    [[nodiscard]] static Result<std::int16_t, Error> sample() noexcept
+    [[nodiscard]] static Result<std::int16_t, Error> sample()
     {
         std::int16_t value{};
         adc_sequence sequence{};
@@ -69,7 +69,7 @@ template <auto Spec> struct Channel : hardware::Endpoint<Spec>
         return value;
     }
 
-    [[nodiscard]] static Result<std::int32_t, Error> to_millivolts(std::int32_t raw) noexcept
+    [[nodiscard]] static Result<std::int32_t, Error> to_millivolts(std::int32_t raw)
     {
         const auto result = adc_raw_to_millivolts_dt(&Base::descriptor_value.native, &raw);
         if (result != 0) {
@@ -79,27 +79,27 @@ template <auto Spec> struct Channel : hardware::Endpoint<Spec>
         return raw;
     }
 
-    [[nodiscard]] static constexpr std::uint8_t channel() noexcept
+    [[nodiscard]] static constexpr std::uint8_t channel()
     {
         return Base::descriptor_value.native.channel_id;
     }
 
-    [[nodiscard]] static constexpr std::uint8_t resolution() noexcept
+    [[nodiscard]] static constexpr std::uint8_t resolution()
     {
         return Base::descriptor_value.native.resolution;
     }
 
-    [[nodiscard]] static constexpr std::uint8_t oversampling() noexcept
+    [[nodiscard]] static constexpr std::uint8_t oversampling()
     {
         return Base::descriptor_value.native.oversampling;
     }
 
-    [[nodiscard]] static constexpr std::uint16_t reference_millivolts() noexcept
+    [[nodiscard]] static constexpr std::uint16_t reference_millivolts()
     {
         return Base::descriptor_value.native.vref_mv;
     }
 
-    [[nodiscard]] static constexpr const adc_channel_cfg& configuration() noexcept
+    [[nodiscard]] static constexpr const adc_channel_cfg& configuration()
     {
         return Base::descriptor_value.native.channel_cfg;
     }
@@ -132,7 +132,7 @@ template <ChannelType First, ChannelType... Rest> struct Sequence
         BIT(First::channel()) | (0U | ... | BIT(Rest::channel()));
     inline static constexpr std::size_t sample_bytes = First::resolution() > 16U ? 4U : 2U;
 
-    [[nodiscard]] static Result<void, Error> setup() noexcept
+    [[nodiscard]] static Result<void, Error> setup()
     {
         Result<void, Error> result{};
         const auto setup_one = [&result]<typename ChannelT>() {
@@ -146,7 +146,7 @@ template <ChannelType First, ChannelType... Rest> struct Sequence
     }
 
     [[nodiscard]] static Result<adc_sequence, Error>
-    native(std::span<std::byte> buffer, const adc_sequence_options* options = nullptr) noexcept
+    native(std::span<std::byte> buffer, const adc_sequence_options* options = nullptr)
     {
         const auto samplings = 1U + (options == nullptr ? 0U : options->extra_samplings);
         const auto one_sampling = channel_count * sample_bytes;
@@ -173,7 +173,7 @@ template <ChannelType First, ChannelType... Rest> struct Sequence
     }
 
     [[nodiscard]] static Result<void, Error>
-    read(std::span<std::byte> buffer, const adc_sequence_options* options = nullptr) noexcept
+    read(std::span<std::byte> buffer, const adc_sequence_options* options = nullptr)
     {
         auto sequence = native(buffer, options);
         if (!sequence) {
@@ -183,7 +183,7 @@ template <ChannelType First, ChannelType... Rest> struct Sequence
                                                hardware::Operation::Read, First::path());
     }
 
-    [[nodiscard]] static constexpr const device* native_device() noexcept
+    [[nodiscard]] static constexpr const device* native_device()
     {
         return First::native_device();
     }
@@ -237,7 +237,7 @@ template <StreamConfiguration Configuration> struct Stream
         .data = &native_configuration,
     };
 
-    [[nodiscard]] static bool ready() noexcept
+    [[nodiscard]] static bool ready()
     {
         for (const auto& channel : native_channels) {
             if (!adc_is_ready_dt(&channel)) {
@@ -248,7 +248,7 @@ template <StreamConfiguration Configuration> struct Stream
     }
 
     [[nodiscard]] static Result<::rtio_sqe*, Error> start(rtio::Context& context,
-                                                          void* user_data = nullptr) noexcept
+                                                          void* user_data = nullptr)
     {
         ::rtio_sqe* handle{};
         const auto result = adc_stream(&native_iodev, context.native_handle(), user_data, &handle);
@@ -258,7 +258,7 @@ template <StreamConfiguration Configuration> struct Stream
         return handle;
     }
 
-    [[nodiscard]] static Result<const adc_decoder_api*, Error> decoder() noexcept
+    [[nodiscard]] static Result<const adc_decoder_api*, Error> decoder()
     {
         const adc_decoder_api* value{};
         const auto result = adc_get_decoder(native_configuration.adc, &value);
@@ -269,7 +269,7 @@ template <StreamConfiguration Configuration> struct Stream
         return value;
     }
 
-    [[nodiscard]] static constexpr ::rtio_iodev* native_handle() noexcept
+    [[nodiscard]] static constexpr ::rtio_iodev* native_handle()
     {
         return &native_iodev;
     }
@@ -287,12 +287,12 @@ template <typename Configuration> struct Stream
 template <typename ChannelT> class Operation
 {
   public:
-    Operation() noexcept
+    Operation()
     {
         k_poll_signal_init(&signal_);
     }
 
-    [[nodiscard]] Result<async::Token, Error> submit(adc_sequence& sequence) noexcept
+    [[nodiscard]] Result<async::Token, Error> submit(adc_sequence& sequence)
     {
         auto admitted = gate_.begin();
         if (!admitted) {
@@ -309,7 +309,7 @@ template <typename ChannelT> class Operation
         return token_;
     }
 
-    [[nodiscard]] Result<void, Error> wait(k_timeout_t timeout = K_FOREVER) noexcept
+    [[nodiscard]] Result<void, Error> wait(k_timeout_t timeout = K_FOREVER)
     {
         k_poll_event event{};
         k_poll_event_init(&event, K_POLL_TYPE_SIGNAL, K_POLL_MODE_NOTIFY_ONLY, &signal_);
@@ -336,11 +336,11 @@ template <typename ChannelT> class Operation
         return {};
     }
 
-    [[nodiscard]] bool active() const noexcept
+    [[nodiscard]] bool active() const
     {
         return gate_.active(token_);
     }
-    [[nodiscard]] k_poll_signal* native_signal() noexcept
+    [[nodiscard]] k_poll_signal* native_signal()
     {
         return &signal_;
     }

@@ -67,7 +67,7 @@ struct StackSafetyCheck
     bool threshold_crossed{};
 };
 
-[[nodiscard]] inline Result<bool> thread_exited(ThreadId thread) noexcept
+[[nodiscard]] inline Result<bool> thread_exited(ThreadId thread)
 {
     if (thread == nullptr) {
         return fail<solar::Error>({.status = solar::Status::Invalid});
@@ -86,7 +86,7 @@ struct StackSafetyCheck
 }
 
 [[nodiscard]] inline Result<StackUsage>
-stack_usage(ThreadId thread, std::optional<std::size_t> configured_size = std::nullopt) noexcept
+stack_usage(ThreadId thread, std::optional<std::size_t> configured_size = std::nullopt)
 {
 #if defined(CONFIG_INIT_STACKS) && defined(CONFIG_THREAD_STACK_INFO)
     if (thread == nullptr) {
@@ -110,7 +110,7 @@ stack_usage(ThreadId thread, std::optional<std::size_t> configured_size = std::n
 #endif
 }
 
-[[nodiscard]] inline Result<ThreadRuntimeStats> runtime_stats(ThreadId thread) noexcept
+[[nodiscard]] inline Result<ThreadRuntimeStats> runtime_stats(ThreadId thread)
 {
 #if defined(CONFIG_THREAD_RUNTIME_STATS)
     if (thread == nullptr) {
@@ -142,7 +142,7 @@ stack_usage(ThreadId thread, std::optional<std::size_t> configured_size = std::n
 #endif
 }
 
-[[nodiscard]] inline Result<void> set_runtime_stats(ThreadId thread, bool enabled) noexcept
+[[nodiscard]] inline Result<void> set_runtime_stats(ThreadId thread, bool enabled)
 {
 #if defined(CONFIG_THREAD_RUNTIME_STATS)
     if (thread == nullptr) {
@@ -163,14 +163,14 @@ namespace detail
 #if defined(CONFIG_THREAD_RUNTIME_STACK_SAFETY) && defined(CONFIG_INIT_STACKS) &&                  \
     defined(CONFIG_THREAD_STACK_INFO)
 [[nodiscard]] Result<void> set_stack_warning_margin_native(ThreadId thread,
-                                                           std::size_t margin) noexcept;
-[[nodiscard]] std::size_t stack_warning_margin_native(ThreadId thread) noexcept;
+                                                           std::size_t margin);
+[[nodiscard]] std::size_t stack_warning_margin_native(ThreadId thread);
 #endif
 
 } // namespace detail
 
 [[nodiscard]] inline Result<void> set_stack_warning_margin(ThreadId thread,
-                                                           std::size_t margin) noexcept
+                                                           std::size_t margin)
 {
 #if defined(CONFIG_THREAD_RUNTIME_STACK_SAFETY) && defined(CONFIG_INIT_STACKS) &&                  \
     defined(CONFIG_THREAD_STACK_INFO)
@@ -188,7 +188,7 @@ namespace detail
 namespace detail
 {
 
-inline void stack_safety_handler(const k_thread*, std::size_t, void* argument) noexcept
+inline void stack_safety_handler(const k_thread*, std::size_t, void* argument)
 {
     *static_cast<bool*>(argument) = true;
 }
@@ -196,7 +196,7 @@ inline void stack_safety_handler(const k_thread*, std::size_t, void* argument) n
 } // namespace detail
 
 [[nodiscard]] inline Result<StackSafetyCheck> check_stack_safety(ThreadId thread,
-                                                                 bool full_scan) noexcept
+                                                                 bool full_scan)
 {
 #if defined(CONFIG_THREAD_RUNTIME_STACK_SAFETY) && defined(CONFIG_INIT_STACKS) &&                  \
     defined(CONFIG_THREAD_STACK_INFO)
@@ -222,7 +222,7 @@ inline void stack_safety_handler(const k_thread*, std::size_t, void* argument) n
 
 [[nodiscard]] inline Result<ThreadDiagnostics>
 thread_diagnostics(ThreadId thread,
-                   std::optional<std::size_t> configured_stack_size = std::nullopt) noexcept
+                   std::optional<std::size_t> configured_stack_size = std::nullopt)
 {
     if (thread == nullptr) {
         return fail<solar::Error>({.status = solar::Status::Invalid});
@@ -262,7 +262,7 @@ thread_diagnostics(ThreadId thread,
 }
 
 template <std::size_t StackBytes>
-[[nodiscard]] Result<ThreadDiagnostics> thread_diagnostics(Thread<StackBytes>& thread) noexcept
+[[nodiscard]] Result<ThreadDiagnostics> thread_diagnostics(Thread<StackBytes>& thread)
 {
     const auto reference = thread.ref();
     if (!reference) {
@@ -283,7 +283,7 @@ struct ThreadVisitorContext
     void* user_data{};
 };
 
-inline void visit_thread(const k_thread* thread, void* context_pointer) noexcept
+inline void visit_thread(const k_thread* thread, void* context_pointer)
 {
     auto& context = *static_cast<ThreadVisitorContext*>(context_pointer);
     context.visitor(const_cast<k_thread*>(thread), context.user_data);
@@ -292,7 +292,7 @@ inline void visit_thread(const k_thread* thread, void* context_pointer) noexcept
 } // namespace detail
 
 [[nodiscard]] inline Result<void> for_each_thread_locked(ThreadVisitor visitor,
-                                                         void* user_data = nullptr) noexcept
+                                                         void* user_data = nullptr)
 {
 #if defined(CONFIG_THREAD_MONITOR)
     if (visitor == nullptr) {
@@ -309,7 +309,7 @@ inline void visit_thread(const k_thread* thread, void* context_pointer) noexcept
 }
 
 [[nodiscard]] inline Result<void> for_each_thread_unlocked(ThreadVisitor visitor,
-                                                           void* user_data = nullptr) noexcept
+                                                           void* user_data = nullptr)
 {
 #if defined(CONFIG_THREAD_MONITOR)
     if (visitor == nullptr) {

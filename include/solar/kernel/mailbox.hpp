@@ -75,18 +75,18 @@ class DeferredMailboxReceive
         __ASSERT_NO_MSG(!pending_);
     }
 
-    [[nodiscard]] bool pending() const noexcept
+    [[nodiscard]] bool pending() const
     {
         return pending_;
     }
 
-    [[nodiscard]] MailboxReceipt receipt() const noexcept
+    [[nodiscard]] MailboxReceipt receipt() const
     {
         return receipt_;
     }
 
     /** Copy the pending bytes and release the sender. A short buffer is rejected. */
-    [[nodiscard]] Result<MailboxReceipt> retrieve(std::span<std::byte> destination) noexcept
+    [[nodiscard]] Result<MailboxReceipt> retrieve(std::span<std::byte> destination)
     {
         if (!pending_) {
             return fail<Error>({.status = Status::NotReady});
@@ -101,13 +101,13 @@ class DeferredMailboxReceive
 
     template <typename Payload>
         requires std::is_trivially_copyable_v<Payload>
-    [[nodiscard]] Result<MailboxReceipt> retrieve(Payload& destination) noexcept
+    [[nodiscard]] Result<MailboxReceipt> retrieve(Payload& destination)
     {
         return retrieve(std::as_writable_bytes(std::span{&destination, 1}));
     }
 
     /** Discard the pending bytes and release the sender. */
-    [[nodiscard]] Result<void> discard() noexcept
+    [[nodiscard]] Result<void> discard()
     {
         if (!pending_) {
             return fail<Error>({.status = Status::NotReady});
@@ -139,7 +139,7 @@ template <typename Payload> class AsyncMailboxSend
                   "trivially copyable");
 
   public:
-    explicit AsyncMailboxSend(Payload payload, MailboxSendOptions options = {}) noexcept
+    explicit AsyncMailboxSend(Payload payload, MailboxSendOptions options = {})
         : payload_(payload), options_(options)
     {}
 
@@ -153,12 +153,12 @@ template <typename Payload> class AsyncMailboxSend
         __ASSERT_NO_MSG(!in_flight_);
     }
 
-    [[nodiscard]] bool in_flight() const noexcept
+    [[nodiscard]] bool in_flight() const
     {
         return in_flight_;
     }
 
-    [[nodiscard]] Result<void> wait(Timeout timeout = Timeout::forever()) noexcept
+    [[nodiscard]] Result<void> wait(Timeout timeout = Timeout::forever())
     {
         if (!in_flight_) {
             return fail<Error>({.status = Status::NotReady});
@@ -170,17 +170,17 @@ template <typename Payload> class AsyncMailboxSend
         return result;
     }
 
-    [[nodiscard]] Result<void> wait(const Deadline& deadline) noexcept
+    [[nodiscard]] Result<void> wait(const Deadline& deadline)
     {
         return wait(deadline.remaining());
     }
 
-    [[nodiscard]] Result<void> try_complete() noexcept
+    [[nodiscard]] Result<void> try_complete()
     {
         return wait(Timeout::no_wait());
     }
 
-    [[nodiscard]] Result<Payload> payload() const noexcept
+    [[nodiscard]] Result<Payload> payload() const
     {
         if (in_flight_) {
             return fail<Error>({.status = Status::Busy});
@@ -188,7 +188,7 @@ template <typename Payload> class AsyncMailboxSend
         return payload_;
     }
 
-    [[nodiscard]] Result<void> reset(Payload payload, MailboxSendOptions options = {}) noexcept
+    [[nodiscard]] Result<void> reset(Payload payload, MailboxSendOptions options = {})
     {
         if (in_flight_) {
             return fail<Error>({.status = Status::Busy});
@@ -213,11 +213,11 @@ template <typename Payload> class AsyncMailboxSend
 class MailboxRef
 {
   public:
-    explicit constexpr MailboxRef(k_mbox& mailbox) noexcept : mailbox_(&mailbox) {}
+    explicit constexpr MailboxRef(k_mbox& mailbox) : mailbox_(&mailbox) {}
 
     [[nodiscard]] Result<MailboxSendReceipt>
     send(std::span<const std::byte> payload, MailboxSendOptions options = {},
-         Timeout timeout = Timeout::forever()) const noexcept
+         Timeout timeout = Timeout::forever()) const
     {
         if (in_isr()) {
             return fail<Error>({.status = Status::Invalid});
@@ -239,7 +239,7 @@ class MailboxRef
 
     [[nodiscard]] Result<MailboxSendReceipt> send(std::span<const std::byte> payload,
                                                   MailboxSendOptions options,
-                                                  const Deadline& deadline) const noexcept
+                                                  const Deadline& deadline) const
     {
         return send(payload, options, deadline.remaining());
     }
@@ -248,7 +248,7 @@ class MailboxRef
         requires std::is_trivially_copyable_v<Payload>
     [[nodiscard]] Result<MailboxSendReceipt>
     send(const Payload& payload, MailboxSendOptions options = {},
-         Timeout timeout = Timeout::forever()) const noexcept
+         Timeout timeout = Timeout::forever()) const
     {
         return send(std::as_bytes(std::span{&payload, 1}), options, timeout);
     }
@@ -257,26 +257,26 @@ class MailboxRef
         requires std::is_trivially_copyable_v<Payload>
     [[nodiscard]] Result<MailboxSendReceipt> send(const Payload& payload,
                                                   MailboxSendOptions options,
-                                                  const Deadline& deadline) const noexcept
+                                                  const Deadline& deadline) const
     {
         return send(std::as_bytes(std::span{&payload, 1}), options, deadline.remaining());
     }
 
     [[nodiscard]] Result<MailboxSendReceipt>
-    send(MailboxSendOptions options = {}, Timeout timeout = Timeout::forever()) const noexcept
+    send(MailboxSendOptions options = {}, Timeout timeout = Timeout::forever()) const
     {
         return send(std::span<const std::byte>{}, options, timeout);
     }
 
     [[nodiscard]] Result<MailboxSendReceipt> send(MailboxSendOptions options,
-                                                  const Deadline& deadline) const noexcept
+                                                  const Deadline& deadline) const
     {
         return send(std::span<const std::byte>{}, options, deadline.remaining());
     }
 
     [[nodiscard]] Result<MailboxReceipt>
     receive(std::span<std::byte> destination, MailboxReceiveOptions options = {},
-            Timeout timeout = Timeout::forever()) const noexcept
+            Timeout timeout = Timeout::forever()) const
     {
         if (in_isr()) {
             return fail<Error>({.status = Status::Invalid});
@@ -298,7 +298,7 @@ class MailboxRef
 
     [[nodiscard]] Result<MailboxReceipt> receive(std::span<std::byte> destination,
                                                  MailboxReceiveOptions options,
-                                                 const Deadline& deadline) const noexcept
+                                                 const Deadline& deadline) const
     {
         return receive(destination, options, deadline.remaining());
     }
@@ -307,7 +307,7 @@ class MailboxRef
         requires std::is_trivially_copyable_v<Payload>
     [[nodiscard]] Result<MailboxReceipt>
     receive(Payload& destination, MailboxReceiveOptions options = {},
-            Timeout timeout = Timeout::forever()) const noexcept
+            Timeout timeout = Timeout::forever()) const
     {
         return receive(std::as_writable_bytes(std::span{&destination, 1}), options, timeout);
     }
@@ -316,7 +316,7 @@ class MailboxRef
         requires std::is_trivially_copyable_v<Payload>
     [[nodiscard]] Result<MailboxReceipt> receive(Payload& destination,
                                                  MailboxReceiveOptions options,
-                                                 const Deadline& deadline) const noexcept
+                                                 const Deadline& deadline) const
     {
         return receive(std::as_writable_bytes(std::span{&destination, 1}), options,
                        deadline.remaining());
@@ -325,7 +325,7 @@ class MailboxRef
     [[nodiscard]] Result<MailboxReceipt>
     receive_deferred(DeferredMailboxReceive& deferred, std::size_t maximum_size,
                      MailboxReceiveOptions options = {},
-                     Timeout timeout = Timeout::forever()) const noexcept
+                     Timeout timeout = Timeout::forever()) const
     {
         if (in_isr()) {
             return fail<Error>({.status = Status::Invalid});
@@ -355,14 +355,14 @@ class MailboxRef
     [[nodiscard]] Result<MailboxReceipt> receive_deferred(DeferredMailboxReceive& deferred,
                                                           std::size_t maximum_size,
                                                           MailboxReceiveOptions options,
-                                                          const Deadline& deadline) const noexcept
+                                                          const Deadline& deadline) const
     {
         return receive_deferred(deferred, maximum_size, options, deadline.remaining());
     }
 
 #if CONFIG_NUM_MBOX_ASYNC_MSGS > 0
     template <typename Payload>
-    [[nodiscard]] Result<void> send_async(AsyncMailboxSend<Payload>& message) const noexcept
+    [[nodiscard]] Result<void> send_async(AsyncMailboxSend<Payload>& message) const
     {
         if (in_isr()) {
             return fail<Error>({.status = Status::Invalid});
@@ -382,7 +382,7 @@ class MailboxRef
     }
 #endif
 
-    [[nodiscard]] constexpr k_mbox* native_handle() const noexcept
+    [[nodiscard]] constexpr k_mbox* native_handle() const
     {
         return mailbox_;
     }
@@ -395,7 +395,7 @@ class MailboxRef
 class Mailbox
 {
   public:
-    Mailbox() noexcept
+    Mailbox()
     {
         k_mbox_init(&mailbox_);
     }
@@ -405,21 +405,21 @@ class Mailbox
     Mailbox(Mailbox&&) = delete;
     Mailbox& operator=(Mailbox&&) = delete;
 
-    [[nodiscard]] MailboxRef ref() noexcept
+    [[nodiscard]] MailboxRef ref()
     {
         return MailboxRef{mailbox_};
     }
 
     [[nodiscard]] Result<MailboxSendReceipt> send(std::span<const std::byte> payload,
                                                   MailboxSendOptions options = {},
-                                                  Timeout timeout = Timeout::forever()) noexcept
+                                                  Timeout timeout = Timeout::forever())
     {
         return ref().send(payload, options, timeout);
     }
 
     [[nodiscard]] Result<MailboxSendReceipt> send(std::span<const std::byte> payload,
                                                   MailboxSendOptions options,
-                                                  const Deadline& deadline) noexcept
+                                                  const Deadline& deadline)
     {
         return ref().send(payload, options, deadline);
     }
@@ -428,7 +428,7 @@ class Mailbox
         requires std::is_trivially_copyable_v<Payload>
     [[nodiscard]] Result<MailboxSendReceipt> send(const Payload& payload,
                                                   MailboxSendOptions options = {},
-                                                  Timeout timeout = Timeout::forever()) noexcept
+                                                  Timeout timeout = Timeout::forever())
     {
         return ref().send(payload, options, timeout);
     }
@@ -436,33 +436,33 @@ class Mailbox
     template <typename Payload>
         requires std::is_trivially_copyable_v<Payload>
     [[nodiscard]] Result<MailboxSendReceipt>
-    send(const Payload& payload, MailboxSendOptions options, const Deadline& deadline) noexcept
+    send(const Payload& payload, MailboxSendOptions options, const Deadline& deadline)
     {
         return ref().send(payload, options, deadline);
     }
 
     [[nodiscard]] Result<MailboxSendReceipt> send(MailboxSendOptions options = {},
-                                                  Timeout timeout = Timeout::forever()) noexcept
+                                                  Timeout timeout = Timeout::forever())
     {
         return ref().send(options, timeout);
     }
 
     [[nodiscard]] Result<MailboxSendReceipt> send(MailboxSendOptions options,
-                                                  const Deadline& deadline) noexcept
+                                                  const Deadline& deadline)
     {
         return ref().send(options, deadline);
     }
 
     [[nodiscard]] Result<MailboxReceipt> receive(std::span<std::byte> destination,
                                                  MailboxReceiveOptions options = {},
-                                                 Timeout timeout = Timeout::forever()) noexcept
+                                                 Timeout timeout = Timeout::forever())
     {
         return ref().receive(destination, options, timeout);
     }
 
     [[nodiscard]] Result<MailboxReceipt> receive(std::span<std::byte> destination,
                                                  MailboxReceiveOptions options,
-                                                 const Deadline& deadline) noexcept
+                                                 const Deadline& deadline)
     {
         return ref().receive(destination, options, deadline);
     }
@@ -471,7 +471,7 @@ class Mailbox
         requires std::is_trivially_copyable_v<Payload>
     [[nodiscard]] Result<MailboxReceipt> receive(Payload& destination,
                                                  MailboxReceiveOptions options = {},
-                                                 Timeout timeout = Timeout::forever()) noexcept
+                                                 Timeout timeout = Timeout::forever())
     {
         return ref().receive(destination, options, timeout);
     }
@@ -479,7 +479,7 @@ class Mailbox
     template <typename Payload>
         requires std::is_trivially_copyable_v<Payload>
     [[nodiscard]] Result<MailboxReceipt>
-    receive(Payload& destination, MailboxReceiveOptions options, const Deadline& deadline) noexcept
+    receive(Payload& destination, MailboxReceiveOptions options, const Deadline& deadline)
     {
         return ref().receive(destination, options, deadline);
     }
@@ -487,7 +487,7 @@ class Mailbox
     [[nodiscard]] Result<MailboxReceipt>
     receive_deferred(DeferredMailboxReceive& deferred, std::size_t maximum_size,
                      MailboxReceiveOptions options = {},
-                     Timeout timeout = Timeout::forever()) noexcept
+                     Timeout timeout = Timeout::forever())
     {
         return ref().receive_deferred(deferred, maximum_size, options, timeout);
     }
@@ -495,14 +495,14 @@ class Mailbox
     [[nodiscard]] Result<MailboxReceipt> receive_deferred(DeferredMailboxReceive& deferred,
                                                           std::size_t maximum_size,
                                                           MailboxReceiveOptions options,
-                                                          const Deadline& deadline) noexcept
+                                                          const Deadline& deadline)
     {
         return ref().receive_deferred(deferred, maximum_size, options, deadline);
     }
 
 #if CONFIG_NUM_MBOX_ASYNC_MSGS > 0
     template <typename Payload>
-    [[nodiscard]] Result<void> send_async(AsyncMailboxSend<Payload>& message) noexcept
+    [[nodiscard]] Result<void> send_async(AsyncMailboxSend<Payload>& message)
     {
         return ref().send_async(message);
     }

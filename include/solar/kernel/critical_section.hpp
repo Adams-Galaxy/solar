@@ -8,7 +8,7 @@ namespace solar::kernel
 class InterruptLock
 {
   public:
-    InterruptLock() noexcept : key_(irq_lock()) {}
+    InterruptLock() : key_(irq_lock()) {}
 
     ~InterruptLock()
     {

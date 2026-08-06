@@ -33,7 +33,7 @@ template <auto Spec> struct Port : hardware::Endpoint<Spec>
 
     using Base = hardware::Endpoint<Spec>;
 
-    [[nodiscard]] static Result<uart_config, Error> configuration() noexcept
+    [[nodiscard]] static Result<uart_config, Error> configuration()
     {
         uart_config value{};
         const auto result = uart_config_get(Base::native_device(), &value);
@@ -44,13 +44,13 @@ template <auto Spec> struct Port : hardware::Endpoint<Spec>
         return value;
     }
 
-    [[nodiscard]] static Result<void, Error> configure(const uart_config& value) noexcept
+    [[nodiscard]] static Result<void, Error> configure(const uart_config& value)
     {
         return hardware::detail::native_result(uart_configure(Base::native_device(), &value),
                                                Operation::Configure, Base::path());
     }
 
-    [[nodiscard]] static Result<std::uint32_t, Error> errors() noexcept
+    [[nodiscard]] static Result<std::uint32_t, Error> errors()
     {
         const auto result = uart_err_check(Base::native_device());
         if (result < 0) {
@@ -61,14 +61,14 @@ template <auto Spec> struct Port : hardware::Endpoint<Spec>
     }
 
     [[nodiscard]] static Result<void, Error> set_line(std::uint32_t control,
-                                                      std::uint32_t value) noexcept
+                                                      std::uint32_t value)
     {
         return hardware::detail::native_result(
             uart_line_ctrl_set(Base::native_device(), control, value), Operation::Configure,
             Base::path());
     }
 
-    [[nodiscard]] static Result<std::uint32_t, Error> line(std::uint32_t control) noexcept
+    [[nodiscard]] static Result<std::uint32_t, Error> line(std::uint32_t control)
     {
         std::uint32_t value{};
         const auto result = uart_line_ctrl_get(Base::native_device(), control, &value);
@@ -84,7 +84,7 @@ template <auto Spec> struct Polling : Port<Spec>
 {
     using Base = Port<Spec>;
 
-    [[nodiscard]] static Result<std::optional<std::uint8_t>, Error> read() noexcept
+    [[nodiscard]] static Result<std::optional<std::uint8_t>, Error> read()
     {
         unsigned char value{};
         const auto result = uart_poll_in(Base::native_device(), &value);
@@ -98,12 +98,12 @@ template <auto Spec> struct Polling : Port<Spec>
         return std::optional<std::uint8_t>{value};
     }
 
-    static void write(std::uint8_t value) noexcept
+    static void write(std::uint8_t value)
     {
         uart_poll_out(Base::native_device(), value);
     }
 
-    static void write(std::span<const std::byte> bytes) noexcept
+    static void write(std::span<const std::byte> bytes)
     {
         for (const auto value : bytes) {
             write(std::to_integer<std::uint8_t>(value));
@@ -139,7 +139,7 @@ template <auto Spec> struct InterruptDriven : Port<Spec>
     using Base = Port<Spec>;
     using State = detail::CallbackState<Base::native_device()>;
 
-    [[nodiscard]] static Result<void, Error> install(InterruptHandler handler) noexcept
+    [[nodiscard]] static Result<void, Error> install(InterruptHandler handler)
     {
         auto expected = detail::CallbackRole::None;
         if (handler == nullptr ||
@@ -164,7 +164,7 @@ template <auto Spec> struct InterruptDriven : Port<Spec>
         return {};
     }
 
-    [[nodiscard]] static Result<void, Error> uninstall() noexcept
+    [[nodiscard]] static Result<void, Error> uninstall()
     {
         if (State::owner.load(std::memory_order_acquire) != detail::CallbackRole::Interrupt) {
             return fail<Error>({.status = solar::Status::NotReady,
@@ -188,13 +188,13 @@ template <auto Spec> struct InterruptDriven : Port<Spec>
         return {};
     }
 
-    [[nodiscard]] static bool installed() noexcept
+    [[nodiscard]] static bool installed()
     {
         return State::owner.load(std::memory_order_acquire) == detail::CallbackRole::Interrupt;
     }
 
     [[nodiscard]] static Result<std::size_t, Error>
-    write_fifo(std::span<const std::byte> bytes) noexcept
+    write_fifo(std::span<const std::byte> bytes)
     {
         const auto result = uart_fifo_fill(Base::native_device(),
                                            reinterpret_cast<const std::uint8_t*>(bytes.data()),
@@ -206,7 +206,7 @@ template <auto Spec> struct InterruptDriven : Port<Spec>
         return static_cast<std::size_t>(result);
     }
 
-    [[nodiscard]] static Result<std::size_t, Error> read_fifo(std::span<std::byte> bytes) noexcept
+    [[nodiscard]] static Result<std::size_t, Error> read_fifo(std::span<std::byte> bytes)
     {
         const auto result =
             uart_fifo_read(Base::native_device(), reinterpret_cast<std::uint8_t*>(bytes.data()),
@@ -218,34 +218,34 @@ template <auto Spec> struct InterruptDriven : Port<Spec>
         return static_cast<std::size_t>(result);
     }
 
-    static void enable_receive() noexcept
+    static void enable_receive()
     {
         uart_irq_rx_enable(Base::native_device());
     }
-    static void disable_receive() noexcept
+    static void disable_receive()
     {
         uart_irq_rx_disable(Base::native_device());
     }
-    static void enable_transmit() noexcept
+    static void enable_transmit()
     {
         uart_irq_tx_enable(Base::native_device());
     }
-    static void disable_transmit() noexcept
+    static void disable_transmit()
     {
         uart_irq_tx_disable(Base::native_device());
     }
 
-    [[nodiscard]] static bool receive_ready() noexcept
+    [[nodiscard]] static bool receive_ready()
     {
         return uart_irq_rx_ready(Base::native_device()) > 0;
     }
 
-    [[nodiscard]] static bool transmit_ready() noexcept
+    [[nodiscard]] static bool transmit_ready()
     {
         return uart_irq_tx_ready(Base::native_device()) > 0;
     }
 
-    [[nodiscard]] static Result<bool, Error> update() noexcept
+    [[nodiscard]] static Result<bool, Error> update()
     {
         const auto result = uart_irq_update(Base::native_device());
         if (result < 0) {
@@ -256,7 +256,7 @@ template <auto Spec> struct InterruptDriven : Port<Spec>
     }
 
   private:
-    static void trampoline(const device*, void*) noexcept
+    static void trampoline(const device*, void*)
     {
         if (const auto handler = State::interrupt_handler.load(std::memory_order_acquire);
             handler != nullptr) {
@@ -276,7 +276,7 @@ template <auto Spec> struct InterruptDriven
 namespace detail
 {
 
-[[nodiscard]] constexpr int32_t timeout_us(std::chrono::microseconds timeout) noexcept
+[[nodiscard]] constexpr int32_t timeout_us(std::chrono::microseconds timeout)
 {
     if (timeout == std::chrono::microseconds::max()) {
         return SYS_FOREVER_US;
@@ -295,7 +295,7 @@ template <auto Spec> struct Async : Port<Spec>
     using Base = Port<Spec>;
     using State = detail::CallbackState<Base::native_device()>;
 
-    [[nodiscard]] static Result<void, Error> install(AsyncHandler handler) noexcept
+    [[nodiscard]] static Result<void, Error> install(AsyncHandler handler)
     {
         auto expected = detail::CallbackRole::None;
         if (handler == nullptr ||
@@ -319,7 +319,7 @@ template <auto Spec> struct Async : Port<Spec>
         return {};
     }
 
-    [[nodiscard]] static Result<void, Error> uninstall() noexcept
+    [[nodiscard]] static Result<void, Error> uninstall()
     {
         if (State::owner.load(std::memory_order_acquire) != detail::CallbackRole::Async) {
             return fail<Error>({.status = solar::Status::NotReady,
@@ -340,14 +340,14 @@ template <auto Spec> struct Async : Port<Spec>
         return {};
     }
 
-    [[nodiscard]] static bool installed() noexcept
+    [[nodiscard]] static bool installed()
     {
         return State::owner.load(std::memory_order_acquire) == detail::CallbackRole::Async;
     }
 
     [[nodiscard]] static Result<void, Error>
     transmit(std::span<const std::byte> bytes,
-             std::chrono::microseconds timeout = std::chrono::microseconds::max()) noexcept
+             std::chrono::microseconds timeout = std::chrono::microseconds::max())
     {
         if (timeout != std::chrono::microseconds::max() && timeout.count() < 0) {
             return fail<Error>({.status = solar::Status::Invalid,
@@ -362,7 +362,7 @@ template <auto Spec> struct Async : Port<Spec>
             Operation::Submit, Base::path());
     }
 
-    [[nodiscard]] static Result<void, Error> abort_transmit() noexcept
+    [[nodiscard]] static Result<void, Error> abort_transmit()
     {
         return hardware::detail::native_result(uart_tx_abort(Base::native_device()),
                                                Operation::Abort, Base::path());
@@ -370,7 +370,7 @@ template <auto Spec> struct Async : Port<Spec>
 
     [[nodiscard]] static Result<void, Error>
     receive(std::span<std::byte> buffer,
-            std::chrono::microseconds timeout = std::chrono::microseconds::max()) noexcept
+            std::chrono::microseconds timeout = std::chrono::microseconds::max())
     {
         if (timeout != std::chrono::microseconds::max() && timeout.count() < 0) {
             return fail<Error>({.status = solar::Status::Invalid,
@@ -385,7 +385,7 @@ template <auto Spec> struct Async : Port<Spec>
             Operation::Submit, Base::path());
     }
 
-    [[nodiscard]] static Result<void, Error> provide(std::span<std::byte> buffer) noexcept
+    [[nodiscard]] static Result<void, Error> provide(std::span<std::byte> buffer)
     {
         return hardware::detail::native_result(
             uart_rx_buf_rsp(Base::native_device(), reinterpret_cast<std::uint8_t*>(buffer.data()),
@@ -393,14 +393,14 @@ template <auto Spec> struct Async : Port<Spec>
             Operation::Submit, Base::path());
     }
 
-    [[nodiscard]] static Result<void, Error> disable_receive() noexcept
+    [[nodiscard]] static Result<void, Error> disable_receive()
     {
         return hardware::detail::native_result(uart_rx_disable(Base::native_device()),
                                                Operation::Disable, Base::path());
     }
 
   private:
-    static void trampoline(const device*, uart_event* event, void*) noexcept
+    static void trampoline(const device*, uart_event* event, void*)
     {
         if (event == nullptr) {
             return;

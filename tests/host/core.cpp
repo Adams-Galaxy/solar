@@ -21,7 +21,11 @@ void* operator new(std::size_t size)
     if (auto* memory = std::malloc(size)) {
         return memory;
     }
+#if defined(__cpp_exceptions)
     throw std::bad_alloc{};
+#else
+    std::abort();
+#endif
 }
 
 void operator delete(void* memory) noexcept
@@ -152,12 +156,13 @@ void test_fail_as()
 {
     const solar::Result<int, ParseError> failure = solar::fail<ParseError>(ParseError::Invalid);
 
-    const auto from_error = [](const ParseError& error) -> solar::Result<void> {
+    const auto from_error =
+        [](const ParseError& error) -> solar::Result<void, solar::Traced<solar::Error>> {
         return solar::fail_as<solar::Error>(error);
     }(failure.error());
     assert(!from_error && solar::status_of(from_error.error()) == solar::Status::Invalid);
 
-    const auto from_result = []() -> solar::Result<void> {
+    const auto from_result = []() -> solar::Result<void, solar::Traced<solar::Error>> {
         const solar::Result<int, ParseError> nested = solar::fail<ParseError>(ParseError::Invalid);
         if (!nested) {
             return solar::fail_as<solar::Error>(nested);
@@ -165,6 +170,32 @@ void test_fail_as()
         return {};
     }();
     assert(!from_result && solar::status_of(from_result.error()) == solar::Status::Invalid);
+}
+
+void test_traced_error()
+{
+    static_assert(sizeof(solar::Traced<solar::Error, 0>) == sizeof(solar::Error));
+    static_assert(solar::ErrorType<solar::Traced<solar::Error, 0>>);
+    static_assert(solar::ErrorType<solar::Traced<solar::Error, 4>>);
+
+    using TracedError = solar::Traced<solar::Error, 4>;
+    constexpr TracedError base{.error = {.status = solar::Status::Invalid}};
+    constexpr auto once = base.with_context("parse");
+    constexpr auto twice = once.with_context("decode");
+
+    static_assert(once.count == 1);
+    static_assert(twice.count == 2);
+    static_assert(twice.frames[0].tag == "parse");
+    static_assert(twice.frames[1].tag == "decode");
+    static_assert(solar::status_of(twice) == solar::Status::Invalid);
+
+    TracedError full{.error = {.status = solar::Status::Invalid}};
+    for (int index = 0; index < 4; ++index) {
+        full = full.with_context("frame");
+    }
+    assert(full.count == 4);
+    const auto overflowed = full.with_context("dropped");
+    assert(overflowed.count == 4);
 }
 
 void test_move_only_results()
@@ -208,6 +239,7 @@ int main()
 {
     test_expected_operations();
     test_fail_as();
+    test_traced_error();
     test_move_only_results();
     test_type_iteration();
     test_result_operations_do_not_allocate();

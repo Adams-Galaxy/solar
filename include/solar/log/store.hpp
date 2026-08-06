@@ -23,13 +23,13 @@ template <typename Record, std::size_t Capacity> class RecordStore
     static_assert(Capacity > 0);
 
   public:
-    [[nodiscard]] Result<void> initialize() noexcept
+    [[nodiscard]] Result<void> initialize()
     {
         SpinGuard lock{mutex_};
         head_ = size_ = lost_ = 0;
         return {};
     }
-    [[nodiscard]] Result<void> append(Record record) noexcept
+    [[nodiscard]] Result<void> append(Record record)
     {
         SpinGuard lock{mutex_};
         if (size_ == Capacity) {
@@ -51,17 +51,17 @@ template <typename Record, std::size_t Capacity> class RecordStore
         }
         return size_;
     }
-    [[nodiscard]] std::size_t size() const noexcept
+    [[nodiscard]] std::size_t size() const
     {
         SpinGuard lock{mutex_};
         return size_;
     }
-    [[nodiscard]] std::uint64_t lost() const noexcept
+    [[nodiscard]] std::uint64_t lost() const
     {
         SpinGuard lock{mutex_};
         return lost_;
     }
-    [[nodiscard]] RetentionReport report() const noexcept
+    [[nodiscard]] RetentionReport report() const
     {
         SpinGuard lock{mutex_};
         return {.retained = size_, .lost = lost_};
@@ -78,11 +78,11 @@ template <typename Record, std::size_t Capacity> class RecordStore
 template <typename Application, typename Record, std::size_t Capacity> struct StaticRecordStore
 {
     inline static RecordStore<Record, Capacity> storage{};
-    [[nodiscard]] static Result<void> initialize() noexcept
+    [[nodiscard]] static Result<void> initialize()
     {
         return storage.initialize();
     }
-    [[nodiscard]] static Result<void> append(Record value) noexcept
+    [[nodiscard]] static Result<void> append(Record value)
     {
         return storage.append(std::move(value));
     }
@@ -90,7 +90,7 @@ template <typename Application, typename Record, std::size_t Capacity> struct St
     {
         return storage.replay(sink);
     }
-    [[nodiscard]] static RetentionReport report() noexcept
+    [[nodiscard]] static RetentionReport report()
     {
         return storage.report();
     }

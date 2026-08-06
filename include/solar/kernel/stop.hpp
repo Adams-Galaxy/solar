@@ -20,7 +20,7 @@ namespace detail
 
 struct StopState
 {
-    StopState() noexcept
+    StopState()
     {
         const int mutex_result = k_mutex_init(&mutex);
         const int condition_result = k_condvar_init(&condition);
@@ -43,19 +43,19 @@ class StopToken
   public:
     StopToken() = default;
 
-    [[nodiscard]] bool stop_possible() const noexcept
+    [[nodiscard]] bool stop_possible() const
     {
         return state_ != nullptr;
     }
 
-    [[nodiscard]] bool stop_requested() const noexcept
+    [[nodiscard]] bool stop_requested() const
     {
         return state_ != nullptr &&
                (state_->generation.load(std::memory_order_acquire) != generation_ ||
                 state_->requested.load(std::memory_order_acquire));
     }
 
-    [[nodiscard]] Result<void> wait(Timeout timeout = Timeout::forever()) const noexcept
+    [[nodiscard]] Result<void> wait(Timeout timeout = Timeout::forever()) const
     {
         if (state_ == nullptr) {
             return fail<Error>({.status = Status::NotSupported});
@@ -95,18 +95,18 @@ class StopToken
     }
 
     template <typename Rep, typename Period>
-    [[nodiscard]] Result<void> wait(std::chrono::duration<Rep, Period> timeout) const noexcept
+    [[nodiscard]] Result<void> wait(std::chrono::duration<Rep, Period> timeout) const
     {
         return wait(Timeout::after(timeout));
     }
 
-    [[nodiscard]] Result<void> wait(const Deadline& deadline) const noexcept
+    [[nodiscard]] Result<void> wait(const Deadline& deadline) const
     {
         return wait(deadline.remaining());
     }
 
   private:
-    explicit StopToken(detail::StopState& state) noexcept
+    explicit StopToken(detail::StopState& state)
         : state_(&state), generation_(state.generation.load(std::memory_order_acquire))
     {}
 
@@ -126,17 +126,17 @@ class StopSource
     StopSource(StopSource&&) = delete;
     StopSource& operator=(StopSource&&) = delete;
 
-    [[nodiscard]] StopToken token() noexcept
+    [[nodiscard]] StopToken token()
     {
         return StopToken{state_};
     }
 
-    [[nodiscard]] bool stop_requested() const noexcept
+    [[nodiscard]] bool stop_requested() const
     {
         return state_.requested.load(std::memory_order_acquire);
     }
 
-    [[nodiscard]] Result<bool> request_stop() noexcept
+    [[nodiscard]] Result<bool> request_stop()
     {
         if (in_isr()) {
             return fail<solar::Error>({.status = solar::Status::Invalid});
@@ -163,7 +163,7 @@ class StopSource
     }
 
     /** Begin a fresh generation; every token from an older generation stays stopped. */
-    [[nodiscard]] Result<void> reset() noexcept
+    [[nodiscard]] Result<void> reset()
     {
         if (in_isr()) {
             return fail<solar::Error>({.status = solar::Status::Invalid});

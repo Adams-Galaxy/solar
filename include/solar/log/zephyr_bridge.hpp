@@ -24,10 +24,10 @@ using Sink = Result<Receipt, Error> (*)(Level level, std::string_view text) noex
  * Solar builds one Application per binary, so one global slot mirrors
  * `kernel::install_fatal_observer`'s pattern rather than needing a registry.
  */
-[[nodiscard]] Result<void> install(Sink sink) noexcept;
+[[nodiscard]] Result<void> install(Sink sink);
 
 /** Called by the Zephyr log backend for every processed message. */
-void forward(Level level, std::string_view text) noexcept;
+void forward(Level level, std::string_view text);
 
 template <typename Logger>
 [[nodiscard]] Result<Receipt, Error> forward_into(Level level, std::string_view text) noexcept
@@ -36,7 +36,7 @@ template <typename Logger>
 }
 
 /** Installs `Logger` as the target for `forward()`. Call once, at startup. */
-template <typename Logger> [[nodiscard]] Result<void> install_for() noexcept
+template <typename Logger> [[nodiscard]] Result<void> install_for()
 {
     return install(&forward_into<Logger>);
 }

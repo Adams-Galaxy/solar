@@ -25,7 +25,7 @@ template <typename Derived, const device* Device, std::size_t RxCapacity> class 
     static_assert(RxCapacity > 0);
 
   public:
-    [[nodiscard]] static Result<void, LinkError> open(LinkEventSink sink) noexcept
+    [[nodiscard]] static Result<void, LinkError> open(LinkEventSink sink)
     {
         if (!device_is_ready(Device)) {
             return fail<LinkError>({.status = solar::Status::NotReady});
@@ -60,7 +60,7 @@ template <typename Derived, const device* Device, std::size_t RxCapacity> class 
         return {};
     }
 
-    static void close() noexcept
+    static void close()
     {
         (void)uart_rx_disable(Device);
         (void)uart_tx_abort(Device);
@@ -77,7 +77,7 @@ template <typename Derived, const device* Device, std::size_t RxCapacity> class 
         sink_ = {};
     }
 
-    static void poll() noexcept
+    static void poll()
     {
         if (rx_pending_.exchange(false, std::memory_order_acq_rel)) {
             LinkEventSink sink;
@@ -115,7 +115,7 @@ template <typename Derived, const device* Device, std::size_t RxCapacity> class 
     }
 
     [[nodiscard]] static Result<std::span<const std::byte>, LinkError>
-    rx_bytes(LeaseHandle lease) noexcept
+    rx_bytes(LeaseHandle lease)
     {
         auto guard = lock_.acquire();
         if (!opened_ || !rx_occupied_ || lease != rx_handle_) {
@@ -124,7 +124,7 @@ template <typename Derived, const device* Device, std::size_t RxCapacity> class 
         return std::span<const std::byte>{rx_storage_}.first(rx_size_);
     }
 
-    static void release_rx(LeaseHandle lease) noexcept
+    static void release_rx(LeaseHandle lease)
     {
         bool restart{};
         {
@@ -145,7 +145,7 @@ template <typename Derived, const device* Device, std::size_t RxCapacity> class 
         }
     }
 
-    [[nodiscard]] static Result<TxDisposition, LinkError> try_transmit(TxLease lease) noexcept
+    [[nodiscard]] static Result<TxDisposition, LinkError> try_transmit(TxLease lease)
     {
         {
             auto guard = lock_.acquire();
@@ -175,7 +175,7 @@ template <typename Derived, const device* Device, std::size_t RxCapacity> class 
     }
 
   private:
-    static void callback(const device*, uart_event* event, void*) noexcept
+    static void callback(const device*, uart_event* event, void*)
     {
         switch (event->type) {
         case UART_RX_RDY:
@@ -199,7 +199,7 @@ template <typename Derived, const device* Device, std::size_t RxCapacity> class 
         }
     }
 
-    static void receive(std::span<const std::uint8_t> bytes) noexcept
+    static void receive(std::span<const std::uint8_t> bytes)
     {
         bool notify{};
         {
@@ -227,7 +227,7 @@ template <typename Derived, const device* Device, std::size_t RxCapacity> class 
         }
     }
 
-    static void recover_disabled_rx() noexcept
+    static void recover_disabled_rx()
     {
         bool restart{};
         {
@@ -243,7 +243,7 @@ template <typename Derived, const device* Device, std::size_t RxCapacity> class 
         }
     }
 
-    static void complete_transmit(std::size_t size) noexcept
+    static void complete_transmit(std::size_t size)
     {
         {
             auto guard = lock_.acquire();
@@ -258,7 +258,7 @@ template <typename Derived, const device* Device, std::size_t RxCapacity> class 
         tx_pending_.store(true, std::memory_order_release);
     }
 
-    static void abort_transmit() noexcept
+    static void abort_transmit()
     {
         {
             auto guard = lock_.acquire();
@@ -271,7 +271,7 @@ template <typename Derived, const device* Device, std::size_t RxCapacity> class 
         signal_fault(Status::Error);
     }
 
-    static void signal_fault(Status status) noexcept
+    static void signal_fault(Status status)
     {
         fault_status_.store(status, std::memory_order_release);
         fault_pending_.store(true, std::memory_order_release);

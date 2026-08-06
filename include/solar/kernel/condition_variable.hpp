@@ -19,10 +19,10 @@ namespace solar::kernel
 class ConditionVariableRef
 {
   public:
-    explicit constexpr ConditionVariableRef(k_condvar& condition) noexcept : condition_(&condition)
+    explicit constexpr ConditionVariableRef(k_condvar& condition) : condition_(&condition)
     {}
 
-    [[nodiscard]] Result<void> notify_one() const noexcept
+    [[nodiscard]] Result<void> notify_one() const
     {
         if (in_isr()) {
             return fail<Error>({.status = Status::Invalid});
@@ -30,7 +30,7 @@ class ConditionVariableRef
         return detail::map_native(k_condvar_signal(condition_));
     }
 
-    [[nodiscard]] Result<std::size_t> notify_all() const noexcept
+    [[nodiscard]] Result<std::size_t> notify_all() const
     {
         if (in_isr()) {
             return fail<solar::Error>({.status = solar::Status::Invalid});
@@ -43,7 +43,7 @@ class ConditionVariableRef
     }
 
     [[nodiscard]] Result<void> wait(UniqueLock<Mutex>& lock,
-                                    Timeout timeout = Timeout::forever()) const noexcept
+                                    Timeout timeout = Timeout::forever()) const
     {
         if (in_isr()) {
             return fail<Error>({.status = Status::Invalid});
@@ -70,20 +70,20 @@ class ConditionVariableRef
 
     template <typename Rep, typename Period>
     [[nodiscard]] Result<void> wait(UniqueLock<Mutex>& lock,
-                                    std::chrono::duration<Rep, Period> timeout) const noexcept
+                                    std::chrono::duration<Rep, Period> timeout) const
     {
         return wait(lock, Timeout::after(timeout));
     }
 
     [[nodiscard]] Result<void> wait(UniqueLock<Mutex>& lock,
-                                    const Deadline& deadline) const noexcept
+                                    const Deadline& deadline) const
     {
         return wait(lock, deadline.remaining());
     }
 
     template <typename Predicate>
     [[nodiscard]] Result<void> wait(UniqueLock<Mutex>& lock, Predicate&& predicate,
-                                    Timeout timeout = Timeout::forever()) const noexcept
+                                    Timeout timeout = Timeout::forever()) const
     {
         if (timeout.is_no_wait()) {
             return predicate() ? Result<void>{}
@@ -102,12 +102,12 @@ class ConditionVariableRef
 
     template <typename Predicate, typename Rep, typename Period>
     [[nodiscard]] Result<void> wait(UniqueLock<Mutex>& lock, Predicate&& predicate,
-                                    std::chrono::duration<Rep, Period> timeout) const noexcept
+                                    std::chrono::duration<Rep, Period> timeout) const
     {
         return wait(lock, std::forward<Predicate>(predicate), Timeout::after(timeout));
     }
 
-    [[nodiscard]] constexpr k_condvar* native_handle() const noexcept
+    [[nodiscard]] constexpr k_condvar* native_handle() const
     {
         return condition_;
     }
@@ -119,7 +119,7 @@ class ConditionVariableRef
 class ConditionVariable
 {
   public:
-    ConditionVariable() noexcept
+    ConditionVariable()
     {
         const int result = k_condvar_init(&condition_);
         __ASSERT_NO_MSG(result == 0);
@@ -131,48 +131,48 @@ class ConditionVariable
     ConditionVariable(ConditionVariable&&) = delete;
     ConditionVariable& operator=(ConditionVariable&&) = delete;
 
-    [[nodiscard]] Result<void> notify_one() noexcept
+    [[nodiscard]] Result<void> notify_one()
     {
         return ref().notify_one();
     }
-    [[nodiscard]] Result<std::size_t> notify_all() noexcept
+    [[nodiscard]] Result<std::size_t> notify_all()
     {
         return ref().notify_all();
     }
 
     [[nodiscard]] Result<void> wait(UniqueLock<Mutex>& lock,
-                                    Timeout timeout = Timeout::forever()) noexcept
+                                    Timeout timeout = Timeout::forever())
     {
         return ref().wait(lock, timeout);
     }
 
     template <typename Rep, typename Period>
     [[nodiscard]] Result<void> wait(UniqueLock<Mutex>& lock,
-                                    std::chrono::duration<Rep, Period> timeout) noexcept
+                                    std::chrono::duration<Rep, Period> timeout)
     {
         return ref().wait(lock, timeout);
     }
 
-    [[nodiscard]] Result<void> wait(UniqueLock<Mutex>& lock, const Deadline& deadline) noexcept
+    [[nodiscard]] Result<void> wait(UniqueLock<Mutex>& lock, const Deadline& deadline)
     {
         return ref().wait(lock, deadline);
     }
 
     template <typename Predicate>
     [[nodiscard]] Result<void> wait(UniqueLock<Mutex>& lock, Predicate&& predicate,
-                                    Timeout timeout = Timeout::forever()) noexcept
+                                    Timeout timeout = Timeout::forever())
     {
         return ref().wait(lock, std::forward<Predicate>(predicate), timeout);
     }
 
     template <typename Predicate, typename Rep, typename Period>
     [[nodiscard]] Result<void> wait(UniqueLock<Mutex>& lock, Predicate&& predicate,
-                                    std::chrono::duration<Rep, Period> timeout) noexcept
+                                    std::chrono::duration<Rep, Period> timeout)
     {
         return ref().wait(lock, std::forward<Predicate>(predicate), timeout);
     }
 
-    [[nodiscard]] ConditionVariableRef ref() noexcept
+    [[nodiscard]] ConditionVariableRef ref()
     {
         return ConditionVariableRef{condition_};
     }

@@ -16,7 +16,7 @@ namespace solar::log
 template <typename Store, typename... Sinks> class Capture
 {
   public:
-    Capture(Store& store, Sinks&... sinks) noexcept : store_{store}, sinks_{&sinks...} {}
+    Capture(Store& store, Sinks&... sinks) : store_{store}, sinks_{&sinks...} {}
 
     template <typename Record> [[nodiscard]] Result<void> write(Record record)
     {
@@ -40,9 +40,9 @@ template <typename Storage, typename Codec, std::uint32_t Key, std::size_t Maxim
 class PersistenceSink
 {
   public:
-    explicit PersistenceSink(Storage& storage) noexcept : storage_{storage} {}
+    explicit PersistenceSink(Storage& storage) : storage_{storage} {}
 
-    template <typename Record> [[nodiscard]] Result<void> write(const Record& record) noexcept
+    template <typename Record> [[nodiscard]] Result<void> write(const Record& record)
     {
         std::array<std::byte, MaximumBytes> bytes{};
         auto encoded = Codec::encode(record, bytes);

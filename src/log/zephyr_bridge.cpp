@@ -20,7 +20,7 @@ namespace
 
 std::atomic<Sink> installed_sink{nullptr};
 
-[[nodiscard]] constexpr Level level_from_zephyr(std::uint8_t level) noexcept
+[[nodiscard]] constexpr Level level_from_zephyr(std::uint8_t level)
 {
     switch (level) {
     case LOG_LEVEL_ERR:
@@ -48,7 +48,7 @@ struct Accumulator
     std::size_t size{};
 };
 
-int accumulate(std::uint8_t* data, std::size_t length, void* context) noexcept
+int accumulate(std::uint8_t* data, std::size_t length, void* context)
 {
     auto& accumulator = *static_cast<Accumulator*>(context);
     const auto remaining = accumulator.text.size() - std::min(accumulator.size, accumulator.text.size());
@@ -76,7 +76,7 @@ LOG_OUTPUT_DEFINE(bridge_output, accumulate, render_scratch.data(), render_scrat
 // concurrent processing the way it would be if backends ran in parallel.
 Accumulator accumulator{};
 
-void process(const log_backend* const, union log_msg_generic* msg) noexcept
+void process(const log_backend* const, union log_msg_generic* msg)
 {
     if (installed_sink.load(std::memory_order_acquire) == nullptr) {
         return;
@@ -97,16 +97,16 @@ void process(const log_backend* const, union log_msg_generic* msg) noexcept
     forward(level, std::string_view{accumulator.text.data(), size});
 }
 
-void init(const log_backend* const) noexcept {}
+void init(const log_backend* const) {}
 
-int is_ready(const log_backend* const) noexcept
+int is_ready(const log_backend* const)
 {
     return 0;
 }
 
-void panic(const log_backend* const) noexcept {}
+void panic(const log_backend* const) {}
 
-void dropped(const log_backend* const, std::uint32_t) noexcept {}
+void dropped(const log_backend* const, std::uint32_t) {}
 
 constexpr log_backend_api api{
     .process = process,
@@ -120,7 +120,7 @@ constexpr log_backend_api api{
 
 } // namespace
 
-[[nodiscard]] Result<void> install(Sink sink) noexcept
+[[nodiscard]] Result<void> install(Sink sink)
 {
     if (sink == nullptr) {
         return fail<solar::Error>({.status = Status::Invalid});
@@ -132,7 +132,7 @@ constexpr log_backend_api api{
     return fail<solar::Error>({.status = expected == sink ? Status::Already : Status::Busy});
 }
 
-void forward(Level level, std::string_view text) noexcept
+void forward(Level level, std::string_view text)
 {
     if (const auto sink = installed_sink.load(std::memory_order_acquire); sink != nullptr) {
         (void)sink(level, text);

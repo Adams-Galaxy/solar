@@ -13,10 +13,10 @@ class TriggeredWork;
 class WorkQueueTarget
 {
   public:
-    explicit constexpr WorkQueueTarget(k_work_q& queue) noexcept : queue_(&queue) {}
+    explicit constexpr WorkQueueTarget(k_work_q& queue) : queue_(&queue) {}
 
   private:
-    [[nodiscard]] constexpr k_work_q* native_queue() const noexcept
+    [[nodiscard]] constexpr k_work_q* native_queue() const
     {
         return queue_;
     }

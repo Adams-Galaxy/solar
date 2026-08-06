@@ -29,7 +29,7 @@ template <std::size_t Capacity> class TaskQueue
 
   public:
     using Function = void (*)(void*) noexcept;
-    [[nodiscard]] Result<void> initialize() noexcept
+    [[nodiscard]] Result<void> initialize()
     {
         SpinGuard lock{mutex_};
         slots_ = {};
@@ -37,7 +37,7 @@ template <std::size_t Capacity> class TaskQueue
         accepting_ = true;
         return {};
     }
-    [[nodiscard]] Result<TaskToken> enqueue(Function function, void* context = nullptr) noexcept
+    [[nodiscard]] Result<TaskToken> enqueue(Function function, void* context = nullptr)
     {
         SpinGuard lock{mutex_};
         if (!accepting_) {
@@ -52,7 +52,7 @@ template <std::size_t Capacity> class TaskQueue
             }
         return fail<solar::Error>({.status = Status::NoSpace});
     }
-    [[nodiscard]] Result<void> cancel(TaskToken token) noexcept
+    [[nodiscard]] Result<void> cancel(TaskToken token)
     {
         SpinGuard lock{mutex_};
         for (auto& slot : slots_)
@@ -62,7 +62,7 @@ template <std::size_t Capacity> class TaskQueue
             }
         return fail<solar::Error>({.status = Status::NotFound});
     }
-    [[nodiscard]] Result<std::size_t> drain() noexcept
+    [[nodiscard]] Result<std::size_t> drain()
     {
         std::array<Slot, Capacity> ready{};
         {
@@ -80,7 +80,7 @@ template <std::size_t Capacity> class TaskQueue
             }
         return count;
     }
-    [[nodiscard]] Result<std::size_t> stop(ShutdownPolicy policy = ShutdownPolicy::Drain) noexcept
+    [[nodiscard]] Result<std::size_t> stop(ShutdownPolicy policy = ShutdownPolicy::Drain)
     {
         {
             SpinGuard lock{mutex_};
@@ -116,24 +116,24 @@ template <std::size_t Capacity> class TaskQueue
 template <typename Application, std::size_t Capacity> struct StaticTaskQueue
 {
     inline static TaskQueue<Capacity> storage{};
-    [[nodiscard]] static Result<void> initialize() noexcept
+    [[nodiscard]] static Result<void> initialize()
     {
         return storage.initialize();
     }
     [[nodiscard]] static Result<TaskToken> enqueue(typename TaskQueue<Capacity>::Function function,
-                                                   void* context = nullptr) noexcept
+                                                   void* context = nullptr)
     {
         return storage.enqueue(function, context);
     }
-    [[nodiscard]] static Result<void> cancel(TaskToken token) noexcept
+    [[nodiscard]] static Result<void> cancel(TaskToken token)
     {
         return storage.cancel(token);
     }
-    [[nodiscard]] static Result<std::size_t> drain() noexcept
+    [[nodiscard]] static Result<std::size_t> drain()
     {
         return storage.drain();
     }
-    [[nodiscard]] static Result<void> stop() noexcept
+    [[nodiscard]] static Result<void> stop()
     {
         auto stopped = storage.stop();
         return stopped ? Result<void>{} : fail<solar::Error>(stopped.error());

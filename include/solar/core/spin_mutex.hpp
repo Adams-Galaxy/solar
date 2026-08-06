@@ -9,18 +9,18 @@ namespace solar
 class SpinMutex
 {
   public:
-    void lock() noexcept
+    void lock()
     {
         while (locked_.test_and_set(std::memory_order_acquire)) {
         }
     }
 
-    void unlock() noexcept
+    void unlock()
     {
         locked_.clear(std::memory_order_release);
     }
 
-    [[nodiscard]] bool try_lock() noexcept
+    [[nodiscard]] bool try_lock()
     {
         return !locked_.test_and_set(std::memory_order_acquire);
     }
@@ -32,7 +32,7 @@ class SpinMutex
 class SpinGuard
 {
   public:
-    explicit SpinGuard(SpinMutex& mutex) noexcept : mutex_{mutex}
+    explicit SpinGuard(SpinMutex& mutex) : mutex_{mutex}
     {
         mutex_.lock();
     }

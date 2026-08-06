@@ -63,7 +63,7 @@ template <typename T, typename Bits> [[nodiscard]] constexpr T from_bits(Bits va
     }
 }
 
-template <typename T> bool write(T value, std::span<std::byte> output, std::size_t& offset) noexcept
+template <typename T> bool write(T value, std::span<std::byte> output, std::size_t& offset)
 {
     static_assert(supported_v<T>,
                   "SOLAR_DIAGNOSTIC_REMOTE_PACKED_FIELD: Packed supports fixed scalar fields");
@@ -90,7 +90,7 @@ template <typename T> bool write(T value, std::span<std::byte> output, std::size
 }
 
 template <typename T>
-bool read(T& value, std::span<const std::byte> input, std::size_t& offset) noexcept
+bool read(T& value, std::span<const std::byte> input, std::size_t& offset)
 {
     static_assert(supported_v<T>,
                   "SOLAR_DIAGNOSTIC_REMOTE_PACKED_FIELD: Packed supports fixed scalar fields");
@@ -125,7 +125,7 @@ template <typename Value, typename... FieldTypes> struct Codec<Value, Fields<Fie
         (sizeof(wire_type_t<remote::detail::field_member_t<FieldTypes>>) + ... + 0U);
 
     static Result<std::size_t, Error> encode(const Value& value,
-                                             std::span<std::byte> output) noexcept
+                                             std::span<std::byte> output)
     {
         static_assert((supported_v<remote::detail::field_member_t<FieldTypes>> && ...),
                       "SOLAR_DIAGNOSTIC_REMOTE_PACKED_FIELD: Packed schema contains a non-fixed "
@@ -137,7 +137,7 @@ template <typename Value, typename... FieldTypes> struct Codec<Value, Fields<Fie
         return offset;
     }
 
-    static Result<Value, Error> decode(std::span<const std::byte> input) noexcept
+    static Result<Value, Error> decode(std::span<const std::byte> input)
     {
         if (input.size() != size) {
             return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::Unpack});
@@ -165,14 +165,14 @@ inline constexpr std::size_t encoded_size = [] {
 
 template <typename Value>
 [[nodiscard]] Result<std::size_t, Error> encode(const Value& value,
-                                                std::span<std::byte> output) noexcept
+                                                std::span<std::byte> output)
 {
     (void)encoded_size<Value>;
     return detail::Codec<Value, typename Schema<Value>::Fields>::encode(value, output);
 }
 
 template <typename Value>
-[[nodiscard]] Result<Value, Error> decode(std::span<const std::byte> input) noexcept
+[[nodiscard]] Result<Value, Error> decode(std::span<const std::byte> input)
 {
     (void)encoded_size<Value>;
     return detail::Codec<Value, typename Schema<Value>::Fields>::decode(input);

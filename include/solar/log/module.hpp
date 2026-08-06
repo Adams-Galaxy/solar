@@ -35,29 +35,29 @@
 #define SOLAR_LOG_DECLARE_MODULE(name)                                                            \
     namespace solar::log::module::name                                                            \
     {                                                                                               \
-    void error(const char* text) noexcept;                                                         \
-    void warn(const char* text) noexcept;                                                           \
-    void info(const char* text) noexcept;                                                           \
-    void debug(const char* text) noexcept;                                                          \
+    void error(const char* text); \
+    void warn(const char* text); \
+    void info(const char* text); \
+    void debug(const char* text); \
     }
 
 #define SOLAR_LOG_DEFINE_MODULE(name)                                                              \
     LOG_MODULE_REGISTER(solar_##name);                                                             \
     namespace solar::log::module::name                                                             \
     {                                                                                               \
-    void error(const char* text) noexcept                                                           \
+    void error(const char* text) \
     {                                                                                                \
         LOG_ERR("%s", text);                                                                        \
     }                                                                                                \
-    void warn(const char* text) noexcept                                                             \
+    void warn(const char* text) \
     {                                                                                                \
         LOG_WRN("%s", text);                                                                        \
     }                                                                                                \
-    void info(const char* text) noexcept                                                             \
+    void info(const char* text) \
     {                                                                                                \
         LOG_INF("%s", text);                                                                        \
     }                                                                                                \
-    void debug(const char* text) noexcept                                                            \
+    void debug(const char* text) \
     {                                                                                                \
         LOG_DBG("%s", text);                                                                        \
     }                                                                                                \
@@ -68,10 +68,10 @@
 #define SOLAR_LOG_DECLARE_MODULE(name)                                                             \
     namespace solar::log::module::name                                                            \
     {                                                                                               \
-    inline void error(const char*) noexcept {}                                                     \
-    inline void warn(const char*) noexcept {}                                                       \
-    inline void info(const char*) noexcept {}                                                       \
-    inline void debug(const char*) noexcept {}                                                      \
+    inline void error(const char*) {} \
+    inline void warn(const char*) {} \
+    inline void info(const char*) {} \
+    inline void debug(const char*) {} \
     }
 
 #define SOLAR_LOG_DEFINE_MODULE(name)

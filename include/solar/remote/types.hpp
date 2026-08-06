@@ -163,7 +163,7 @@ enum class StatusCode : std::uint8_t
     UnexpectedExit = 22,
 };
 
-[[nodiscard]] constexpr StatusCode encode_status(Status status) noexcept
+[[nodiscard]] constexpr StatusCode encode_status(Status status)
 {
     switch (status) {
 #define SOLAR_DETAIL_REMOTE_STATUS(NAME)                                                           \
@@ -197,7 +197,7 @@ enum class StatusCode : std::uint8_t
     return StatusCode::Error;
 }
 
-[[nodiscard]] constexpr std::optional<Status> decode_status(StatusCode code) noexcept
+[[nodiscard]] constexpr std::optional<Status> decode_status(StatusCode code)
 {
     switch (code) {
 #define SOLAR_DETAIL_REMOTE_STATUS(NAME)                                                           \
@@ -398,39 +398,39 @@ template <typename DataT> class Loan
         abandon();
     }
 
-    [[nodiscard]] std::span<std::byte> data() noexcept
+    [[nodiscard]] std::span<std::byte> data()
     {
         return bytes_;
     }
 
-    [[nodiscard]] std::size_t capacity() const noexcept
+    [[nodiscard]] std::size_t capacity() const
     {
         return bytes_.size();
     }
 
-    [[nodiscard]] explicit operator bool() const noexcept
+    [[nodiscard]] explicit operator bool() const
     {
         return release_ != nullptr;
     }
 
-    [[nodiscard]] std::uint16_t slot() const noexcept
+    [[nodiscard]] std::uint16_t slot() const
     {
         return slot_;
     }
 
-    [[nodiscard]] std::uint16_t generation() const noexcept
+    [[nodiscard]] std::uint16_t generation() const
     {
         return generation_;
     }
 
-    void commit_ownership() noexcept
+    void commit_ownership()
     {
         release_ = nullptr;
         bytes_ = {};
     }
 
     static Loan make(std::span<std::byte> bytes, std::uint16_t slot, std::uint16_t generation,
-                     Release release) noexcept
+                     Release release)
     {
         Loan loan;
         loan.bytes_ = bytes;
@@ -441,7 +441,7 @@ template <typename DataT> class Loan
     }
 
   private:
-    void abandon() noexcept
+    void abandon()
     {
         if (release_ != nullptr) {
             release_(slot_, generation_);

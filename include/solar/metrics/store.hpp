@@ -44,13 +44,13 @@ template <typename SchemaT> class MetricStore;
 template <typename... Metrics> class MetricStore<Schema<Metrics...>>
 {
   public:
-    [[nodiscard]] Result<void> initialize() noexcept
+    [[nodiscard]] Result<void> initialize()
     {
         SpinGuard lock{mutex_};
         slots_ = {};
         return {};
     }
-    template <typename Metric> [[nodiscard]] Result<void> set(typename Metric::Value value) noexcept
+    template <typename Metric> [[nodiscard]] Result<void> set(typename Metric::Value value)
     {
         require_member<Metric>();
         SpinGuard lock{mutex_};
@@ -60,7 +60,7 @@ template <typename... Metrics> class MetricStore<Schema<Metrics...>>
         return {};
     }
     template <typename Metric>
-    [[nodiscard]] Result<void> observe(typename Metric::Value value) noexcept
+    [[nodiscard]] Result<void> observe(typename Metric::Value value)
         requires std::is_arithmetic_v<typename Metric::Value>
     {
         require_member<Metric>();
@@ -78,14 +78,14 @@ template <typename... Metrics> class MetricStore<Schema<Metrics...>>
         }
         return {};
     }
-    template <typename Metric> [[nodiscard]] Result<Sample<Metric>> get() const noexcept
+    template <typename Metric> [[nodiscard]] Result<Sample<Metric>> get() const
     {
         require_member<Metric>();
         SpinGuard lock{mutex_};
         return std::get<MetricSlot<Metric>>(slots_).sample;
     }
     template <typename Metric>
-    [[nodiscard]] Result<AggregateSummary<Metric>> summary() const noexcept
+    [[nodiscard]] Result<AggregateSummary<Metric>> summary() const
         requires std::is_arithmetic_v<typename Metric::Value>
     {
         require_member<Metric>();
@@ -113,24 +113,24 @@ template <typename... Metrics> class MetricStore<Schema<Metrics...>>
 template <typename Application, typename SchemaT> struct StaticMetricStore
 {
     inline static MetricStore<SchemaT> storage{};
-    [[nodiscard]] static Result<void> initialize() noexcept
+    [[nodiscard]] static Result<void> initialize()
     {
         return storage.initialize();
     }
-    template <typename Metric> [[nodiscard]] static auto set(typename Metric::Value value) noexcept
+    template <typename Metric> [[nodiscard]] static auto set(typename Metric::Value value)
     {
         return storage.template set<Metric>(std::move(value));
     }
-    template <typename Metric> [[nodiscard]] static auto get() noexcept
+    template <typename Metric> [[nodiscard]] static auto get()
     {
         return storage.template get<Metric>();
     }
     template <typename Metric>
-    [[nodiscard]] static auto observe(typename Metric::Value value) noexcept
+    [[nodiscard]] static auto observe(typename Metric::Value value)
     {
         return storage.template observe<Metric>(std::move(value));
     }
-    template <typename Metric> [[nodiscard]] static auto summary() noexcept
+    template <typename Metric> [[nodiscard]] static auto summary()
     {
         return storage.template summary<Metric>();
     }

@@ -41,7 +41,7 @@ template <auto Spec> struct Endpoint : hardware::Endpoint<Spec>
 #endif
 
     [[nodiscard]] static Result<void, Error> transceive(const spi_buf_set* transmit,
-                                                        const spi_buf_set* receive) noexcept
+                                                        const spi_buf_set* receive)
     {
         if (auto ready = Base::require_ready(); !ready) {
             return ready;
@@ -52,7 +52,7 @@ template <auto Spec> struct Endpoint : hardware::Endpoint<Spec>
     }
 
     [[nodiscard]] static Result<void, Error> transceive(std::span<const std::byte> transmit,
-                                                        std::span<std::byte> receive) noexcept
+                                                        std::span<std::byte> receive)
     {
         spi_buf tx_buffer{.buf = const_cast<std::byte*>(transmit.data()), .len = transmit.size()};
         spi_buf rx_buffer{.buf = receive.data(), .len = receive.size()};
@@ -62,21 +62,21 @@ template <auto Spec> struct Endpoint : hardware::Endpoint<Spec>
                           receive.empty() ? nullptr : &rx_set);
     }
 
-    [[nodiscard]] static Result<void, Error> write(std::span<const std::byte> bytes) noexcept
+    [[nodiscard]] static Result<void, Error> write(std::span<const std::byte> bytes)
     {
         spi_buf buffer{.buf = const_cast<std::byte*>(bytes.data()), .len = bytes.size()};
         spi_buf_set set{.buffers = &buffer, .count = 1};
         return transceive(bytes.empty() ? nullptr : &set, nullptr);
     }
 
-    [[nodiscard]] static Result<void, Error> read(std::span<std::byte> bytes) noexcept
+    [[nodiscard]] static Result<void, Error> read(std::span<std::byte> bytes)
     {
         spi_buf buffer{.buf = bytes.data(), .len = bytes.size()};
         spi_buf_set set{.buffers = &buffer, .count = 1};
         return transceive(nullptr, bytes.empty() ? nullptr : &set);
     }
 
-    [[nodiscard]] static Result<void, Error> release() noexcept
+    [[nodiscard]] static Result<void, Error> release()
     {
         return hardware::detail::native_result(spi_release_dt(&Base::descriptor_value.native),
                                                hardware::Operation::Release, Base::path());
@@ -92,7 +92,7 @@ template <typename EndpointT> struct RtioEndpoint
         .data = &native_spec,
     };
 
-    [[nodiscard]] static bool ready() noexcept
+    [[nodiscard]] static bool ready()
     {
         return spi_is_ready_iodev(&native_iodev);
     }
@@ -100,7 +100,7 @@ template <typename EndpointT> struct RtioEndpoint
     [[nodiscard]] static Result<std::uint32_t, Error> copy(rtio::Context& context,
                                                            const spi_buf_set* transmit,
                                                            const spi_buf_set* receive,
-                                                           ::rtio_sqe*& last) noexcept
+                                                           ::rtio_sqe*& last)
     {
         const auto count =
             spi_rtio_copy(context.native_handle(), &native_iodev, transmit, receive, &last);
@@ -111,7 +111,7 @@ template <typename EndpointT> struct RtioEndpoint
         return static_cast<std::uint32_t>(count);
     }
 
-    [[nodiscard]] static constexpr ::rtio_iodev* native_handle() noexcept
+    [[nodiscard]] static constexpr ::rtio_iodev* native_handle()
     {
         return &native_iodev;
     }
@@ -126,7 +126,7 @@ template <typename EndpointT> class AsyncTransfer
   public:
     [[nodiscard]] Result<async::Token, Error> submit(std::span<const std::byte> transmit,
                                                      std::span<std::byte> receive,
-                                                     Completion completion) noexcept
+                                                     Completion completion)
     {
         if (completion == nullptr) {
             return fail<Error>({.status = solar::Status::Invalid,
@@ -158,12 +158,12 @@ template <typename EndpointT> class AsyncTransfer
         return token_;
     }
 
-    [[nodiscard]] bool active() const noexcept
+    [[nodiscard]] bool active() const
     {
         return gate_.active(token_);
     }
 
-    [[nodiscard]] Result<void, Error> cancel() noexcept
+    [[nodiscard]] Result<void, Error> cancel()
     {
         return fail<Error>({.status = solar::Status::NotSupported,
                             .reason = Reason::Unsupported,
@@ -173,12 +173,12 @@ template <typename EndpointT> class AsyncTransfer
     }
 
   private:
-    static void trampoline(const device*, int result, void* context) noexcept
+    static void trampoline(const device*, int result, void* context)
     {
         static_cast<AsyncTransfer*>(context)->finish(result);
     }
 
-    void finish(int result) noexcept
+    void finish(int result)
     {
         if (!gate_.complete(token_)) {
             return;
@@ -238,7 +238,7 @@ template <typename EndpointT> class Session
         }
     }
 
-    [[nodiscard]] static Result<Session, Error> begin() noexcept
+    [[nodiscard]] static Result<Session, Error> begin()
     {
         if ((EndpointT::descriptor().native.config.operation & SPI_LOCK_ON) == 0U) {
             return fail<Error>({.status = solar::Status::Invalid,
@@ -250,7 +250,7 @@ template <typename EndpointT> class Session
         return Session{};
     }
 
-    [[nodiscard]] Result<void, Error> release() noexcept
+    [[nodiscard]] Result<void, Error> release()
     {
         if (!owns_) {
             return {};

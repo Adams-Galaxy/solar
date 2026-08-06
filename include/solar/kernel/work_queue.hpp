@@ -43,7 +43,7 @@ template <std::size_t StackBytes> class WorkQueue
   public:
     static constexpr std::size_t requested_stack_size = StackBytes;
 
-    WorkQueue() noexcept
+    WorkQueue()
     {
         k_work_queue_init(&queue_);
     }
@@ -58,7 +58,7 @@ template <std::size_t StackBytes> class WorkQueue
     WorkQueue(WorkQueue&&) = delete;
     WorkQueue& operator=(WorkQueue&&) = delete;
 
-    [[nodiscard]] Result<void> start(WorkQueueConfiguration configuration) noexcept
+    [[nodiscard]] Result<void> start(WorkQueueConfiguration configuration)
     {
         if (in_isr()) {
             return fail<Error>({.status = Status::Invalid});
@@ -90,7 +90,7 @@ template <std::size_t StackBytes> class WorkQueue
         return {};
     }
 
-    [[nodiscard]] Result<bool> drain(bool plug = false) noexcept
+    [[nodiscard]] Result<bool> drain(bool plug = false)
     {
         if (in_isr()) {
             return fail<solar::Error>({.status = solar::Status::Invalid});
@@ -108,7 +108,7 @@ template <std::size_t StackBytes> class WorkQueue
         return result != 0;
     }
 
-    [[nodiscard]] Result<void> unplug() noexcept
+    [[nodiscard]] Result<void> unplug()
     {
         if (!started()) {
             return fail<Error>({.status = Status::NotReady});
@@ -116,7 +116,7 @@ template <std::size_t StackBytes> class WorkQueue
         return detail::map_native(k_work_queue_unplug(&queue_));
     }
 
-    [[nodiscard]] Result<void> stop(Timeout timeout = Timeout::forever()) noexcept
+    [[nodiscard]] Result<void> stop(Timeout timeout = Timeout::forever())
     {
         if (in_isr()) {
             return fail<Error>({.status = Status::Invalid});
@@ -138,32 +138,32 @@ template <std::size_t StackBytes> class WorkQueue
         return fail<Error>(error_from_errno(result));
     }
 
-    [[nodiscard]] Result<void> stop(const Deadline& deadline) noexcept
+    [[nodiscard]] Result<void> stop(const Deadline& deadline)
     {
         return stop(deadline.remaining());
     }
 
-    [[nodiscard]] bool started() const noexcept
+    [[nodiscard]] bool started() const
     {
         return lifecycle() == WorkQueueLifecycle::Started;
     }
 
-    [[nodiscard]] WorkQueueLifecycle lifecycle() const noexcept
+    [[nodiscard]] WorkQueueLifecycle lifecycle() const
     {
         return lifecycle_.load(std::memory_order_acquire);
     }
 
-    [[nodiscard]] WorkQueueTarget target() noexcept
+    [[nodiscard]] WorkQueueTarget target()
     {
         return WorkQueueTarget{queue_};
     }
 
-    [[nodiscard]] k_tid_t thread_id() const noexcept
+    [[nodiscard]] k_tid_t thread_id() const
     {
         return k_work_queue_thread_get(const_cast<k_work_q*>(&queue_));
     }
 
-    [[nodiscard]] static constexpr std::size_t stack_size() noexcept
+    [[nodiscard]] static constexpr std::size_t stack_size()
     {
         return K_KERNEL_STACK_SIZEOF(stack_);
     }

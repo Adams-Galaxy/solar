@@ -18,10 +18,10 @@ namespace solar::kernel
 class PipeRef
 {
   public:
-    explicit constexpr PipeRef(k_pipe& pipe) noexcept : pipe_(&pipe) {}
+    explicit constexpr PipeRef(k_pipe& pipe) : pipe_(&pipe) {}
 
     [[nodiscard]] Result<std::size_t> write(std::span<const std::byte> data,
-                                            Timeout timeout = Timeout::forever()) const noexcept
+                                            Timeout timeout = Timeout::forever()) const
     {
         if (in_isr()) {
             return fail<solar::Error>({.status = solar::Status::Invalid});
@@ -32,18 +32,18 @@ class PipeRef
     }
 
     [[nodiscard]] Result<std::size_t> write(std::span<const std::byte> data,
-                                            const Deadline& deadline) const noexcept
+                                            const Deadline& deadline) const
     {
         return write(data, deadline.remaining());
     }
 
-    [[nodiscard]] Result<std::size_t> try_write(std::span<const std::byte> data) const noexcept
+    [[nodiscard]] Result<std::size_t> try_write(std::span<const std::byte> data) const
     {
         return write(data, Timeout::no_wait());
     }
 
     [[nodiscard]] Result<std::size_t> read(std::span<std::byte> destination,
-                                           Timeout timeout = Timeout::forever()) const noexcept
+                                           Timeout timeout = Timeout::forever()) const
     {
         if (in_isr()) {
             return fail<solar::Error>({.status = solar::Status::Invalid});
@@ -54,32 +54,32 @@ class PipeRef
     }
 
     [[nodiscard]] Result<std::size_t> read(std::span<std::byte> destination,
-                                           const Deadline& deadline) const noexcept
+                                           const Deadline& deadline) const
     {
         return read(destination, deadline.remaining());
     }
 
-    [[nodiscard]] Result<std::size_t> try_read(std::span<std::byte> destination) const noexcept
+    [[nodiscard]] Result<std::size_t> try_read(std::span<std::byte> destination) const
     {
         return read(destination, Timeout::no_wait());
     }
 
-    void reset() const noexcept
+    void reset() const
     {
         k_pipe_reset(pipe_);
     }
-    void close() const noexcept
+    void close() const
     {
         k_pipe_close(pipe_);
     }
 
-    [[nodiscard]] constexpr k_pipe* native_pipe() const noexcept
+    [[nodiscard]] constexpr k_pipe* native_pipe() const
     {
         return pipe_;
     }
 
   private:
-    [[nodiscard]] static Result<std::size_t> transfer_result(int result, Timeout timeout) noexcept
+    [[nodiscard]] static Result<std::size_t> transfer_result(int result, Timeout timeout)
     {
         if (result >= 0) {
             return static_cast<std::size_t>(result);
@@ -106,7 +106,7 @@ template <std::size_t Capacity> class Pipe
   public:
     static constexpr std::size_t capacity = Capacity;
 
-    Pipe() noexcept
+    Pipe()
     {
         k_pipe_init(&pipe_, storage_.data(), storage_.size());
     }
@@ -117,50 +117,50 @@ template <std::size_t Capacity> class Pipe
     Pipe& operator=(Pipe&&) = delete;
 
     [[nodiscard]] Result<std::size_t> write(std::span<const std::byte> data,
-                                            Timeout timeout = Timeout::forever()) noexcept
+                                            Timeout timeout = Timeout::forever())
     {
         return ref().write(data, timeout);
     }
 
     [[nodiscard]] Result<std::size_t> write(std::span<const std::byte> data,
-                                            const Deadline& deadline) noexcept
+                                            const Deadline& deadline)
     {
         return write(data, deadline.remaining());
     }
 
-    [[nodiscard]] Result<std::size_t> try_write(std::span<const std::byte> data) noexcept
+    [[nodiscard]] Result<std::size_t> try_write(std::span<const std::byte> data)
     {
         return write(data, Timeout::no_wait());
     }
 
     [[nodiscard]] Result<std::size_t> read(std::span<std::byte> destination,
-                                           Timeout timeout = Timeout::forever()) noexcept
+                                           Timeout timeout = Timeout::forever())
     {
         return ref().read(destination, timeout);
     }
 
     [[nodiscard]] Result<std::size_t> read(std::span<std::byte> destination,
-                                           const Deadline& deadline) noexcept
+                                           const Deadline& deadline)
     {
         return read(destination, deadline.remaining());
     }
 
-    [[nodiscard]] Result<std::size_t> try_read(std::span<std::byte> destination) noexcept
+    [[nodiscard]] Result<std::size_t> try_read(std::span<std::byte> destination)
     {
         return read(destination, Timeout::no_wait());
     }
 
-    void reset() noexcept
+    void reset()
     {
         ref().reset();
     }
 
-    void close() noexcept
+    void close()
     {
         ref().close();
     }
 
-    [[nodiscard]] PipeRef ref() noexcept
+    [[nodiscard]] PipeRef ref()
     {
         return PipeRef{pipe_};
     }

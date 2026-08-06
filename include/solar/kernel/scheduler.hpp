@@ -13,19 +13,19 @@
 namespace solar::kernel
 {
 
-[[nodiscard]] inline bool can_yield() noexcept
+[[nodiscard]] inline bool can_yield()
 {
     return k_can_yield();
 }
 
 /** True when the current context is a preemptible thread. ISR returns false. */
-[[nodiscard]] inline bool current_is_preemptible() noexcept
+[[nodiscard]] inline bool current_is_preemptible()
 {
     return k_is_preempt_thread() != 0;
 }
 
 /** Re-evaluate the scheduler without applying yield's equal-priority rule. */
-[[nodiscard]] inline Result<void> reschedule() noexcept
+[[nodiscard]] inline Result<void> reschedule()
 {
     if (k_is_in_isr()) {
         return fail<Error>({.status = Status::Invalid});
@@ -38,7 +38,7 @@ inline constexpr bool time_slicing_available = IS_ENABLED(CONFIG_TIMESLICING);
 
 /** Configure Zephyr's global preemptive-thread time slicing policy. */
 [[nodiscard]] inline Result<void> configure_time_slicing(Milliseconds slice,
-                                                         Priority eligible_from) noexcept
+                                                         Priority eligible_from)
 {
     if (k_is_in_isr()) {
         return fail<Error>({.status = Status::Invalid});
@@ -60,7 +60,7 @@ inline constexpr bool time_slicing_available = IS_ENABLED(CONFIG_TIMESLICING);
 #endif
 }
 
-[[nodiscard]] inline Result<void> disable_time_slicing() noexcept
+[[nodiscard]] inline Result<void> disable_time_slicing()
 {
     if (k_is_in_isr()) {
         return fail<Error>({.status = Status::Invalid});
@@ -79,7 +79,7 @@ inline constexpr bool time_slicing_available = IS_ENABLED(CONFIG_TIMESLICING);
 class SchedulerLock
 {
   public:
-    [[nodiscard]] static Result<SchedulerLock> acquire() noexcept
+    [[nodiscard]] static Result<SchedulerLock> acquire()
     {
         if (k_is_in_isr()) {
             return fail<solar::Error>({.status = solar::Status::Invalid});

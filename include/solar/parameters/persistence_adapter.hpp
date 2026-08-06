@@ -16,11 +16,11 @@ template <typename Parameters, typename Storage, typename Codec, std::size_t Max
 class PersistenceAdapter
 {
   public:
-    PersistenceAdapter(Storage& storage, std::uint16_t format_version = 1) noexcept
+    PersistenceAdapter(Storage& storage, std::uint16_t format_version = 1)
         : storage_(storage), format_version_(format_version)
     {}
 
-    template <typename Parameter> [[nodiscard]] Result<void> save() noexcept
+    template <typename Parameter> [[nodiscard]] Result<void> save()
     {
         auto value = Parameters::template get<Parameter>();
         if (!value)
@@ -40,7 +40,7 @@ class PersistenceAdapter
         return storage_.write(Parameter::id, std::span{bytes_}.first(header_size + *encoded));
     }
 
-    template <typename Parameter> [[nodiscard]] Result<void> load() noexcept
+    template <typename Parameter> [[nodiscard]] Result<void> load()
     {
         auto read = storage_.read(Parameter::id, bytes_);
         if (!read)
@@ -62,7 +62,7 @@ class PersistenceAdapter
 
   private:
     static constexpr std::uint32_t magic = 0x534F4C50U;
-    [[nodiscard]] static std::uint32_t checksum(std::span<const std::byte> bytes) noexcept
+    [[nodiscard]] static std::uint32_t checksum(std::span<const std::byte> bytes)
     {
         std::uint32_t value = 2166136261U;
         for (auto byte : bytes) {
@@ -71,22 +71,22 @@ class PersistenceAdapter
         }
         return value;
     }
-    void put16(std::size_t at, std::uint16_t value) noexcept
+    void put16(std::size_t at, std::uint16_t value)
     {
         bytes_[at] = std::byte(value);
         bytes_[at + 1] = std::byte(value >> 8);
     }
-    void put32(std::size_t at, std::uint32_t value) noexcept
+    void put32(std::size_t at, std::uint32_t value)
     {
         for (unsigned offset{}; offset < 4; ++offset)
             bytes_[at + offset] = std::byte(value >> (offset * 8));
     }
-    [[nodiscard]] std::uint16_t get16(std::size_t at) const noexcept
+    [[nodiscard]] std::uint16_t get16(std::size_t at) const
     {
         return std::to_integer<std::uint16_t>(bytes_[at]) |
                (std::to_integer<std::uint16_t>(bytes_[at + 1]) << 8);
     }
-    [[nodiscard]] std::uint32_t get32(std::size_t at) const noexcept
+    [[nodiscard]] std::uint32_t get32(std::size_t at) const
     {
         std::uint32_t value{};
         for (unsigned offset{}; offset < 4; ++offset)

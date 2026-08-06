@@ -27,80 +27,80 @@ enum class ResetBeforeWait : bool
 class EventFlagsRef
 {
   public:
-    explicit constexpr EventFlagsRef(k_event& event) noexcept : event_(&event) {}
+    explicit constexpr EventFlagsRef(k_event& event) : event_(&event) {}
 
-    [[nodiscard]] EventBits post(EventBits bits) const noexcept
+    [[nodiscard]] EventBits post(EventBits bits) const
     {
         return k_event_post(event_, bits);
     }
 
-    [[nodiscard]] EventBits set(EventBits bits) const noexcept
+    [[nodiscard]] EventBits set(EventBits bits) const
     {
         return k_event_set(event_, bits);
     }
 
-    [[nodiscard]] EventBits set_masked(EventBits bits, EventBits mask) const noexcept
+    [[nodiscard]] EventBits set_masked(EventBits bits, EventBits mask) const
     {
         return k_event_set_masked(event_, bits, mask);
     }
 
-    [[nodiscard]] EventBits clear(EventBits bits) const noexcept
+    [[nodiscard]] EventBits clear(EventBits bits) const
     {
         return k_event_clear(event_, bits);
     }
 
     [[nodiscard]] EventBits
-    test(EventBits mask = std::numeric_limits<EventBits>::max()) const noexcept
+    test(EventBits mask = std::numeric_limits<EventBits>::max()) const
     {
         return k_event_test(event_, mask);
     }
 
     [[nodiscard]] Result<EventBits>
     wait_any(EventBits mask, Timeout timeout = Timeout::forever(),
-             ResetBeforeWait reset = ResetBeforeWait::No) const noexcept
+             ResetBeforeWait reset = ResetBeforeWait::No) const
     {
         return wait(mask, timeout, reset, false, false);
     }
 
     [[nodiscard]] Result<EventBits>
     wait_all(EventBits mask, Timeout timeout = Timeout::forever(),
-             ResetBeforeWait reset = ResetBeforeWait::No) const noexcept
+             ResetBeforeWait reset = ResetBeforeWait::No) const
     {
         return wait(mask, timeout, reset, true, false);
     }
 
     [[nodiscard]] Result<EventBits>
     take_any(EventBits mask, Timeout timeout = Timeout::forever(),
-             ResetBeforeWait reset = ResetBeforeWait::No) const noexcept
+             ResetBeforeWait reset = ResetBeforeWait::No) const
     {
         return wait(mask, timeout, reset, false, true);
     }
 
     [[nodiscard]] Result<EventBits>
     take_all(EventBits mask, Timeout timeout = Timeout::forever(),
-             ResetBeforeWait reset = ResetBeforeWait::No) const noexcept
+             ResetBeforeWait reset = ResetBeforeWait::No) const
     {
         return wait(mask, timeout, reset, true, true);
     }
 
-    [[nodiscard]] Result<EventBits> try_wait_any_isr(EventBits mask) const noexcept
+    [[nodiscard]] Result<EventBits> try_wait_any_isr(EventBits mask) const
     {
         return wait_native(mask, Timeout::no_wait(), ResetBeforeWait::No, false, false);
     }
 
-    [[nodiscard]] Result<EventBits> try_take_any_isr(EventBits mask) const noexcept
+    [[nodiscard]] Result<EventBits> try_take_any_isr(EventBits mask) const
     {
         return wait_native(mask, Timeout::no_wait(), ResetBeforeWait::No, false, true);
     }
 
-    [[nodiscard]] constexpr k_event* native_handle() const noexcept
+    [[nodiscard]] constexpr k_event* native_handle() const
     {
         return event_;
     }
 
   private:
     [[nodiscard]] Result<EventBits> wait(EventBits mask, Timeout timeout, ResetBeforeWait reset,
-                                         bool all, bool consume) const noexcept
+                                         bool all, bool consume) const
     {
         if (in_isr()) {
             return fail<Error>({.status = Status::Invalid});
@@ -110,7 +110,7 @@ class EventFlagsRef
 
     [[nodiscard]] Result<EventBits> wait_native(EventBits mask, Timeout timeout,
                                                 ResetBeforeWait reset, bool all,
-                                                bool consume) const noexcept
+                                                bool consume) const
     {
         if (mask == 0) {
             return fail<solar::Error>({.status = solar::Status::Invalid});
@@ -140,7 +140,7 @@ class EventFlagsRef
 class EventFlags
 {
   public:
-    EventFlags() noexcept
+    EventFlags()
     {
         k_event_init(&event_);
     }
@@ -150,56 +150,56 @@ class EventFlags
     EventFlags(EventFlags&&) = delete;
     EventFlags& operator=(EventFlags&&) = delete;
 
-    [[nodiscard]] EventFlagsRef ref() noexcept
+    [[nodiscard]] EventFlagsRef ref()
     {
         return EventFlagsRef{event_};
     }
 
-    [[nodiscard]] EventBits post(EventBits bits) noexcept
+    [[nodiscard]] EventBits post(EventBits bits)
     {
         return ref().post(bits);
     }
-    [[nodiscard]] EventBits set(EventBits bits) noexcept
+    [[nodiscard]] EventBits set(EventBits bits)
     {
         return ref().set(bits);
     }
-    [[nodiscard]] EventBits set_masked(EventBits bits, EventBits mask) noexcept
+    [[nodiscard]] EventBits set_masked(EventBits bits, EventBits mask)
     {
         return ref().set_masked(bits, mask);
     }
-    [[nodiscard]] EventBits clear(EventBits bits) noexcept
+    [[nodiscard]] EventBits clear(EventBits bits)
     {
         return ref().clear(bits);
     }
-    [[nodiscard]] EventBits test(EventBits mask = std::numeric_limits<EventBits>::max()) noexcept
+    [[nodiscard]] EventBits test(EventBits mask = std::numeric_limits<EventBits>::max())
     {
         return ref().test(mask);
     }
     [[nodiscard]] Result<EventBits> wait_any(EventBits mask, Timeout timeout = Timeout::forever(),
-                                             ResetBeforeWait reset = ResetBeforeWait::No) noexcept
+                                             ResetBeforeWait reset = ResetBeforeWait::No)
     {
         return ref().wait_any(mask, timeout, reset);
     }
     [[nodiscard]] Result<EventBits> wait_all(EventBits mask, Timeout timeout = Timeout::forever(),
-                                             ResetBeforeWait reset = ResetBeforeWait::No) noexcept
+                                             ResetBeforeWait reset = ResetBeforeWait::No)
     {
         return ref().wait_all(mask, timeout, reset);
     }
     [[nodiscard]] Result<EventBits> take_any(EventBits mask, Timeout timeout = Timeout::forever(),
-                                             ResetBeforeWait reset = ResetBeforeWait::No) noexcept
+                                             ResetBeforeWait reset = ResetBeforeWait::No)
     {
         return ref().take_any(mask, timeout, reset);
     }
     [[nodiscard]] Result<EventBits> take_all(EventBits mask, Timeout timeout = Timeout::forever(),
-                                             ResetBeforeWait reset = ResetBeforeWait::No) noexcept
+                                             ResetBeforeWait reset = ResetBeforeWait::No)
     {
         return ref().take_all(mask, timeout, reset);
     }
-    [[nodiscard]] Result<EventBits> try_wait_any_isr(EventBits mask) noexcept
+    [[nodiscard]] Result<EventBits> try_wait_any_isr(EventBits mask)
     {
         return ref().try_wait_any_isr(mask);
     }
-    [[nodiscard]] Result<EventBits> try_take_any_isr(EventBits mask) noexcept
+    [[nodiscard]] Result<EventBits> try_take_any_isr(EventBits mask)
     {
         return ref().try_take_any_isr(mask);
     }

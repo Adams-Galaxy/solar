@@ -44,21 +44,21 @@ class Completion
         }
     }
 
-    [[nodiscard]] int result() const noexcept
+    [[nodiscard]] int result() const
     {
         return value_->result;
     }
-    [[nodiscard]] void* user_data() const noexcept
+    [[nodiscard]] void* user_data() const
     {
         return value_->userdata;
     }
-    [[nodiscard]] ::rtio_cqe* native_handle() const noexcept
+    [[nodiscard]] ::rtio_cqe* native_handle() const
     {
         return value_;
     }
 
   private:
-    Completion(::rtio* context, ::rtio_cqe* value) noexcept : context_(context), value_(value) {}
+    Completion(::rtio* context, ::rtio_cqe* value) : context_(context), value_(value) {}
 
     ::rtio* context_{};
     ::rtio_cqe* value_{};
@@ -69,9 +69,9 @@ class Completion
 class Context
 {
   public:
-    explicit constexpr Context(::rtio& native) noexcept : native_(&native) {}
+    explicit constexpr Context(::rtio& native) : native_(&native) {}
 
-    [[nodiscard]] Result<::rtio_sqe*, Error> acquire() noexcept
+    [[nodiscard]] Result<::rtio_sqe*, Error> acquire()
     {
         if (auto* value = rtio_sqe_acquire(native_); value != nullptr) {
             return value;
@@ -82,12 +82,12 @@ class Context
                             .native = -ENOMEM});
     }
 
-    [[nodiscard]] Result<void, Error> submit(std::uint32_t wait_count = 0) noexcept
+    [[nodiscard]] Result<void, Error> submit(std::uint32_t wait_count = 0)
     {
         return hardware::detail::native_result(rtio_submit(native_, wait_count), Operation::Submit);
     }
 
-    [[nodiscard]] Result<Completion, Error> consume(bool block = false) noexcept
+    [[nodiscard]] Result<Completion, Error> consume(bool block = false)
     {
         auto* value = block ? rtio_cqe_consume_block(native_) : rtio_cqe_consume(native_);
         if (value == nullptr) {
@@ -99,12 +99,12 @@ class Context
         return Completion{native_, value};
     }
 
-    [[nodiscard]] Result<void, Error> cancel(::rtio_sqe& submission) noexcept
+    [[nodiscard]] Result<void, Error> cancel(::rtio_sqe& submission)
     {
         return hardware::detail::native_result(rtio_sqe_cancel(&submission), Operation::Cancel);
     }
 
-    [[nodiscard]] constexpr ::rtio* native_handle() const noexcept
+    [[nodiscard]] constexpr ::rtio* native_handle() const
     {
         return native_;
     }

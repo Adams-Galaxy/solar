@@ -40,7 +40,7 @@ template <auto Spec> struct Endpoint : hardware::Endpoint<Spec>
     using Rtio = RtioEndpoint<Endpoint>;
 #endif
 
-    [[nodiscard]] static Result<void, Error> transfer(std::span<i2c_msg> messages) noexcept
+    [[nodiscard]] static Result<void, Error> transfer(std::span<i2c_msg> messages)
     {
         if (auto ready = Base::require_ready(); !ready) {
             return ready;
@@ -50,7 +50,7 @@ template <auto Spec> struct Endpoint : hardware::Endpoint<Spec>
             hardware::Operation::Transceive, Base::path());
     }
 
-    [[nodiscard]] static Result<void, Error> write(std::span<const std::byte> bytes) noexcept
+    [[nodiscard]] static Result<void, Error> write(std::span<const std::byte> bytes)
     {
         return hardware::detail::native_result(
             i2c_write_dt(&Base::descriptor_value.native,
@@ -58,7 +58,7 @@ template <auto Spec> struct Endpoint : hardware::Endpoint<Spec>
             hardware::Operation::Write, Base::path());
     }
 
-    [[nodiscard]] static Result<void, Error> read(std::span<std::byte> bytes) noexcept
+    [[nodiscard]] static Result<void, Error> read(std::span<std::byte> bytes)
     {
         return hardware::detail::native_result(
             i2c_read_dt(&Base::descriptor_value.native,
@@ -67,7 +67,7 @@ template <auto Spec> struct Endpoint : hardware::Endpoint<Spec>
     }
 
     [[nodiscard]] static Result<void, Error> write_read(std::span<const std::byte> write_bytes,
-                                                        std::span<std::byte> read_bytes) noexcept
+                                                        std::span<std::byte> read_bytes)
     {
         return hardware::detail::native_result(
             i2c_write_read_dt(
@@ -77,7 +77,7 @@ template <auto Spec> struct Endpoint : hardware::Endpoint<Spec>
             hardware::Operation::Transceive, Base::path());
     }
 
-    [[nodiscard]] static Result<std::uint8_t, Error> read_register(std::uint8_t address) noexcept
+    [[nodiscard]] static Result<std::uint8_t, Error> read_register(std::uint8_t address)
     {
         std::uint8_t value{};
         const auto result = i2c_reg_read_byte_dt(&Base::descriptor_value.native, address, &value);
@@ -89,7 +89,7 @@ template <auto Spec> struct Endpoint : hardware::Endpoint<Spec>
     }
 
     [[nodiscard]] static Result<void, Error> write_register(std::uint8_t address,
-                                                            std::uint8_t value) noexcept
+                                                            std::uint8_t value)
     {
         return hardware::detail::native_result(
             i2c_reg_write_byte_dt(&Base::descriptor_value.native, address, value),
@@ -97,7 +97,7 @@ template <auto Spec> struct Endpoint : hardware::Endpoint<Spec>
     }
 
     [[nodiscard]] static Result<void, Error> read_registers(std::uint8_t start,
-                                                            std::span<std::byte> bytes) noexcept
+                                                            std::span<std::byte> bytes)
     {
         return hardware::detail::native_result(
             i2c_burst_read_dt(&Base::descriptor_value.native, start,
@@ -106,7 +106,7 @@ template <auto Spec> struct Endpoint : hardware::Endpoint<Spec>
     }
 
     [[nodiscard]] static Result<void, Error>
-    write_registers(std::uint8_t start, std::span<const std::byte> bytes) noexcept
+    write_registers(std::uint8_t start, std::span<const std::byte> bytes)
     {
         return hardware::detail::native_result(
             i2c_burst_write_dt(&Base::descriptor_value.native, start,
@@ -114,7 +114,7 @@ template <auto Spec> struct Endpoint : hardware::Endpoint<Spec>
             hardware::Operation::Write, Base::path());
     }
 
-    [[nodiscard]] static constexpr std::uint16_t address() noexcept
+    [[nodiscard]] static constexpr std::uint16_t address()
     {
         return Base::descriptor_value.native.addr;
     }
@@ -129,13 +129,13 @@ template <typename EndpointT> struct RtioEndpoint
         .data = &native_spec,
     };
 
-    [[nodiscard]] static bool ready() noexcept
+    [[nodiscard]] static bool ready()
     {
         return i2c_is_ready_iodev(&native_iodev);
     }
 
     [[nodiscard]] static Result<::rtio_sqe*, Error> copy(rtio::Context& context,
-                                                         std::span<const i2c_msg> messages) noexcept
+                                                         std::span<const i2c_msg> messages)
     {
         if (messages.empty() || messages.size() > UINT8_MAX) {
             return fail<Error>({.status = solar::Status::Invalid,
@@ -156,7 +156,7 @@ template <typename EndpointT> struct RtioEndpoint
         return last;
     }
 
-    [[nodiscard]] static constexpr ::rtio_iodev* native_handle() noexcept
+    [[nodiscard]] static constexpr ::rtio_iodev* native_handle()
     {
         return &native_iodev;
     }
@@ -170,7 +170,7 @@ template <typename EndpointT> class AsyncTransfer
 {
   public:
     [[nodiscard]] Result<async::Token, Error> submit(std::span<i2c_msg> messages,
-                                                     Completion completion) noexcept
+                                                     Completion completion)
     {
         if (completion == nullptr || messages.size() > UINT8_MAX) {
             return fail<Error>({.status = solar::Status::Invalid,
@@ -197,12 +197,12 @@ template <typename EndpointT> class AsyncTransfer
         return token_;
     }
 
-    [[nodiscard]] bool active() const noexcept
+    [[nodiscard]] bool active() const
     {
         return gate_.active(token_);
     }
 
-    [[nodiscard]] Result<void, Error> cancel() noexcept
+    [[nodiscard]] Result<void, Error> cancel()
     {
         return fail<Error>({.status = solar::Status::NotSupported,
                             .reason = Reason::Unsupported,
@@ -212,12 +212,12 @@ template <typename EndpointT> class AsyncTransfer
     }
 
   private:
-    static void trampoline(const device*, int result, void* context) noexcept
+    static void trampoline(const device*, int result, void* context)
     {
         static_cast<AsyncTransfer*>(context)->finish(result);
     }
 
-    void finish(int result) noexcept
+    void finish(int result)
     {
         if (!gate_.complete(token_)) {
             return;
@@ -256,13 +256,13 @@ template <auto Spec> struct Controller : hardware::Endpoint<Spec>
 
     using Base = hardware::Endpoint<Spec>;
 
-    [[nodiscard]] static Result<void, Error> configure(std::uint32_t configuration) noexcept
+    [[nodiscard]] static Result<void, Error> configure(std::uint32_t configuration)
     {
         return hardware::detail::native_result(i2c_configure(Base::native_device(), configuration),
                                                hardware::Operation::Configure, Base::path());
     }
 
-    [[nodiscard]] static Result<std::uint32_t, Error> configuration() noexcept
+    [[nodiscard]] static Result<std::uint32_t, Error> configuration()
     {
         std::uint32_t value{};
         const auto result = i2c_get_config(Base::native_device(), &value);
@@ -273,7 +273,7 @@ template <auto Spec> struct Controller : hardware::Endpoint<Spec>
         return value;
     }
 
-    [[nodiscard]] static Result<void, Error> recover() noexcept
+    [[nodiscard]] static Result<void, Error> recover()
     {
         return hardware::detail::native_result(i2c_recover_bus(Base::native_device()),
                                                hardware::Operation::Recover, Base::path());

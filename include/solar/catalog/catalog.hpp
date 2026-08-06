@@ -418,13 +418,13 @@ template <typename CatalogTag, typename... Entries> class Catalog
         return descriptor_traits<CatalogTag, typename Found::Declaration>::descriptor;
     }
 
-    [[nodiscard]] static constexpr std::span<const View> descriptors() noexcept
+    [[nodiscard]] static constexpr std::span<const View> descriptors()
     {
         return descriptor_views_;
     }
 
     [[nodiscard]] static Result<std::reference_wrapper<const View>, catalog::LookupError>
-    find(LocalId<CatalogTag> id) noexcept
+    find(LocalId<CatalogTag> id)
     {
         if (!id.valid() || id.index() >= size) {
             return fail<catalog::LookupError>(catalog::LookupError::UnknownLocalId);
@@ -434,7 +434,7 @@ template <typename CatalogTag, typename... Entries> class Catalog
 
     template <std::unsigned_integral Rep>
     [[nodiscard]] static Result<std::reference_wrapper<const View>, catalog::LookupError>
-    find(StableId<IdentityDomain, Rep> id) noexcept
+    find(StableId<IdentityDomain, Rep> id)
     {
         for (std::size_t index = 0; index < size; ++index) {
             if (stable_ids_[index] && *stable_ids_[index] == id.raw()) {

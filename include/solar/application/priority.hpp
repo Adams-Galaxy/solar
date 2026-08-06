@@ -15,7 +15,7 @@ template <std::uint32_t Level> struct PreemptivePriority
     static constexpr std::uint32_t level = Level;
 
 #if defined(__ZEPHYR__)
-    [[nodiscard]] static consteval kernel::Priority resolve() noexcept
+    [[nodiscard]] static consteval kernel::Priority resolve()
     {
         return kernel::Priority::preemptive<Level>();
     }
@@ -28,7 +28,7 @@ template <std::uint32_t Level> struct CooperativePriority
     static constexpr std::uint32_t level = Level;
 
 #if defined(__ZEPHYR__)
-    [[nodiscard]] static consteval kernel::Priority resolve() noexcept
+    [[nodiscard]] static consteval kernel::Priority resolve()
     {
         return kernel::Priority::cooperative<Level>();
     }
@@ -41,7 +41,7 @@ template <int Value> struct Priority
     static constexpr int native_value = Value;
 
 #if defined(__ZEPHYR__)
-    [[nodiscard]] static consteval kernel::Priority resolve() noexcept
+    [[nodiscard]] static consteval kernel::Priority resolve()
     {
         return kernel::Priority::native<Value>();
     }

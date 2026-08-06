@@ -38,14 +38,14 @@ class EventBus<Schema<Events...>, MaximumObservers, Retention>
     };
 
   public:
-    [[nodiscard]] Result<void> initialize() noexcept
+    [[nodiscard]] Result<void> initialize()
     {
         SpinGuard lock{mutex_};
         observers_ = {};
         return {};
     }
     template <typename Event>
-    [[nodiscard]] Result<void> observe(typename ObserverSet<Event>::Function function) noexcept
+    [[nodiscard]] Result<void> observe(typename ObserverSet<Event>::Function function)
     {
         require_member<Event>();
         std::optional<typename Event::Value> retained;
@@ -72,7 +72,7 @@ class EventBus<Schema<Events...>, MaximumObservers, Retention>
         return {};
     }
     template <typename Event>
-    [[nodiscard]] Result<void> unobserve(typename ObserverSet<Event>::Function function) noexcept
+    [[nodiscard]] Result<void> unobserve(typename ObserverSet<Event>::Function function)
     {
         require_member<Event>();
         SpinGuard lock{mutex_};
@@ -85,7 +85,7 @@ class EventBus<Schema<Events...>, MaximumObservers, Retention>
         return fail<solar::Error>({.status = Status::NotFound});
     }
     template <typename Event>
-    [[nodiscard]] Result<std::size_t> emit(const typename Event::Value& value) noexcept
+    [[nodiscard]] Result<std::size_t> emit(const typename Event::Value& value)
     {
         require_member<Event>();
         std::array<typename ObserverSet<Event>::Function, MaximumObservers> observers{};
@@ -121,20 +121,20 @@ template <typename Application, typename SchemaT, std::size_t MaximumObservers,
 struct StaticEventBus
 {
     inline static EventBus<SchemaT, MaximumObservers, Retention> storage{};
-    [[nodiscard]] static Result<void> initialize() noexcept
+    [[nodiscard]] static Result<void> initialize()
     {
         return storage.initialize();
     }
-    template <typename Event> [[nodiscard]] static auto observe(auto function) noexcept
+    template <typename Event> [[nodiscard]] static auto observe(auto function)
     {
         return storage.template observe<Event>(function);
     }
-    template <typename Event> [[nodiscard]] static auto unobserve(auto function) noexcept
+    template <typename Event> [[nodiscard]] static auto unobserve(auto function)
     {
         return storage.template unobserve<Event>(function);
     }
     template <typename Event>
-    [[nodiscard]] static auto emit(const typename Event::Value& value) noexcept
+    [[nodiscard]] static auto emit(const typename Event::Value& value)
     {
         return storage.template emit<Event>(value);
     }

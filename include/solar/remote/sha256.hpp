@@ -9,7 +9,7 @@
 namespace solar::remote::detail
 {
 
-[[nodiscard]] consteval std::array<std::byte, 32> sha256(std::span<const std::byte> input) noexcept
+[[nodiscard]] consteval std::array<std::byte, 32> sha256(std::span<const std::byte> input)
 {
     constexpr std::array<std::uint32_t, 64> round{
         0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4,

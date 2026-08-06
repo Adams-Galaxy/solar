@@ -18,17 +18,17 @@ template <typename CatalogTag, std::unsigned_integral Rep = std::uint16_t> struc
 
     Rep value{invalid_value};
 
-    [[nodiscard]] constexpr bool valid() const noexcept
+    [[nodiscard]] constexpr bool valid() const
     {
         return value != invalid_value;
     }
 
-    [[nodiscard]] constexpr std::size_t index() const noexcept
+    [[nodiscard]] constexpr std::size_t index() const
     {
         return static_cast<std::size_t>(value);
     }
 
-    constexpr explicit operator bool() const noexcept
+    constexpr explicit operator bool() const
     {
         return valid();
     }
@@ -43,7 +43,7 @@ template <typename IdentityDomain, std::unsigned_integral Rep = std::uint32_t> s
 
     Rep value{};
 
-    [[nodiscard]] constexpr std::uint64_t raw() const noexcept
+    [[nodiscard]] constexpr std::uint64_t raw() const
     {
         return static_cast<std::uint64_t>(value);
     }

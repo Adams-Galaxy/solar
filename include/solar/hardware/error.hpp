@@ -62,7 +62,7 @@ struct Error
 namespace detail
 {
 
-[[nodiscard]] constexpr Reason reason_from(Status status) noexcept
+[[nodiscard]] constexpr Reason reason_from(Status status)
 {
     switch (status) {
     case Status::NotReady:
@@ -89,7 +89,7 @@ namespace detail
 }
 
 [[nodiscard]] constexpr Error native_error(int result, Operation operation,
-                                           std::string_view endpoint = {}) noexcept
+                                           std::string_view endpoint = {})
 {
     const auto status = status_from_errno(result);
     return {.status = status,
@@ -100,7 +100,7 @@ namespace detail
 }
 
 [[nodiscard]] constexpr Result<void, Error> native_result(int result, Operation operation,
-                                                          std::string_view endpoint = {}) noexcept
+                                                          std::string_view endpoint = {})
 {
     if (result == 0) {
         return {};

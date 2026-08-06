@@ -22,10 +22,10 @@ namespace solar::kernel
 class HeapRef
 {
   public:
-    explicit constexpr HeapRef(k_heap& heap) noexcept : heap_(&heap) {}
+    explicit constexpr HeapRef(k_heap& heap) : heap_(&heap) {}
 
     [[nodiscard]] Result<void*> allocate(std::size_t bytes,
-                                         Timeout timeout = Timeout::forever()) const noexcept
+                                         Timeout timeout = Timeout::forever()) const
     {
         if (in_isr()) {
             return fail<Error>({.status = Status::Invalid});
@@ -33,24 +33,24 @@ class HeapRef
         return allocation_result(k_heap_alloc(heap_, bytes, timeout.native_handle()), timeout);
     }
 
-    [[nodiscard]] Result<void*> allocate(std::size_t bytes, const Deadline& deadline) const noexcept
+    [[nodiscard]] Result<void*> allocate(std::size_t bytes, const Deadline& deadline) const
     {
         return allocate(bytes, deadline.remaining());
     }
 
-    [[nodiscard]] Result<void*> try_allocate(std::size_t bytes) const noexcept
+    [[nodiscard]] Result<void*> try_allocate(std::size_t bytes) const
     {
         return allocate(bytes, Timeout::no_wait());
     }
 
-    [[nodiscard]] Result<void*> try_allocate_isr(std::size_t bytes) const noexcept
+    [[nodiscard]] Result<void*> try_allocate_isr(std::size_t bytes) const
     {
         return allocation_result(k_heap_alloc(heap_, bytes, K_NO_WAIT), Timeout::no_wait());
     }
 
     [[nodiscard]] Result<void*>
     aligned_allocate(std::size_t alignment, std::size_t bytes,
-                     Timeout timeout = Timeout::forever()) const noexcept
+                     Timeout timeout = Timeout::forever()) const
     {
         if (in_isr()) {
             return fail<Error>({.status = Status::Invalid});
@@ -63,19 +63,19 @@ class HeapRef
     }
 
     [[nodiscard]] Result<void*> try_aligned_allocate(std::size_t alignment,
-                                                     std::size_t bytes) const noexcept
+                                                     std::size_t bytes) const
     {
         return aligned_allocate(alignment, bytes, Timeout::no_wait());
     }
 
     [[nodiscard]] Result<void*> aligned_allocate(std::size_t alignment, std::size_t bytes,
-                                                 const Deadline& deadline) const noexcept
+                                                 const Deadline& deadline) const
     {
         return aligned_allocate(alignment, bytes, deadline.remaining());
     }
 
     [[nodiscard]] Result<void*> try_aligned_allocate_isr(std::size_t alignment,
-                                                         std::size_t bytes) const noexcept
+                                                         std::size_t bytes) const
     {
         if (!valid_alignment(alignment)) {
             return fail<Error>({.status = Status::Invalid});
@@ -85,7 +85,7 @@ class HeapRef
     }
 
     [[nodiscard]] Result<void*> allocate_zeroed(std::size_t count, std::size_t size,
-                                                Timeout timeout = Timeout::forever()) const noexcept
+                                                Timeout timeout = Timeout::forever()) const
     {
         if (in_isr()) {
             return fail<Error>({.status = Status::Invalid});
@@ -98,19 +98,19 @@ class HeapRef
     }
 
     [[nodiscard]] Result<void*> allocate_zeroed(std::size_t count, std::size_t size,
-                                                const Deadline& deadline) const noexcept
+                                                const Deadline& deadline) const
     {
         return allocate_zeroed(count, size, deadline.remaining());
     }
 
     [[nodiscard]] Result<void*> try_allocate_zeroed(std::size_t count,
-                                                    std::size_t size) const noexcept
+                                                    std::size_t size) const
     {
         return allocate_zeroed(count, size, Timeout::no_wait());
     }
 
     [[nodiscard]] Result<void*> try_allocate_zeroed_isr(std::size_t count,
-                                                        std::size_t size) const noexcept
+                                                        std::size_t size) const
     {
         if (size != 0 && count > std::numeric_limits<std::size_t>::max() / size) {
             return fail<Error>({.status = Status::Invalid});
@@ -119,7 +119,7 @@ class HeapRef
     }
 
     [[nodiscard]] Result<void*> reallocate(void* memory, std::size_t bytes,
-                                           Timeout timeout = Timeout::forever()) const noexcept
+                                           Timeout timeout = Timeout::forever()) const
     {
         if (in_isr()) {
             return fail<Error>({.status = Status::Invalid});
@@ -129,23 +129,23 @@ class HeapRef
     }
 
     [[nodiscard]] Result<void*> reallocate(void* memory, std::size_t bytes,
-                                           const Deadline& deadline) const noexcept
+                                           const Deadline& deadline) const
     {
         return reallocate(memory, bytes, deadline.remaining());
     }
 
-    [[nodiscard]] Result<void*> try_reallocate(void* memory, std::size_t bytes) const noexcept
+    [[nodiscard]] Result<void*> try_reallocate(void* memory, std::size_t bytes) const
     {
         return reallocate(memory, bytes, Timeout::no_wait());
     }
 
-    [[nodiscard]] Result<void*> try_reallocate_isr(void* memory, std::size_t bytes) const noexcept
+    [[nodiscard]] Result<void*> try_reallocate_isr(void* memory, std::size_t bytes) const
     {
         return allocation_result(k_heap_realloc(heap_, memory, bytes, K_NO_WAIT),
                                  Timeout::no_wait());
     }
 
-    [[nodiscard]] Result<void> free(void* memory) const noexcept
+    [[nodiscard]] Result<void> free(void* memory) const
     {
         if (in_isr()) {
             return fail<Error>({.status = Status::Invalid});
@@ -154,18 +154,18 @@ class HeapRef
         return {};
     }
 
-    [[nodiscard]] constexpr k_heap* native_handle() const noexcept
+    [[nodiscard]] constexpr k_heap* native_handle() const
     {
         return heap_;
     }
 
   private:
-    [[nodiscard]] static constexpr bool valid_alignment(std::size_t alignment) noexcept
+    [[nodiscard]] static constexpr bool valid_alignment(std::size_t alignment)
     {
         return alignment != 0 && std::has_single_bit(alignment);
     }
 
-    [[nodiscard]] static Result<void*> allocation_result(void* memory, Timeout timeout) noexcept
+    [[nodiscard]] static Result<void*> allocation_result(void* memory, Timeout timeout)
     {
         if (memory != nullptr) {
             return memory;
@@ -190,7 +190,7 @@ template <std::size_t Bytes, std::size_t Alignment = 8> class Heap
     static constexpr std::size_t capacity = Bytes;
     static constexpr std::size_t alignment = Alignment;
 
-    Heap() noexcept
+    Heap()
     {
         k_heap_init(&heap_, storage_.data(), storage_.size());
     }
@@ -200,70 +200,70 @@ template <std::size_t Bytes, std::size_t Alignment = 8> class Heap
     Heap(Heap&&) = delete;
     Heap& operator=(Heap&&) = delete;
 
-    [[nodiscard]] HeapRef ref() noexcept
+    [[nodiscard]] HeapRef ref()
     {
         return HeapRef{heap_};
     }
     [[nodiscard]] Result<void*> allocate(std::size_t bytes,
-                                         Timeout timeout = Timeout::forever()) noexcept
+                                         Timeout timeout = Timeout::forever())
     {
         return ref().allocate(bytes, timeout);
     }
-    [[nodiscard]] Result<void*> try_allocate(std::size_t bytes) noexcept
+    [[nodiscard]] Result<void*> try_allocate(std::size_t bytes)
     {
         return ref().try_allocate(bytes);
     }
-    [[nodiscard]] Result<void*> try_allocate_isr(std::size_t bytes) noexcept
+    [[nodiscard]] Result<void*> try_allocate_isr(std::size_t bytes)
     {
         return ref().try_allocate_isr(bytes);
     }
     [[nodiscard]] Result<void*> aligned_allocate(std::size_t requested_alignment, std::size_t bytes,
-                                                 Timeout timeout = Timeout::forever()) noexcept
+                                                 Timeout timeout = Timeout::forever())
     {
         return ref().aligned_allocate(requested_alignment, bytes, timeout);
     }
     [[nodiscard]] Result<void*> try_aligned_allocate(std::size_t requested_alignment,
-                                                     std::size_t bytes) noexcept
+                                                     std::size_t bytes)
     {
         return ref().try_aligned_allocate(requested_alignment, bytes);
     }
     [[nodiscard]] Result<void*> try_aligned_allocate_isr(std::size_t requested_alignment,
-                                                         std::size_t bytes) noexcept
+                                                         std::size_t bytes)
     {
         return ref().try_aligned_allocate_isr(requested_alignment, bytes);
     }
     [[nodiscard]] Result<void*> allocate_zeroed(std::size_t count, std::size_t size,
-                                                Timeout timeout = Timeout::forever()) noexcept
+                                                Timeout timeout = Timeout::forever())
     {
         return ref().allocate_zeroed(count, size, timeout);
     }
-    [[nodiscard]] Result<void*> try_allocate_zeroed(std::size_t count, std::size_t size) noexcept
+    [[nodiscard]] Result<void*> try_allocate_zeroed(std::size_t count, std::size_t size)
     {
         return ref().try_allocate_zeroed(count, size);
     }
     [[nodiscard]] Result<void*> try_allocate_zeroed_isr(std::size_t count,
-                                                        std::size_t size) noexcept
+                                                        std::size_t size)
     {
         return ref().try_allocate_zeroed_isr(count, size);
     }
     [[nodiscard]] Result<void*> reallocate(void* memory, std::size_t bytes,
-                                           Timeout timeout = Timeout::forever()) noexcept
+                                           Timeout timeout = Timeout::forever())
     {
         return ref().reallocate(memory, bytes, timeout);
     }
-    [[nodiscard]] Result<void*> try_reallocate(void* memory, std::size_t bytes) noexcept
+    [[nodiscard]] Result<void*> try_reallocate(void* memory, std::size_t bytes)
     {
         return ref().try_reallocate(memory, bytes);
     }
-    [[nodiscard]] Result<void*> try_reallocate_isr(void* memory, std::size_t bytes) noexcept
+    [[nodiscard]] Result<void*> try_reallocate_isr(void* memory, std::size_t bytes)
     {
         return ref().try_reallocate_isr(memory, bytes);
     }
-    [[nodiscard]] Result<void> free(void* memory) noexcept
+    [[nodiscard]] Result<void> free(void* memory)
     {
         return ref().free(memory);
     }
-    [[nodiscard]] bool owns(const void* memory) const noexcept
+    [[nodiscard]] bool owns(const void* memory) const
     {
         const auto address = reinterpret_cast<std::uintptr_t>(memory);
         const auto begin = reinterpret_cast<std::uintptr_t>(storage_.data());
@@ -287,11 +287,11 @@ enum class HeapResourceFailure : std::uint8_t
 class HeapResource final : public std::pmr::memory_resource
 {
   public:
-    explicit HeapResource(HeapRef heap, HeapResourceFailure failure) noexcept
+    explicit HeapResource(HeapRef heap, HeapResourceFailure failure)
         : heap_(heap), failure_(failure)
     {}
 
-    [[nodiscard]] HeapResourceFailure failure_policy() const noexcept
+    [[nodiscard]] HeapResourceFailure failure_policy() const
     {
         return failure_;
     }

@@ -5,7 +5,7 @@
 namespace solar::kernel
 {
 
-[[nodiscard]] inline bool in_isr() noexcept
+[[nodiscard]] inline bool in_isr()
 {
     return k_is_in_isr();
 }

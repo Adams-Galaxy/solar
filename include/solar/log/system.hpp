@@ -26,17 +26,17 @@ namespace solar::log::system
 
 #if defined(__ZEPHYR__)
 
-void error(const char* text) noexcept;
-void warn(const char* text) noexcept;
-void info(const char* text) noexcept;
-void debug(const char* text) noexcept;
+void error(const char* text);
+void warn(const char* text);
+void info(const char* text);
+void debug(const char* text);
 
 #else
 
-inline void error(const char*) noexcept {}
-inline void warn(const char*) noexcept {}
-inline void info(const char*) noexcept {}
-inline void debug(const char*) noexcept {}
+inline void error(const char*) {}
+inline void warn(const char*) {}
+inline void info(const char*) {}
+inline void debug(const char*) {}
 
 #endif
 

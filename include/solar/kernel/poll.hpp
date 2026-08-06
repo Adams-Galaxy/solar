@@ -36,7 +36,7 @@ struct PollSignalOutcome
     PollSignalDelivery delivery{PollSignalDelivery::Delivered};
     int native{};
 
-    [[nodiscard]] constexpr bool waiter_notified() const noexcept
+    [[nodiscard]] constexpr bool waiter_notified() const
     {
         return delivery == PollSignalDelivery::Delivered;
     }
@@ -45,7 +45,7 @@ struct PollSignalOutcome
 namespace detail
 {
 
-[[nodiscard]] constexpr Result<PollSignalOutcome> poll_signal_outcome(int result) noexcept
+[[nodiscard]] constexpr Result<PollSignalOutcome> poll_signal_outcome(int result)
 {
     if (result == 0) {
         return PollSignalOutcome{.delivery = PollSignalDelivery::Delivered, .native = 0};
@@ -63,19 +63,19 @@ namespace detail
 class PollSignalRef
 {
   public:
-    explicit constexpr PollSignalRef(k_poll_signal& signal) noexcept : signal_(&signal) {}
+    explicit constexpr PollSignalRef(k_poll_signal& signal) : signal_(&signal) {}
 
-    [[nodiscard]] Result<PollSignalOutcome> raise(int value = 0) const noexcept
+    [[nodiscard]] Result<PollSignalOutcome> raise(int value = 0) const
     {
         return detail::poll_signal_outcome(k_poll_signal_raise(signal_, value));
     }
 
-    void reset() const noexcept
+    void reset() const
     {
         k_poll_signal_reset(signal_);
     }
 
-    [[nodiscard]] std::optional<int> value() const noexcept
+    [[nodiscard]] std::optional<int> value() const
     {
         unsigned int signaled{};
         int result{};
@@ -86,7 +86,7 @@ class PollSignalRef
         return result;
     }
 
-    [[nodiscard]] constexpr k_poll_signal* native_handle() const noexcept
+    [[nodiscard]] constexpr k_poll_signal* native_handle() const
     {
         return signal_;
     }
@@ -98,7 +98,7 @@ class PollSignalRef
 class PollSignal
 {
   public:
-    PollSignal() noexcept
+    PollSignal()
     {
         k_poll_signal_init(&signal_);
     }
@@ -108,19 +108,19 @@ class PollSignal
     PollSignal(PollSignal&&) = delete;
     PollSignal& operator=(PollSignal&&) = delete;
 
-    [[nodiscard]] Result<PollSignalOutcome> raise(int value = 0) noexcept
+    [[nodiscard]] Result<PollSignalOutcome> raise(int value = 0)
     {
         return ref().raise(value);
     }
-    void reset() noexcept
+    void reset()
     {
         ref().reset();
     }
-    [[nodiscard]] std::optional<int> value() const noexcept
+    [[nodiscard]] std::optional<int> value() const
     {
         return PollSignalRef{const_cast<k_poll_signal&>(signal_)}.value();
     }
-    [[nodiscard]] PollSignalRef ref() noexcept
+    [[nodiscard]] PollSignalRef ref()
     {
         return PollSignalRef{signal_};
     }
@@ -140,13 +140,13 @@ enum class PollState : std::uint32_t
     Cancelled = K_POLL_STATE_CANCELLED,
 };
 
-[[nodiscard]] constexpr PollState operator|(PollState left, PollState right) noexcept
+[[nodiscard]] constexpr PollState operator|(PollState left, PollState right)
 {
     return static_cast<PollState>(static_cast<std::uint32_t>(left) |
                                   static_cast<std::uint32_t>(right));
 }
 
-[[nodiscard]] constexpr bool has_state(PollState value, PollState flag) noexcept
+[[nodiscard]] constexpr bool has_state(PollState value, PollState flag)
 {
     return (static_cast<std::uint32_t>(value) & static_cast<std::uint32_t>(flag)) != 0;
 }
@@ -178,75 +178,75 @@ template <std::size_t Capacity> class PollSet
     PollSet(PollSet&&) = delete;
     PollSet& operator=(PollSet&&) = delete;
 
-    [[nodiscard]] Result<void> add(PollSignal& signal, std::uint8_t tag = 0) noexcept
+    [[nodiscard]] Result<void> add(PollSignal& signal, std::uint8_t tag = 0)
     {
         return add(signal.ref(), tag);
     }
 
-    [[nodiscard]] Result<void> add(PollSignalRef signal, std::uint8_t tag = 0) noexcept
+    [[nodiscard]] Result<void> add(PollSignalRef signal, std::uint8_t tag = 0)
     {
         return add_native(K_POLL_TYPE_SIGNAL, signal.native_handle(), tag);
     }
 
-    [[nodiscard]] Result<void> add(Semaphore& semaphore, std::uint8_t tag = 0) noexcept
+    [[nodiscard]] Result<void> add(Semaphore& semaphore, std::uint8_t tag = 0)
     {
         return add(semaphore.ref(), tag);
     }
 
-    [[nodiscard]] Result<void> add(SemaphoreRef semaphore, std::uint8_t tag = 0) noexcept
+    [[nodiscard]] Result<void> add(SemaphoreRef semaphore, std::uint8_t tag = 0)
     {
         return add_native(K_POLL_TYPE_SEM_AVAILABLE, semaphore.native_handle(), tag);
     }
 
     template <typename Message, std::size_t Depth>
     [[nodiscard]] Result<void> add(MessageQueue<Message, Depth>& queue,
-                                   std::uint8_t tag = 0) noexcept
+                                   std::uint8_t tag = 0)
     {
         return add(queue.ref(), tag);
     }
 
     template <typename Message>
-    [[nodiscard]] Result<void> add(MessageQueueRef<Message> queue, std::uint8_t tag = 0) noexcept
+    [[nodiscard]] Result<void> add(MessageQueueRef<Message> queue, std::uint8_t tag = 0)
     {
         return add_native(K_POLL_TYPE_MSGQ_DATA_AVAILABLE, queue.native_queue(), tag);
     }
 
     template <typename Value>
-    [[nodiscard]] Result<void> add(Queue<Value>& queue, std::uint8_t tag = 0) noexcept
+    [[nodiscard]] Result<void> add(Queue<Value>& queue, std::uint8_t tag = 0)
     {
         return add(queue.ref(), tag);
     }
 
     template <typename Value>
-    [[nodiscard]] Result<void> add(Fifo<Value>& fifo, std::uint8_t tag = 0) noexcept
+    [[nodiscard]] Result<void> add(Fifo<Value>& fifo, std::uint8_t tag = 0)
     {
         return add(fifo.ref(), tag);
     }
 
     template <typename Value>
-    [[nodiscard]] Result<void> add(Lifo<Value>& lifo, std::uint8_t tag = 0) noexcept
+    [[nodiscard]] Result<void> add(Lifo<Value>& lifo, std::uint8_t tag = 0)
     {
         return add(lifo.ref(), tag);
     }
 
     template <typename Value>
-    [[nodiscard]] Result<void> add(QueueRef<Value> queue, std::uint8_t tag = 0) noexcept
+    [[nodiscard]] Result<void> add(QueueRef<Value> queue, std::uint8_t tag = 0)
     {
         return add_native(K_POLL_TYPE_DATA_AVAILABLE, queue.native_queue(), tag);
     }
 
     template <std::size_t Bytes>
-    [[nodiscard]] Result<void> add(Pipe<Bytes>& pipe, std::uint8_t tag = 0) noexcept
+    [[nodiscard]] Result<void> add(Pipe<Bytes>& pipe, std::uint8_t tag = 0)
     {
         return add(pipe.ref(), tag);
     }
 
-    [[nodiscard]] Result<void> add(PipeRef pipe, std::uint8_t tag = 0) noexcept
+    [[nodiscard]] Result<void> add(PipeRef pipe, std::uint8_t tag = 0)
     {
         return add_native(K_POLL_TYPE_PIPE_DATA_AVAILABLE, pipe.native_pipe(), tag);
     }
 
-    [[nodiscard]] Result<PollResult> wait(Timeout timeout = Timeout::forever()) noexcept
+    [[nodiscard]] Result<PollResult> wait(Timeout timeout = Timeout::forever())
     {
         if (in_isr()) {
             return fail<Error>({.status = Status::Invalid});
@@ -268,17 +268,17 @@ template <std::size_t Capacity> class PollSet
         return fail<Error>(waited.error());
     }
 
-    [[nodiscard]] Result<PollResult> wait(const Deadline& deadline) noexcept
+    [[nodiscard]] Result<PollResult> wait(const Deadline& deadline)
     {
         return wait(deadline.remaining());
     }
 
-    [[nodiscard]] Result<PollResult> try_wait() noexcept
+    [[nodiscard]] Result<PollResult> try_wait()
     {
         return wait(Timeout::no_wait());
     }
 
-    [[nodiscard]] Result<PollEvent> event(std::size_t index) const noexcept
+    [[nodiscard]] Result<PollEvent> event(std::size_t index) const
     {
         if (index >= count_) {
             return fail<solar::Error>({.status = solar::Status::NotFound});
@@ -287,12 +287,12 @@ template <std::size_t Capacity> class PollSet
                          .state = state_of(events_[index].state)};
     }
 
-    [[nodiscard]] std::size_t size() const noexcept
+    [[nodiscard]] std::size_t size() const
     {
         return count_;
     }
 
-    [[nodiscard]] Result<void> clear() noexcept
+    [[nodiscard]] Result<void> clear()
     {
         if (claimed()) {
             return fail<Error>({.status = Status::Busy});
@@ -302,7 +302,7 @@ template <std::size_t Capacity> class PollSet
     }
 
   private:
-    [[nodiscard]] k_poll_event* native_events() noexcept
+    [[nodiscard]] k_poll_event* native_events()
     {
         return events_.data();
     }
@@ -310,7 +310,7 @@ template <std::size_t Capacity> class PollSet
     friend class TriggeredWork;
 
     [[nodiscard]] Result<void> add_native(std::uint32_t type, void* object,
-                                          std::uint8_t tag) noexcept
+                                          std::uint8_t tag)
     {
         if (claimed()) {
             return fail<Error>({.status = Status::Busy});
@@ -328,14 +328,14 @@ template <std::size_t Capacity> class PollSet
         return {};
     }
 
-    void reset_states() noexcept
+    void reset_states()
     {
         for (std::size_t index = 0; index < count_; ++index) {
             events_[index].state = K_POLL_STATE_NOT_READY;
         }
     }
 
-    [[nodiscard]] std::size_t ready_count() const noexcept
+    [[nodiscard]] std::size_t ready_count() const
     {
         std::size_t ready{};
         for (std::size_t index = 0; index < count_; ++index) {
@@ -344,29 +344,29 @@ template <std::size_t Capacity> class PollSet
         return ready;
     }
 
-    [[nodiscard]] static constexpr PollState state_of(std::uint32_t state) noexcept
+    [[nodiscard]] static constexpr PollState state_of(std::uint32_t state)
     {
         return static_cast<PollState>(state);
     }
 
-    [[nodiscard]] bool claim(const void* owner) noexcept
+    [[nodiscard]] bool claim(const void* owner)
     {
         const void* expected = nullptr;
         return claimant_.compare_exchange_strong(expected, owner, std::memory_order_acq_rel);
     }
 
-    void release(const void* owner) noexcept
+    void release(const void* owner)
     {
         const void* expected = owner;
         (void)claimant_.compare_exchange_strong(expected, nullptr, std::memory_order_acq_rel);
     }
 
-    [[nodiscard]] bool claimed_by(const void* owner) const noexcept
+    [[nodiscard]] bool claimed_by(const void* owner) const
     {
         return claimant_.load(std::memory_order_acquire) == owner;
     }
 
-    [[nodiscard]] bool claimed() const noexcept
+    [[nodiscard]] bool claimed() const
     {
         return claimant_.load(std::memory_order_acquire) != nullptr;
     }

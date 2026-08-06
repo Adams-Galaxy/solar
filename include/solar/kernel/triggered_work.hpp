@@ -18,7 +18,7 @@ inline constexpr bool triggered_work_available = IS_ENABLED(CONFIG_POLL);
 namespace detail
 {
 
-[[nodiscard]] constexpr WorkError triggered_work_error(int native_error) noexcept
+[[nodiscard]] constexpr WorkError triggered_work_error(int native_error)
 {
     if (native_error == -EINVAL) {
         return {
@@ -41,7 +41,7 @@ class TriggeredWork
   public:
     using Handler = void (*)(TriggeredWork&) noexcept;
 
-    explicit TriggeredWork(Handler handler = nullptr) noexcept : handler_(handler)
+    explicit TriggeredWork(Handler handler = nullptr) : handler_(handler)
     {
         k_work_poll_init(&work_, &TriggeredWork::invoke);
     }
@@ -58,7 +58,7 @@ class TriggeredWork
 
     template <std::size_t Capacity>
     [[nodiscard]] Result<void, WorkError> arm(PollSet<Capacity>& events,
-                                              Timeout timeout = Timeout::forever()) noexcept
+                                              Timeout timeout = Timeout::forever())
     {
         if (const auto claimed = claim_initial(events); !claimed) {
             return claimed;
@@ -74,7 +74,7 @@ class TriggeredWork
 
     template <std::size_t Capacity>
     [[nodiscard]] Result<void, WorkError> arm(PollSet<Capacity>& events, WorkQueueTarget target,
-                                              Timeout timeout = Timeout::forever()) noexcept
+                                              Timeout timeout = Timeout::forever())
     {
         if (const auto claimed = claim_initial(events); !claimed) {
             return claimed;
@@ -90,19 +90,19 @@ class TriggeredWork
 
     template <std::size_t Capacity>
     [[nodiscard]] Result<void, WorkError> replace(PollSet<Capacity>& events,
-                                                  Timeout timeout = Timeout::forever()) noexcept
+                                                  Timeout timeout = Timeout::forever())
     {
         return replace_on(events, system_work_queue, timeout);
     }
 
     template <std::size_t Capacity>
     [[nodiscard]] Result<void, WorkError> replace(PollSet<Capacity>& events, WorkQueueTarget target,
-                                                  Timeout timeout = Timeout::forever()) noexcept
+                                                  Timeout timeout = Timeout::forever())
     {
         return replace_on(events, target, timeout);
     }
 
-    [[nodiscard]] Result<void> cancel_trigger() noexcept
+    [[nodiscard]] Result<void> cancel_trigger()
     {
         const int result = k_work_poll_cancel(&work_);
         if (result == 0) {
@@ -114,7 +114,7 @@ class TriggeredWork
         return result == 0 ? Result<void>{} : Result<void>{fail<Error>(error_from_errno(result))};
     }
 
-    [[nodiscard]] Result<bool, WorkError> cancel_sync() noexcept
+    [[nodiscard]] Result<bool, WorkError> cancel_sync()
     {
         if (in_isr()) {
             return fail<WorkError>(detail::invalid_work_context());
@@ -134,7 +134,7 @@ class TriggeredWork
         return trigger_result == 0 || cancelled;
     }
 
-    [[nodiscard]] Result<bool, WorkError> flush() noexcept
+    [[nodiscard]] Result<bool, WorkError> flush()
     {
         if (in_isr()) {
             return fail<WorkError>(detail::invalid_work_context());
@@ -149,7 +149,7 @@ class TriggeredWork
         return k_work_flush(&work_.work, &sync);
     }
 
-    [[nodiscard]] WorkState state() const noexcept
+    [[nodiscard]] WorkState state() const
     {
         auto state = static_cast<WorkState>(k_work_busy_get(&work_.work));
         if (armed()) {
@@ -158,24 +158,24 @@ class TriggeredWork
         return state;
     }
 
-    [[nodiscard]] bool pending() const noexcept
+    [[nodiscard]] bool pending() const
     {
         return armed() || k_work_is_pending(&work_.work);
     }
 
-    [[nodiscard]] bool running_on_current_thread() const noexcept
+    [[nodiscard]] bool running_on_current_thread() const
     {
         return handler_thread_.load(std::memory_order_acquire) == k_current_get();
     }
 
   private:
-    [[nodiscard]] bool armed() const noexcept
+    [[nodiscard]] bool armed() const
     {
         return claimed_.load(std::memory_order_acquire);
     }
 
     template <std::size_t Capacity>
-    [[nodiscard]] Result<void, WorkError> claim_initial(PollSet<Capacity>& events) noexcept
+    [[nodiscard]] Result<void, WorkError> claim_initial(PollSet<Capacity>& events)
     {
         if (events.size() == 0) {
             return fail<WorkError>(detail::invalid_work_events());
@@ -197,7 +197,7 @@ class TriggeredWork
 
     template <std::size_t Capacity>
     [[nodiscard]] Result<void, WorkError>
-    replace_on(PollSet<Capacity>& events, WorkQueueTarget target, Timeout timeout) noexcept
+    replace_on(PollSet<Capacity>& events, WorkQueueTarget target, Timeout timeout)
     {
         const auto key = k_spin_lock(&state_lock_);
         if (!armed()) {
@@ -232,7 +232,7 @@ class TriggeredWork
         return {};
     }
 
-    void release_events() noexcept
+    void release_events()
     {
         const auto key = k_spin_lock(&state_lock_);
         unbind_events_locked();
@@ -240,7 +240,7 @@ class TriggeredWork
         k_spin_unlock(&state_lock_, key);
     }
 
-    void unbind_events_locked() noexcept
+    void unbind_events_locked()
     {
         if (events_ != nullptr && release_events_ != nullptr) {
             release_events_(events_, this);
@@ -249,15 +249,15 @@ class TriggeredWork
         release_events_ = nullptr;
     }
 
-    template <std::size_t Capacity> void bind_events_locked(PollSet<Capacity>& events) noexcept
+    template <std::size_t Capacity> void bind_events_locked(PollSet<Capacity>& events)
     {
         events_ = &events;
-        release_events_ = [](void* set, const void* owner) noexcept {
+        release_events_ = [](void* set, const void* owner) {
             static_cast<PollSet<Capacity>*>(set)->release(owner);
         };
     }
 
-    [[nodiscard]] static Result<void, WorkError> submit_result(int result) noexcept
+    [[nodiscard]] static Result<void, WorkError> submit_result(int result)
     {
         if (result == 0) {
             return {};
@@ -265,7 +265,7 @@ class TriggeredWork
         return fail<WorkError>(detail::triggered_work_error(result));
     }
 
-    static void invoke(k_work* work) noexcept
+    static void invoke(k_work* work)
     {
         auto* native = CONTAINER_OF(work, k_work_poll, work);
         auto& self = *CONTAINER_OF(native, TriggeredWork, work_);
@@ -283,7 +283,7 @@ class TriggeredWork
     std::atomic_bool claimed_{false};
     k_spinlock state_lock_{};
     void* events_{};
-    void (*release_events_)(void*, const void*) noexcept {};
+    void (*release_events_)(void*, const void*) {};
 };
 
 #else

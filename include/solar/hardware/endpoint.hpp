@@ -16,17 +16,17 @@ template <auto Spec> struct Endpoint
 
     inline static constexpr auto descriptor_value = Spec;
 
-    [[nodiscard]] static constexpr const auto& descriptor() noexcept
+    [[nodiscard]] static constexpr const auto& descriptor()
     {
         return descriptor_value;
     }
 
-    [[nodiscard]] static constexpr std::string_view path() noexcept
+    [[nodiscard]] static constexpr std::string_view path()
     {
         return descriptor_value.identity.path.view();
     }
 
-    [[nodiscard]] static bool ready() noexcept
+    [[nodiscard]] static bool ready()
     {
         if constexpr (dt::GpioDescriptorType<decltype(Spec)>) {
             return gpio_is_ready_dt(&descriptor_value.native);
@@ -45,7 +45,7 @@ template <auto Spec> struct Endpoint
         }
     }
 
-    [[nodiscard]] static Result<void, Error> require_ready() noexcept
+    [[nodiscard]] static Result<void, Error> require_ready()
     {
         if constexpr (!requires { descriptor_value.native; }) {
             return fail<Error>({.status = solar::Status::NotSupported,
@@ -63,13 +63,13 @@ template <auto Spec> struct Endpoint
         return {};
     }
 
-    [[nodiscard]] static constexpr const auto& native_handle() noexcept
+    [[nodiscard]] static constexpr const auto& native_handle()
         requires requires { descriptor_value.native; }
     {
         return descriptor_value.native;
     }
 
-    [[nodiscard]] static constexpr const device* native_device() noexcept
+    [[nodiscard]] static constexpr const device* native_device()
         requires requires { descriptor_value.native; }
     {
         if constexpr (dt::GpioDescriptorType<decltype(Spec)>) {

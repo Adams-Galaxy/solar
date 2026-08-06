@@ -35,17 +35,17 @@ template <typename T> class alignas(void*) IntrusiveNode
         __ASSERT_NO_MSG(!linked());
     }
 
-    [[nodiscard]] T& value() noexcept
+    [[nodiscard]] T& value()
     {
         return value_;
     }
 
-    [[nodiscard]] const T& value() const noexcept
+    [[nodiscard]] const T& value() const
     {
         return value_;
     }
 
-    [[nodiscard]] bool linked() const noexcept
+    [[nodiscard]] bool linked() const
     {
         return owner_.load(std::memory_order_acquire) != nullptr;
     }
@@ -68,9 +68,9 @@ template <typename T> class QueueRef
     static_assert(offsetof(Node, kernel_link_) == 0,
                   "SOLAR_DIAGNOSTIC_INTRUSIVE_NODE_LINK: Zephyr's reserved link must be first");
 
-    explicit constexpr QueueRef(k_queue& queue) noexcept : queue_(&queue) {}
+    explicit constexpr QueueRef(k_queue& queue) : queue_(&queue) {}
 
-    [[nodiscard]] Result<void> append(Node& node) const noexcept
+    [[nodiscard]] Result<void> append(Node& node) const
     {
         if (!claim(node)) {
             return fail<Error>({.status = Status::Already});
@@ -79,7 +79,7 @@ template <typename T> class QueueRef
         return {};
     }
 
-    [[nodiscard]] Result<void> prepend(Node& node) const noexcept
+    [[nodiscard]] Result<void> prepend(Node& node) const
     {
         if (!claim(node)) {
             return fail<Error>({.status = Status::Already});
@@ -88,7 +88,7 @@ template <typename T> class QueueRef
         return {};
     }
 
-    [[nodiscard]] Result<void> insert_after(Node& previous, Node& node) const noexcept
+    [[nodiscard]] Result<void> insert_after(Node& previous, Node& node) const
     {
         if (previous.owner_.load(std::memory_order_acquire) != queue_) {
             return fail<Error>({.status = Status::NotFound});
@@ -100,7 +100,7 @@ template <typename T> class QueueRef
         return {};
     }
 
-    [[nodiscard]] Result<bool> unique_append(Node& node) const noexcept
+    [[nodiscard]] Result<bool> unique_append(Node& node) const
     {
         const auto owner = node.owner_.load(std::memory_order_acquire);
         if (owner == queue_) {
@@ -116,7 +116,7 @@ template <typename T> class QueueRef
         return true;
     }
 
-    [[nodiscard]] Result<void> append_list(std::span<Node* const> nodes) const noexcept
+    [[nodiscard]] Result<void> append_list(std::span<Node* const> nodes) const
     {
         if (nodes.empty()) {
             return fail<Error>({.status = Status::Invalid});
@@ -147,7 +147,7 @@ template <typename T> class QueueRef
         return fail<Error>(error_from_errno(result));
     }
 
-    [[nodiscard]] Result<Node*> get(Timeout timeout = Timeout::forever()) const noexcept
+    [[nodiscard]] Result<Node*> get(Timeout timeout = Timeout::forever()) const
     {
         if (in_isr()) {
             return fail<Error>({.status = Status::Invalid});
@@ -155,22 +155,22 @@ template <typename T> class QueueRef
         return get_native(timeout);
     }
 
-    [[nodiscard]] Result<Node*> get(const Deadline& deadline) const noexcept
+    [[nodiscard]] Result<Node*> get(const Deadline& deadline) const
     {
         return get(deadline.remaining());
     }
 
-    [[nodiscard]] Result<Node*> try_get() const noexcept
+    [[nodiscard]] Result<Node*> try_get() const
     {
         return get(Timeout::no_wait());
     }
 
-    [[nodiscard]] Result<Node*> try_get_isr() const noexcept
+    [[nodiscard]] Result<Node*> try_get_isr() const
     {
         return get_native(Timeout::no_wait());
     }
 
-    [[nodiscard]] bool remove(Node& node) const noexcept
+    [[nodiscard]] bool remove(Node& node) const
     {
         if (node.owner_.load(std::memory_order_acquire) != queue_) {
             return false;
@@ -182,45 +182,45 @@ template <typename T> class QueueRef
         return true;
     }
 
-    void cancel_wait() const noexcept
+    void cancel_wait() const
     {
         k_queue_cancel_wait(queue_);
     }
 
-    [[nodiscard]] bool empty() const noexcept
+    [[nodiscard]] bool empty() const
     {
         return k_queue_is_empty(queue_) != 0;
     }
 
-    [[nodiscard]] Node* peek_head() const noexcept
+    [[nodiscard]] Node* peek_head() const
     {
         return static_cast<Node*>(k_queue_peek_head(queue_));
     }
 
-    [[nodiscard]] Node* peek_tail() const noexcept
+    [[nodiscard]] Node* peek_tail() const
     {
         return static_cast<Node*>(k_queue_peek_tail(queue_));
     }
 
-    [[nodiscard]] constexpr k_queue* native_queue() const noexcept
+    [[nodiscard]] constexpr k_queue* native_queue() const
     {
         return queue_;
     }
 
   private:
-    [[nodiscard]] bool claim(Node& node) const noexcept
+    [[nodiscard]] bool claim(Node& node) const
     {
         const void* expected = nullptr;
         return node.owner_.compare_exchange_strong(expected, queue_, std::memory_order_acq_rel);
     }
 
-    static void release(Node& node) noexcept
+    static void release(Node& node)
     {
         node.kernel_link_ = nullptr;
         node.owner_.store(nullptr, std::memory_order_release);
     }
 
-    [[nodiscard]] Result<Node*> get_native(Timeout timeout) const noexcept
+    [[nodiscard]] Result<Node*> get_native(Timeout timeout) const
     {
         auto* node = static_cast<Node*>(k_queue_get(queue_, timeout.native_handle()));
         if (node != nullptr) {
@@ -239,7 +239,7 @@ template <typename T> class Queue
   public:
     using Node = IntrusiveNode<T>;
 
-    Queue() noexcept
+    Queue()
     {
         k_queue_init(&queue_);
     }
@@ -254,64 +254,64 @@ template <typename T> class Queue
     Queue(Queue&&) = delete;
     Queue& operator=(Queue&&) = delete;
 
-    [[nodiscard]] QueueRef<T> ref() noexcept
+    [[nodiscard]] QueueRef<T> ref()
     {
         return QueueRef<T>{queue_};
     }
 
-    [[nodiscard]] Result<void> append(Node& node) noexcept
+    [[nodiscard]] Result<void> append(Node& node)
     {
         return ref().append(node);
     }
-    [[nodiscard]] Result<void> prepend(Node& node) noexcept
+    [[nodiscard]] Result<void> prepend(Node& node)
     {
         return ref().prepend(node);
     }
-    [[nodiscard]] Result<void> insert_after(Node& previous, Node& node) noexcept
+    [[nodiscard]] Result<void> insert_after(Node& previous, Node& node)
     {
         return ref().insert_after(previous, node);
     }
-    [[nodiscard]] Result<bool> unique_append(Node& node) noexcept
+    [[nodiscard]] Result<bool> unique_append(Node& node)
     {
         return ref().unique_append(node);
     }
-    [[nodiscard]] Result<void> append_list(std::span<Node* const> nodes) noexcept
+    [[nodiscard]] Result<void> append_list(std::span<Node* const> nodes)
     {
         return ref().append_list(nodes);
     }
-    [[nodiscard]] Result<Node*> get(Timeout timeout = Timeout::forever()) noexcept
+    [[nodiscard]] Result<Node*> get(Timeout timeout = Timeout::forever())
     {
         return ref().get(timeout);
     }
-    [[nodiscard]] Result<Node*> get(const Deadline& deadline) noexcept
+    [[nodiscard]] Result<Node*> get(const Deadline& deadline)
     {
         return ref().get(deadline);
     }
-    [[nodiscard]] Result<Node*> try_get() noexcept
+    [[nodiscard]] Result<Node*> try_get()
     {
         return ref().try_get();
     }
-    [[nodiscard]] Result<Node*> try_get_isr() noexcept
+    [[nodiscard]] Result<Node*> try_get_isr()
     {
         return ref().try_get_isr();
     }
-    [[nodiscard]] bool remove(Node& node) noexcept
+    [[nodiscard]] bool remove(Node& node)
     {
         return ref().remove(node);
     }
-    void cancel_wait() noexcept
+    void cancel_wait()
     {
         ref().cancel_wait();
     }
-    [[nodiscard]] bool empty() noexcept
+    [[nodiscard]] bool empty()
     {
         return ref().empty();
     }
-    [[nodiscard]] Node* peek_head() noexcept
+    [[nodiscard]] Node* peek_head()
     {
         return ref().peek_head();
     }
-    [[nodiscard]] Node* peek_tail() noexcept
+    [[nodiscard]] Node* peek_tail()
     {
         return ref().peek_tail();
     }
@@ -326,47 +326,47 @@ template <typename T> class Fifo
   public:
     using Node = IntrusiveNode<T>;
 
-    [[nodiscard]] Result<void> put(Node& node) noexcept
+    [[nodiscard]] Result<void> put(Node& node)
     {
         return queue_.append(node);
     }
-    [[nodiscard]] Result<void> put_list(std::span<Node* const> nodes) noexcept
+    [[nodiscard]] Result<void> put_list(std::span<Node* const> nodes)
     {
         return queue_.append_list(nodes);
     }
-    [[nodiscard]] Result<Node*> get(Timeout timeout = Timeout::forever()) noexcept
+    [[nodiscard]] Result<Node*> get(Timeout timeout = Timeout::forever())
     {
         return queue_.get(timeout);
     }
-    [[nodiscard]] Result<Node*> get(const Deadline& deadline) noexcept
+    [[nodiscard]] Result<Node*> get(const Deadline& deadline)
     {
         return queue_.get(deadline);
     }
-    [[nodiscard]] Result<Node*> try_get() noexcept
+    [[nodiscard]] Result<Node*> try_get()
     {
         return queue_.try_get();
     }
-    [[nodiscard]] Result<Node*> try_get_isr() noexcept
+    [[nodiscard]] Result<Node*> try_get_isr()
     {
         return queue_.try_get_isr();
     }
-    void cancel_wait() noexcept
+    void cancel_wait()
     {
         queue_.cancel_wait();
     }
-    [[nodiscard]] bool empty() noexcept
+    [[nodiscard]] bool empty()
     {
         return queue_.empty();
     }
-    [[nodiscard]] Node* peek_head() noexcept
+    [[nodiscard]] Node* peek_head()
     {
         return queue_.peek_head();
     }
-    [[nodiscard]] Node* peek_tail() noexcept
+    [[nodiscard]] Node* peek_tail()
     {
         return queue_.peek_tail();
     }
-    [[nodiscard]] QueueRef<T> ref() noexcept
+    [[nodiscard]] QueueRef<T> ref()
     {
         return queue_.ref();
     }
@@ -381,39 +381,39 @@ template <typename T> class Lifo
   public:
     using Node = IntrusiveNode<T>;
 
-    [[nodiscard]] Result<void> put(Node& node) noexcept
+    [[nodiscard]] Result<void> put(Node& node)
     {
         return queue_.prepend(node);
     }
-    [[nodiscard]] Result<Node*> get(Timeout timeout = Timeout::forever()) noexcept
+    [[nodiscard]] Result<Node*> get(Timeout timeout = Timeout::forever())
     {
         return queue_.get(timeout);
     }
-    [[nodiscard]] Result<Node*> get(const Deadline& deadline) noexcept
+    [[nodiscard]] Result<Node*> get(const Deadline& deadline)
     {
         return queue_.get(deadline);
     }
-    [[nodiscard]] Result<Node*> try_get() noexcept
+    [[nodiscard]] Result<Node*> try_get()
     {
         return queue_.try_get();
     }
-    [[nodiscard]] Result<Node*> try_get_isr() noexcept
+    [[nodiscard]] Result<Node*> try_get_isr()
     {
         return queue_.try_get_isr();
     }
-    void cancel_wait() noexcept
+    void cancel_wait()
     {
         queue_.cancel_wait();
     }
-    [[nodiscard]] bool empty() noexcept
+    [[nodiscard]] bool empty()
     {
         return queue_.empty();
     }
-    [[nodiscard]] Node* peek_head() noexcept
+    [[nodiscard]] Node* peek_head()
     {
         return queue_.peek_head();
     }
-    [[nodiscard]] QueueRef<T> ref() noexcept
+    [[nodiscard]] QueueRef<T> ref()
     {
         return queue_.ref();
     }
