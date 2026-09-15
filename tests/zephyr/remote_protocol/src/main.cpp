@@ -18,6 +18,31 @@ struct Sample
     bool valid{};
     constexpr bool operator==(const Sample&) const = default;
 };
+
+struct Point
+{
+    std::uint16_t angle_centidegrees{};
+    std::uint16_t distance_mm{};
+    std::uint8_t confidence{};
+};
+
+struct Scan
+{
+    std::uint64_t generation{};
+    solar::remote::Array<Point, 4> points{};
+    solar::remote::Array<std::uint16_t, 4> checksums{};
+};
+
+/// Same wire shape as Scan, but with a checksums capacity wide enough to
+/// encode more elements than Scan's receiver can hold -- used to verify
+/// decode rejects an over-capacity array instead of truncating or
+/// overrunning it.
+struct WideScan
+{
+    std::uint64_t generation{};
+    solar::remote::Array<Point, 4> points{};
+    solar::remote::Array<std::uint16_t, 6> checksums{};
+};
 } // namespace fixture
 
 template <> struct solar::remote::Schema<fixture::Sample>
@@ -31,6 +56,44 @@ template <> struct solar::remote::Schema<fixture::Sample>
                                   Field<3, "gain", &fixture::Sample::gain>,
                                   Field<4, "valid", &fixture::Sample::valid>>;
     static constexpr std::size_t max_encoded_size = 32;
+    static constexpr Codec codec = Codec::Cbor;
+};
+
+template <> struct solar::remote::Schema<fixture::Point>
+{
+    static constexpr SchemaDescriptor descriptor{
+        .id = TypeId{0x3002},
+        .name = "fixture.Point",
+    };
+    static constexpr SchemaShape shape = SchemaShape::Record;
+    using Fields = remote::Fields<Field<1, "angle_centidegrees", &fixture::Point::angle_centidegrees>,
+                                  Field<2, "distance_mm", &fixture::Point::distance_mm>,
+                                  Field<3, "confidence", &fixture::Point::confidence>>;
+};
+
+template <> struct solar::remote::Schema<fixture::Scan>
+{
+    static constexpr SchemaDescriptor descriptor{
+        .id = TypeId{0x3003},
+        .name = "fixture.Scan",
+    };
+    using Fields = remote::Fields<Field<1, "generation", &fixture::Scan::generation>,
+                                  Field<2, "points", &fixture::Scan::points>,
+                                  Field<3, "checksums", &fixture::Scan::checksums>>;
+    static constexpr std::size_t max_encoded_size = 64;
+    static constexpr Codec codec = Codec::Cbor;
+};
+
+template <> struct solar::remote::Schema<fixture::WideScan>
+{
+    static constexpr SchemaDescriptor descriptor{
+        .id = TypeId{0x3004},
+        .name = "fixture.WideScan",
+    };
+    using Fields = remote::Fields<Field<1, "generation", &fixture::WideScan::generation>,
+                                  Field<2, "points", &fixture::WideScan::points>,
+                                  Field<3, "checksums", &fixture::WideScan::checksums>>;
+    static constexpr std::size_t max_encoded_size = 64;
     static constexpr Codec codec = Codec::Cbor;
 };
 
@@ -86,6 +149,49 @@ ZTEST(solar_remote_protocol, test_canonical_cbor_round_trip_and_validation)
     auto trailing_result = solar::remote::cbor::decode<fixture::Sample>(trailing);
     zassert_false(trailing_result.has_value());
     zassert_equal(trailing_result.error().reason, solar::remote::Reason::TrailingData);
+}
+
+ZTEST(solar_remote_protocol, test_array_and_record_round_trip)
+{
+    fixture::Scan scan{};
+    scan.generation = 7;
+    scan.points.size = 2;
+    scan.points.storage[0] = {.angle_centidegrees = 100, .distance_mm = 2000, .confidence = 200};
+    scan.points.storage[1] = {.angle_centidegrees = 200, .distance_mm = 3000, .confidence = 150};
+    scan.checksums.size = 3;
+    scan.checksums.storage[0] = 11;
+    scan.checksums.storage[1] = 22;
+    scan.checksums.storage[2] = 33;
+
+    std::array<std::byte, 64> encoded{};
+    auto size = solar::remote::cbor::encode(scan, encoded);
+    zassert_true(size.has_value());
+
+    auto decoded = solar::remote::cbor::decode<fixture::Scan>(std::span{encoded}.first(*size));
+    zassert_true(decoded.has_value());
+    zassert_equal(decoded->generation, scan.generation);
+    zassert_equal(decoded->points.size, scan.points.size);
+    zassert_equal(decoded->points.storage[0].angle_centidegrees,
+                  scan.points.storage[0].angle_centidegrees);
+    zassert_equal(decoded->points.storage[1].distance_mm, scan.points.storage[1].distance_mm);
+    zassert_equal(decoded->checksums.size, scan.checksums.size);
+    zassert_equal(decoded->checksums.storage[2], scan.checksums.storage[2]);
+
+    // A wire array with more elements than the receiving Capacity must be
+    // rejected cleanly, not truncated or overrun. Scan's checksums field
+    // holds at most 4; encode 5 via WideScan (identical wire shape, wider
+    // capacity) and decode that payload as a Scan.
+    fixture::WideScan wide{};
+    wide.checksums.size = 5;
+    for (std::size_t index{}; index < wide.checksums.size; ++index) {
+        wide.checksums.storage[index] = static_cast<std::uint16_t>(index + 1);
+    }
+    std::array<std::byte, 64> wide_encoded{};
+    auto wide_size = solar::remote::cbor::encode(wide, wide_encoded);
+    zassert_true(wide_size.has_value());
+    auto rejected =
+        solar::remote::cbor::decode<fixture::Scan>(std::span{wide_encoded}.first(*wide_size));
+    zassert_false(rejected.has_value());
 }
 
 ZTEST(solar_remote_protocol, test_shared_frame_vector_and_corruption)

@@ -466,6 +466,10 @@ solar_add_compile_failure(
     solar.compile_fail.remote_packed_unbounded
     SOLAR_DIAGNOSTIC_REMOTE_PACKED_FIELD
     ${CMAKE_CURRENT_SOURCE_DIR}/../compile_fail/fixtures/remote_packed_unbounded.cpp)
+solar_add_compile_failure(
+    solar.compile_fail.remote_packed_array
+    SOLAR_DIAGNOSTIC_REMOTE_PACKED_FIELD
+    ${CMAKE_CURRENT_SOURCE_DIR}/../compile_fail/fixtures/remote_packed_array.cpp)
 
 solar_add_compile_failure(
     solar.compile_fail.remote_duplicate_schema_id
@@ -511,6 +515,23 @@ solar_add_compile_failure(
     solar.compile_fail.remote_duplicate_enum_value
     SOLAR_DIAGNOSTIC_REMOTE_DUPLICATE_ENUM_VALUE
     ${CMAKE_CURRENT_SOURCE_DIR}/../compile_fail/fixtures/remote_duplicate_enum_value.cpp)
+
+solar_add_compile_failure(
+    solar.compile_fail.remote_record_optional_field
+    SOLAR_DIAGNOSTIC_REMOTE_RECORD_OPTIONAL_FIELD
+    ${CMAKE_CURRENT_SOURCE_DIR}/../compile_fail/fixtures/remote_record_optional_field.cpp)
+solar_add_compile_failure(
+    solar.compile_fail.remote_record_variable_field
+    SOLAR_DIAGNOSTIC_REMOTE_RECORD_VARIABLE_FIELD
+    ${CMAKE_CURRENT_SOURCE_DIR}/../compile_fail/fixtures/remote_record_variable_field.cpp)
+solar_add_compile_failure(
+    solar.compile_fail.remote_record_recursive_field
+    SOLAR_DIAGNOSTIC_REMOTE_RECORD_RECURSIVE_FIELD
+    ${CMAKE_CURRENT_SOURCE_DIR}/../compile_fail/fixtures/remote_record_recursive_field.cpp)
+solar_add_compile_failure(
+    solar.compile_fail.remote_record_unsupported_field
+    SOLAR_DIAGNOSTIC_REMOTE_RECORD_UNSUPPORTED_FIELD
+    ${CMAKE_CURRENT_SOURCE_DIR}/../compile_fail/fixtures/remote_record_unsupported_field.cpp)
 
 solar_add_compile_failure(
     solar.compile_fail.catalog_empty_name

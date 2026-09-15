@@ -81,6 +81,8 @@ namespace detail
     return std::bit_cast<float>(bits);
 }
 
+template <typename Value, typename FieldsT> struct Codec;
+
 template <typename T> bool encode_value(zcbor_state_t* state, const T& value)
 {
     if constexpr (std::is_same_v<T, bool>) {
@@ -114,6 +116,18 @@ template <typename T> bool encode_value(zcbor_state_t* state, const T& value)
     } else if constexpr (remote::detail::IsBoundedBytes<T>::value) {
         zcbor_string bytes{reinterpret_cast<const std::uint8_t*>(value.storage.data()), value.size};
         return zcbor_bstr_encode(state, &bytes);
+    } else if constexpr (RecordSchemaType<T>) {
+        return Codec<T, typename Schema<T>::Fields>::encode_map_body(state, value);
+    } else if constexpr (remote::detail::IsArray<T>::value) {
+        if (!zcbor_list_start_encode(state, value.size)) {
+            return false;
+        }
+        for (std::size_t index{}; index < value.size; ++index) {
+            if (!encode_value(state, value.storage[index])) {
+                return false;
+            }
+        }
+        return zcbor_list_end_encode(state, value.size);
     }
 }
 
@@ -168,10 +182,28 @@ template <typename T> bool decode_value(zcbor_state_t* state, T& value)
         std::memcpy(value.storage.data(), decoded.value, decoded.len);
         value.size = static_cast<std::uint16_t>(decoded.len);
         return true;
+    } else if constexpr (RecordSchemaType<T>) {
+        return Codec<T, typename Schema<T>::Fields>::decode_map_body(state, value) == Reason::None;
+    } else if constexpr (remote::detail::IsArray<T>::value) {
+        using Element = typename remote::detail::IsArray<T>::ElementType;
+        if (!zcbor_list_start_decode(state)) {
+            return false;
+        }
+        value.size = 0;
+        while (state[0].elem_count > 0) {
+            if (static_cast<std::size_t>(value.size) >= value.storage.size()) {
+                return false;
+            }
+            Element decoded{};
+            if (!decode_value(state, decoded)) {
+                return false;
+            }
+            value.storage[value.size] = decoded;
+            ++value.size;
+        }
+        return zcbor_list_end_decode(state);
     }
 }
-
-template <typename Value, typename FieldsT> struct Codec;
 
 template <typename Value, typename... FieldTypes> struct Codec<Value, Fields<FieldTypes...>>
 {
@@ -193,15 +225,31 @@ template <typename Value, typename... FieldTypes> struct Codec<Value, Fields<Fie
         }
     }
 
+    /// Encode just the CBOR map body (start/fields/end) into an already-open
+    /// zcbor state, with no state setup of its own. Shared by the top-level
+    /// encode() below and by encode_value()'s Record-element branch, which
+    /// encodes a Record as a nested map inside an Array using the
+    /// surrounding array's own state rather than opening a new one.
+    static bool encode_map_body(zcbor_state_t* state, const Value& value)
+    {
+        const auto count = (std::size_t{} + ... + present<FieldTypes>(value));
+        return zcbor_map_start_encode(state, count) &&
+               (encode_field<FieldTypes>(state, value) && ...) && zcbor_map_end_encode(state, count);
+    }
+
     static Result<std::size_t, Error> encode(const Value& value,
                                              std::span<std::byte> output)
     {
-        const auto count = (std::size_t{} + ... + present<FieldTypes>(value));
         auto* begin = reinterpret_cast<std::uint8_t*>(output.data());
-        ZCBOR_STATE_E(state, 2, begin, output.size(), 1);
-        if (!zcbor_map_start_encode(state, count) ||
-            !(encode_field<FieldTypes>(state, value) && ...) ||
-            !zcbor_map_end_encode(state, count)) {
+        // 3 backup levels: the outer map itself, an Array field, and (the
+        // deepest legal nesting under this schema system) a Record element
+        // inside that array. 2 was enough before Array/Record existed;
+        // verified empirically -- ZCBOR_CANONICAL back-patches each
+        // map/list header with its real element count via a state backup
+        // per level, and 2 silently produced a malformed encode once a
+        // Record-in-Array field was added.
+        ZCBOR_STATE_E(state, 3, begin, output.size(), 1);
+        if (!encode_map_body(state, value)) {
             return fail<Error>({Status::NoSpace, Reason::NoSpace, Operation::Encode,
                                 static_cast<std::uint32_t>(zcbor_peek_error(state))});
         }
@@ -242,17 +290,20 @@ template <typename Value, typename... FieldTypes> struct Codec<Value, Fields<Fie
         return (decode_field<Indices, FieldTypes>(key, state, value, seen, reason) || ...);
     }
 
-    static Result<Value, Error> decode(std::span<const std::byte> input)
+    /// Decode just the CBOR map body (start/fields/end plus the required-
+    /// field check) from an already-open zcbor state, with no state setup
+    /// and no "trailing data" check of its own -- that check only makes
+    /// sense for a complete top-level message, not a nested Record element
+    /// with more array data still to come after it. Shared by the top-level
+    /// decode() below and by decode_value()'s Record-element branch.
+    static Reason decode_map_body(zcbor_state_t* state, Value& value)
     {
         static_assert(sizeof...(FieldTypes) <= 64,
                       "SOLAR_DIAGNOSTIC_REMOTE_CBOR_FIELDS: initial decoder supports 64 fields");
-        auto* begin = reinterpret_cast<const std::uint8_t*>(input.data());
-        ZCBOR_STATE_D(state, 3, begin, input.size(), 1, 0);
-        Value value{};
         std::uint64_t seen{};
         Reason reason{Reason::None};
         if (!zcbor_map_start_decode(state)) {
-            return fail<Error>({Status::ProtocolError, Reason::Malformed, Operation::Decode});
+            return Reason::Malformed;
         }
         while (state[0].elem_count > 0) {
             std::uint32_t key{};
@@ -281,6 +332,15 @@ template <typename Value, typename... FieldTypes> struct Codec<Value, Fields<Fie
         if (reason == Reason::None && (seen & required) != required) {
             reason = Reason::MissingField;
         }
+        return reason;
+    }
+
+    static Result<Value, Error> decode(std::span<const std::byte> input)
+    {
+        auto* begin = reinterpret_cast<const std::uint8_t*>(input.data());
+        ZCBOR_STATE_D(state, 3, begin, input.size(), 1, 0);
+        Value value{};
+        auto reason = decode_map_body(state, value);
         if (reason == Reason::None && !zcbor_payload_at_end(state)) {
             reason = Reason::TrailingData;
         }

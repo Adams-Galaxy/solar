@@ -50,10 +50,16 @@ using catalog_from_t = typename CatalogFrom<Tag, Declarations>::type;
  * state, links, and lifecycle now belong to this Remote module rather than a
  * synthetic application System.
  */
-template <typename ArchitectureT> struct RuntimeContext
+template <typename ArchitectureT, typename PollDispatchT = void> struct RuntimeContext
 {
     static constexpr bool standalone_byte_runtime = true;
     using RemoteArchitecture = ArchitectureT;
+    /// The plain, non-Remote `system::Dispatch<Contract, Components>` used to
+    /// pull a value from a `direction: out` Stream's `Output<Endpoint,
+    /// Publisher>` binding on the scheduler's poll tick. `void` (the
+    /// default) when no such Dispatch is available -- e.g. host tests
+    /// exercising this Context directly, without a generated Application.
+    using RemotePollDispatch = PollDispatchT;
     using RemoteSchemaCatalog =
         runtime_detail::catalog_from_t<SchemaTag, typename ArchitectureT::Schemas>;
     using RemoteDataCatalog = runtime_detail::catalog_from_t<DataTag, typename ArchitectureT::Data>;
@@ -66,7 +72,7 @@ template <typename ArchitectureT> struct RuntimeContext
     using RemoteLinkCatalog =
         runtime_detail::catalog_from_t<LinkTag, typename ArchitectureT::Links>;
     using RemoteFacility = Facility<ArchitectureT>;
-    using RemoteService = Service<ArchitectureT, RuntimeContext<ArchitectureT>>;
+    using RemoteService = Service<ArchitectureT, RuntimeContext<ArchitectureT, PollDispatchT>>;
 
     template <typename Owner, typename Key, typename State> struct StateSlot
     {
@@ -78,10 +84,11 @@ template <typename ArchitectureT> struct RuntimeContext
  * Owns a Remote byte engine, its links, and (on Zephyr) its worker thread.
  * It can be placed directly in `Own<...>` and has no application binding.
  */
-template <typename Application, typename ArchitectureT, typename DependenciesT = TypeList<>>
+template <typename Application, typename ArchitectureT, typename DependenciesT = TypeList<>,
+          typename PollDispatchT = void>
 struct ByteRuntime
 {
-    using Context = RuntimeContext<ArchitectureT>;
+    using Context = RuntimeContext<ArchitectureT, PollDispatchT>;
     using FacilityType = typename Context::RemoteFacility;
     using ServiceType = typename Context::RemoteService;
     using Dependencies = DependenciesT;

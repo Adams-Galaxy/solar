@@ -41,20 +41,29 @@ def identifier(value: str) -> str:
     return cleaned
 
 
+_SCALAR_ANNOTATIONS = {
+    "bool": "bool",
+    "unsigned": "int",
+    "signed": "int",
+    "float": "float",
+    "text": "str",
+    "bytes": "bytes",
+}
+
+
 def annotation(field: dict, schemas: dict[int, dict]) -> str:
     kind = field["kind"]
-    base = {
-        "bool": "bool",
-        "unsigned": "int",
-        "signed": "int",
-        "float": "float",
-        "text": "str",
-        "bytes": "bytes",
-    }.get(kind)
-    if base is None and field["schema"]:
-        base = identifier(schemas[field["schema"]]["name"])
-    if base is None:
-        base = "object"
+    if kind == "array":
+        element = _SCALAR_ANNOTATIONS.get(field["element_kind"])
+        if element is None and field["schema"]:
+            element = identifier(schemas[field["schema"]]["name"])
+        base = f"list[{element or 'object'}]"
+    else:
+        base = _SCALAR_ANNOTATIONS.get(kind)
+        if base is None and field["schema"]:
+            base = identifier(schemas[field["schema"]]["name"])
+        if base is None:
+            base = "object"
     return base if field["required"] else f"{base} | None"
 
 
@@ -109,7 +118,7 @@ def generate(elf: Path, output: Path) -> None:
                     f"    {identifier(value['name']).upper()} = {value['value']}"
                 )
             models.append("")
-        elif schema["shape"] == "object":
+        elif schema["shape"] in ("object", "record"):
             models.extend(
                 [
                     "@dataclass(frozen=True, slots=True)",
@@ -129,7 +138,13 @@ def generate(elf: Path, output: Path) -> None:
                 enum_fields = [
                     value
                     for value in schema["fields"]
-                    if value["schema"]
+                    # kind == "array" excluded deliberately: an array field's
+                    # "schema" refers to its *element* type (e.g. an array of
+                    # enum values), but self.<name> is a list there, not a
+                    # single enum-constructible value -- coercing per-element
+                    # is real Stage 4 client-generation work, not done here.
+                    if value["kind"] != "array"
+                    and value["schema"]
                     and schemas[value["schema"]]["shape"]
                     in ("enumeration", "status-code")
                 ]

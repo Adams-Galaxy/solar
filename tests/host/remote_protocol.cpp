@@ -52,6 +52,21 @@ struct PackedSample
     constexpr bool operator==(const PackedSample&) const = default;
 };
 
+struct Point
+{
+    std::uint16_t angle_centidegrees{};
+    std::uint16_t distance_mm{};
+    std::uint8_t confidence{};
+    constexpr bool operator==(const Point&) const = default;
+};
+
+struct Scan
+{
+    std::uint64_t generation{};
+    solar::remote::Array<Point, 4> points{};
+    solar::remote::Array<std::uint16_t, 4> checksums{};
+};
+
 struct Telemetry
 {
     static constexpr solar::remote::DataDescriptor descriptor{
@@ -60,6 +75,17 @@ struct Telemetry
         .description = "Host protocol fixture",
     };
     using Value = Sample;
+    using Capabilities = solar::remote::Capabilities<solar::remote::Watch<>>;
+};
+
+struct ScanTelemetry
+{
+    static constexpr solar::remote::DataDescriptor descriptor{
+        .id = solar::remote::DataId{0x2002},
+        .name = "fixture.scan",
+        .description = "Array/Record manifest fixture",
+    };
+    using Value = Scan;
     using Capabilities = solar::remote::Capabilities<solar::remote::Watch<>>;
 };
 
@@ -72,10 +98,10 @@ struct Reset
     using Access = solar::remote::Requires<solar::remote::permission::Control>;
 };
 
-using Architecture =
-    solar::remote::Architecture<solar::TypeList<Mode, OpenMode>, solar::TypeList<Telemetry>,
-                                solar::TypeList<Reset>, solar::TypeList<>, solar::TypeList<>,
-                                solar::TypeList<>, solar::TypeList<>, solar::TypeList<>>;
+using Architecture = solar::remote::Architecture<
+    solar::TypeList<Mode, OpenMode, Point>, solar::TypeList<Telemetry, ScanTelemetry>,
+    solar::TypeList<Reset>, solar::TypeList<>, solar::TypeList<>, solar::TypeList<>,
+    solar::TypeList<>, solar::TypeList<>>;
 using Remote = solar::remote::RuntimeContext<Architecture>;
 
 } // namespace fixture
@@ -150,10 +176,41 @@ template <> struct solar::remote::Schema<fixture::PackedSample>
     static constexpr Codec codec = Codec::Packed;
 };
 
+template <> struct solar::remote::Schema<fixture::Point>
+{
+    static constexpr SchemaDescriptor descriptor{
+        .id = TypeId{0x3006},
+        .name = "fixture.Point",
+        .description = "A bounded array element: fixed-width fields only",
+    };
+    static constexpr SchemaShape shape = SchemaShape::Record;
+    using Fields = remote::Fields<Field<1, "angle_centidegrees", &fixture::Point::angle_centidegrees>,
+                                  Field<2, "distance_mm", &fixture::Point::distance_mm>,
+                                  Field<3, "confidence", &fixture::Point::confidence>>;
+};
+
+template <> struct solar::remote::Schema<fixture::Scan>
+{
+    static constexpr SchemaDescriptor descriptor{
+        .id = TypeId{0x3007},
+        .name = "fixture.Scan",
+        .description = "An Object schema with array-of-record and array-of-scalar fields",
+    };
+    using Fields = remote::Fields<Field<1, "generation", &fixture::Scan::generation>,
+                                  Field<2, "points", &fixture::Scan::points>,
+                                  Field<3, "checksums", &fixture::Scan::checksums>>;
+    static constexpr std::size_t max_encoded_size = 64;
+    static constexpr Codec codec = Codec::Cbor;
+};
+
 SOLAR_REMOTE_EMIT_MANIFEST(fixture::Remote);
 
 static_assert(solar::remote::validate_schema<fixture::Sample>());
 static_assert(solar::remote::validate_enum_schema<fixture::Mode>());
+static_assert(solar::remote::validate_record_schema<fixture::Point>());
+static_assert(solar::remote::RecordSchemaType<fixture::Point>);
+static_assert(!solar::remote::RecordSchemaType<fixture::Sample>);
+static_assert(solar::remote::validate_schema<fixture::Scan>());
 static_assert(solar::remote::detail::enum_openness<fixture::OpenMode>() ==
               solar::remote::EnumOpenness::Open);
 static_assert(solar::remote::packed::encoded_size<fixture::PackedSample> == 6);

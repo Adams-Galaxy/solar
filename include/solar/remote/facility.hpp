@@ -40,6 +40,9 @@ template <typename System>
 [[nodiscard]] Result<void> process_in_stream_work(std::uint32_t target);
 template <typename System> void initialize_in_stream_runtime();
 template <typename System> [[nodiscard]] std::int64_t process_poll_releases();
+template <typename System> [[nodiscard]] std::int64_t output_poll_releases();
+template <typename System> void poll_reliable_out_streams();
+template <typename System> void poll_output_streams();
 template <typename System>
 void reset_session(std::uint16_t link, InStreamCloseReason reason);
 template <typename System> void open_session(std::uint16_t link);

@@ -26,11 +26,12 @@ class RecordKind(IntEnum):
     ENUM_VALUE = 8
     CAPABILITY = 9
     IN_STREAM_GROUP = 10
+    ARRAY_ELEMENT = 11
 
 
 RECORD_REQUIRED = 1
 CODECS = {0: "none", 1: "cbor", 2: "packed"}
-SHAPES = {0: "object", 1: "status-code", 2: "enumeration"}
+SHAPES = {0: "object", 1: "status-code", 2: "enumeration", 3: "record"}
 VALUE_KINDS = {
     1: "bool",
     2: "unsigned",
@@ -40,6 +41,7 @@ VALUE_KINDS = {
     6: "text",
     7: "bytes",
     8: "schema",
+    9: "array",
 }
 DOMAINS = {1: "data", 2: "action", 3: "topic", 4: "stream"}
 CAPABILITY_KINDS = {
@@ -268,7 +270,11 @@ def parse_manifest(image: bytes) -> Manifest:
                 and reference not in schemas
                 or value_kind in (5, 8)
                 and not reference
-                or value_kind not in (5, 8)
+                # Array (9) is the one kind whose reference is optional: a
+                # scalar-element array has no reference, an enum- or
+                # Record-element array does (see the companion
+                # ArrayElement record for what the element actually is).
+                or value_kind not in (5, 8, 9)
                 and reference
             ):
                 raise ManifestError("malformed field record")
@@ -292,8 +298,39 @@ def parse_manifest(image: bytes) -> Manifest:
                     "packed_offset": None
                     if packed_offset == 0xFFFFFFFF
                     else packed_offset,
+                    # Populated from the immediately-following ArrayElement
+                    # record when kind == "array"; None for every other kind.
+                    "element_kind": None,
                 }
             )
+        elif kind == RecordKind.ARRAY_ELEMENT:
+            if len(body) != 8:
+                raise ManifestError("malformed array-element record size")
+            owner, field_id, element_kind, reserved = struct.unpack_from(
+                "<IHBB", body
+            )
+            if (
+                owner not in schemas
+                or element_kind not in VALUE_KINDS
+                or element_kind == 9
+                or reserved
+            ):
+                raise ManifestError("malformed array-element record")
+            try:
+                target = next(
+                    item
+                    for item in schemas[owner]["fields"]
+                    if item["id"] == field_id
+                )
+            except StopIteration:
+                raise ManifestError(
+                    "array-element record references an unknown field"
+                ) from None
+            if target["kind"] != "array" or target["element_kind"] is not None:
+                raise ManifestError(
+                    "array-element record does not match an array field"
+                )
+            target["element_kind"] = VALUE_KINDS[element_kind]
         elif kind == RecordKind.ENUM_VALUE:
             if len(body) < 20:
                 raise ManifestError("short enum-value record")
@@ -504,6 +541,9 @@ def parse_manifest(image: bytes) -> Manifest:
         schema["values"].sort(key=lambda item: item["value"])
         if schema["shape"] == "enumeration" and not schema["values"]:
             raise ManifestError("enumeration schema has no values")
+        for item in schema["fields"]:
+            if item["kind"] == "array" and item["element_kind"] is None:
+                raise ManifestError("array field is missing its element-kind record")
     for action in manifest.actions:
         if any(
             action[key] not in schemas
@@ -599,6 +639,7 @@ def compatibility(previous: Manifest, current: Manifest) -> dict[str, list[str]]
                     "schema",
                     "packed_offset",
                     "required",
+                    "element_kind",
                 )
             ):
                 changes["breaking"].append(

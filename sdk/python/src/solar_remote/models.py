@@ -72,11 +72,16 @@ class ModelRegistry:
             "bytes": bytes,
         }.get(kind, object)
 
+    def _field_annotation(self, value: Any) -> Any:
+        if value.kind == "array":
+            return list[self._annotation(value.element_kind, value.schema_id)]
+        return self._annotation(value.kind, value.schema_id)
+
     def _build_objects(self) -> None:
         pending = [
             schema
             for schema in self.catalog.schemas
-            if schema.shape == "object"
+            if schema.shape in ("object", "record")
         ]
         # Current manifest v2 does not permit nested object fields, but this
         # loop keeps construction deterministic when that representation lands.
@@ -98,14 +103,14 @@ class ModelRegistry:
                     definitions.append(
                         (
                             python_identifier(value.name),
-                            self._annotation(value.kind, value.schema_id),
+                            self._field_annotation(value),
                         )
                     )
                 for value in optional:
                     definitions.append(
                         (
                             python_identifier(value.name),
-                            self._annotation(value.kind, value.schema_id) | None,
+                            self._field_annotation(value) | None,
                             field(default=None),
                         )
                     )
@@ -139,7 +144,17 @@ class ModelRegistry:
             raise TypeError(f"{schema.name} requires an object value")
         converted = dict(values)
         for descriptor in schema.fields:
-            if descriptor.schema_id is None or descriptor.name not in converted:
+            if descriptor.name not in converted or converted[descriptor.name] is None:
+                continue
+            if descriptor.kind == "array":
+                if descriptor.schema_id is None:
+                    continue
+                converted[descriptor.name] = [
+                    self.construct(descriptor.schema_id, item)
+                    for item in converted[descriptor.name]
+                ]
+                continue
+            if descriptor.schema_id is None:
                 continue
             converted[descriptor.name] = self.construct(
                 descriptor.schema_id, converted[descriptor.name]

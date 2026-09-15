@@ -347,6 +347,196 @@ class CodegenTests(unittest.TestCase):
             self.assertEqual(fields["axes"]["kind"], "array")
             self.assertEqual(fields["note"]["kind"], "optional")
 
+    def test_record_shape_array_field_end_to_end(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = self.copy_fixture(Path(temporary))
+            interface = fixture / "robot.solar.yaml"
+            text = interface.read_text()
+            marker = "parameters:\n"
+            extra = (
+                "  ScanPoint:\n"
+                "    kind: struct\n"
+                "    shape: record\n"
+                "    fields:\n"
+                "      angle: u16\n"
+                "      distance: u16\n"
+                "      confidence: u8\n"
+                "  Scan:\n"
+                "    kind: struct\n"
+                "    fields:\n"
+                "      generation: u64\n"
+                "      points: sequence<ScanPoint, 4>\n"
+                "      checksums: sequence<u16, 4>\n"
+            )
+            interface.write_text(text.replace(marker, extra + marker))
+            ir, _, _ = self.compile_project(fixture / "solar.project.yaml")
+
+            schemas = {item["name"]: item for item in ir["manifest"]["schemas"]}
+            point = schemas["robot.fixture.ScanPoint"]
+            self.assertEqual(point["shape"], "record")
+
+            scan = schemas["robot.fixture.Scan"]
+            self.assertEqual(scan["shape"], "object")
+            fields = {item["name"]: item for item in scan["fields"]}
+            self.assertEqual(fields["points"]["kind"], "array")
+            self.assertEqual(fields["points"]["element_kind"], "schema")
+            self.assertEqual(fields["points"]["schema"], point["id"])
+            self.assertEqual(fields["points"]["maximum_length"], 4)
+            self.assertIsNone(fields["generation"]["element_kind"])
+            self.assertEqual(fields["checksums"]["kind"], "array")
+            self.assertEqual(fields["checksums"]["element_kind"], "unsigned")
+            self.assertIsNone(fields["checksums"]["schema"])
+
+            # A Record schema is reference-only, the same as an Enumeration --
+            # it carries no independent wire codec/size of its own at the C++
+            # level (schema_codec/schema_maximum emit 0/"none" for it), and it
+            # must still be explicitly contributed to the catalog even though
+            # nothing references it as a top-level Data/Action/Stream value.
+            self.assertEqual(point["codec"], "none")
+            self.assertEqual(point["max_encoded_size"], 0)
+
+            output_dir = Path(temporary) / "generated"
+            self.generate(fixture, output_dir, fixture / "solar.interface.lock")
+            remote_text = (output_dir / "solar" / "generated" / "remote.hpp").read_text()
+            self.assertIn(
+                "using RemoteSchemas = solar::remote::ContributeSchemas<",
+                remote_text,
+            )
+            contribution = remote_text.split(
+                "using RemoteSchemas = solar::remote::ContributeSchemas<"
+            )[1].split(">;")[0]
+            self.assertIn("ScanPoint", contribution)
+
+            self.assertIn(
+                "struct solar::remote::Schema<fixture_app::generated::ScanPoint>",
+                remote_text,
+            )
+            record_block = remote_text.split(
+                "struct solar::remote::Schema<fixture_app::generated::ScanPoint>"
+            )[1].split("\n};\n")[0]
+            self.assertIn("SchemaShape::Record", record_block)
+            self.assertNotIn("max_encoded_size", record_block)
+            self.assertNotIn("codec = Codec::Cbor", record_block)
+
+    def test_record_shape_rejects_unsupported_fields(self):
+        cases = {
+            "optional field": ("value:\n        type: u16\n        optional: true\n", "must not be optional"),
+            "bytes field": ("value: bytes<8>\n", "must be a fixed-width scalar or enum"),
+            "array field": ("value: sequence<u16, 4>\n", "must be a fixed-width scalar or enum"),
+            "nested struct field": ("value: Euler\n", "must not reference another struct"),
+        }
+        for label, (field_yaml, message) in cases.items():
+            with self.subTest(label):
+                with tempfile.TemporaryDirectory() as temporary:
+                    fixture = self.copy_fixture(Path(temporary))
+                    interface = fixture / "robot.solar.yaml"
+                    text = interface.read_text()
+                    marker = "parameters:\n"
+                    extra = (
+                        "  BadRecord:\n"
+                        "    kind: struct\n"
+                        "    shape: record\n"
+                        "    fields:\n"
+                        f"      {field_yaml}"
+                    )
+                    interface.write_text(text.replace(marker, extra + marker))
+                    with self.assertRaises(self.CompileError) as caught:
+                        self.compile_project(fixture / "solar.project.yaml")
+                    self.assertIn(message, str(caught.exception))
+
+    def test_output_stream_delivery_policy_end_to_end(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = self.copy_fixture(Path(temporary))
+            interface = fixture / "robot.solar.yaml"
+            text = interface.read_text()
+            marker = "streams:\n"
+            extra = (
+                "  imu.queued:\n"
+                "    type: Euler\n"
+                "    direction: out\n"
+                "    maximum-rate: 20\n"
+                "    delivery: queue<3, drop-newest>\n"
+                "  imu.reliable:\n"
+                "    type: Euler\n"
+                "    direction: out\n"
+                "    maximum-rate: 10\n"
+                "    delivery: reliable<4>\n"
+            )
+            interface.write_text(text.replace(marker, marker + extra))
+            ir, _, _ = self.compile_project(fixture / "solar.project.yaml")
+
+            capabilities_by_endpoint = {
+                item["endpoint"]: item for item in ir["manifest"]["capabilities"]
+            }
+            streams_by_name = {item["name"]: item for item in ir["manifest"]["streams"]}
+            queued = capabilities_by_endpoint[streams_by_name["imu.queued"]["id"]]
+            self.assertEqual(queued["delivery"], "queue_drop_newest")
+            self.assertEqual(queued["reliable_window"], 0)
+            self.assertEqual(queued["maximum_rate_hz"], 20)
+            reliable = capabilities_by_endpoint[streams_by_name["imu.reliable"]["id"]]
+            self.assertEqual(reliable["delivery"], "reliable")
+            self.assertEqual(reliable["reliable_window"], 4)
+            self.assertEqual(reliable["maximum_rate_hz"], 10)
+            # The pre-existing `imu.euler` stream (no `delivery:`) still
+            # defaults to plain `latest` semantics.
+            latest = capabilities_by_endpoint[streams_by_name["imu.euler"]["id"]]
+            self.assertEqual(latest["delivery"], "latest")
+            self.assertEqual(latest["reliable_window"], 0)
+
+            output_dir = Path(temporary) / "generated"
+            self.generate(fixture, output_dir, fixture / "solar.interface.lock")
+            remote_text = (output_dir / "solar" / "generated" / "remote.hpp").read_text()
+
+            queued_block = remote_text.split("struct ImuQueuedStreamRemote")[1].split(
+                "\n};\n"
+            )[0]
+            self.assertIn("template <typename Endpoints>", remote_text)
+            self.assertIn(
+                "solar::remote::OutStream<solar::remote::Push, "
+                "solar::remote::Queue<3, solar::remote::DropNewest>, "
+                "solar::remote::MaxRate<20>>",
+                queued_block,
+            )
+            self.assertIn(
+                "static std::optional<Value> publish() noexcept { return "
+                "Endpoints::template publish<ImuQueuedStream>(); }",
+                queued_block,
+            )
+            self.assertIn("using ContractType = ImuQueuedStream;", queued_block)
+
+            reliable_block = remote_text.split("struct ImuReliableStreamRemote")[1].split(
+                "\n};\n"
+            )[0]
+            self.assertIn(
+                "solar::remote::OutStream<solar::remote::Push, "
+                "solar::remote::ReliableWindow<4>, solar::remote::MaxRate<10>>",
+                reliable_block,
+            )
+
+            latest_block = remote_text.split("struct ImuEulerStreamRemote")[1].split(
+                "\n};\n"
+            )[0]
+            self.assertIn(
+                "using Capabilities = solar::remote::Capabilities<solar::remote::OutStream<"
+                "solar::remote::Push, solar::remote::MaxRate<100>>>;",
+                latest_block,
+            )
+
+    def test_output_stream_delivery_rejected_on_input_direction(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = self.copy_fixture(Path(temporary))
+            interface = fixture / "robot.solar.yaml"
+            text = interface.read_text()
+            interface.write_text(
+                text.replace(
+                    "    direction: in\n    maximum-rate: 50\n",
+                    "    direction: in\n    maximum-rate: 50\n    delivery: reliable<4>\n",
+                )
+            )
+            with self.assertRaises(self.CompileError) as caught:
+                self.compile_project(fixture / "solar.project.yaml")
+            self.assertIn("only output streams may declare a delivery policy", str(caught.exception))
+
     def test_unbounded_string_is_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:
             fixture = self.copy_fixture(Path(temporary))

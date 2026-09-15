@@ -1,0 +1,8 @@
+tests:
+  solar.remote.outbound_credit:
+    tags:
+      - solar
+      - remote
+      - protocol
+    platform_allow:
+      - native_sim/native/64

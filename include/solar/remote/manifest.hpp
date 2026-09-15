@@ -32,6 +32,13 @@ enum class RecordKind : std::uint8_t
     EnumValue = 8,
     Capability = 9,
     InStreamGroup = 10,
+    /// Immediately follows an Array-kind Field record, describing what the
+    /// array's elements are (Field's own value_kind/referenced_type_id/
+    /// bit_width/maximum_length already describe the array itself -- see
+    /// remote-arrays-and-chunked-streaming.md). Old readers skip this
+    /// record (not RecordFlags::Required) without any change to Field's
+    /// own byte layout.
+    ArrayElement = 11,
 };
 
 enum class RecordFlags : std::uint8_t
@@ -50,6 +57,13 @@ enum class ValueKind : std::uint8_t
     Text = 6,
     Bytes = 7,
     SchemaReference = 8,
+    /// A bounded array field (Array<T, Capacity>). The array itself carries
+    /// this kind; an immediately-following ArrayElement record (see
+    /// RecordKind) describes what T is. referenced_type_id and bit_width on
+    /// this same Field record describe T when it's a schema reference
+    /// (Record/enum) or a scalar, respectively; maximum_length is Capacity
+    /// (element count, not bytes).
+    Array = 9,
 };
 
 enum class FieldFlags : std::uint8_t
@@ -317,7 +331,12 @@ template <typename... Types> struct ValueSchemas<TypeList<Types...>>
     using type = TypeList<typename Types::Value...>;
 };
 
-template <typename T> struct IsObjectSchema : std::bool_constant<ObjectSchemaType<T>>
+/// Object and Record schemas both declare Fields and need Field records
+/// emitted; Record additionally needs its Schema record's shape byte to
+/// read Record so a client resolving an Array field's referenced_type_id
+/// knows to expect a fixed-stride element rather than a full Object.
+template <typename T>
+struct IsObjectSchema : std::bool_constant<ObjectSchemaType<T> || RecordSchemaType<T>>
 {};
 
 template <typename T> struct IsEnumerationSchema : std::bool_constant<EnumerationSchemaType<T>>
@@ -369,6 +388,40 @@ template <typename... Schemas> struct ReferencedStatusSchemas<TypeList<Schemas..
         unique_t<concat_t<typename FieldStatusTypes<typename Schema<Schemas>::Fields>::type...>>;
 };
 
+/// An Array<T, Capacity> field whose element T is a Record schema pulls T
+/// into the effective schema catalog automatically, the same way an enum
+/// field pulls its enum schema in above -- no explicit ContributeSchemas
+/// needed. Record schemas cannot themselves contain Array or Record fields
+/// (no recursion, enforced in declaration.hpp), so this scan is one level
+/// deep only; it never needs to run again over the records it finds.
+template <typename FieldT> struct FieldRecordType
+{
+    using Member = remote::detail::optional_value_t<remote::detail::field_member_t<FieldT>>;
+    using type = std::conditional_t<
+        remote::detail::IsArray<Member>::value &&
+            RecordSchemaType<typename remote::detail::IsArray<Member>::ElementType>,
+        TypeList<typename remote::detail::IsArray<Member>::ElementType>, TypeList<>>;
+};
+
+template <typename FieldsT> struct FieldRecordTypes;
+
+template <typename... FieldTypes> struct FieldRecordTypes<Fields<FieldTypes...>>
+{
+    using type = unique_t<concat_t<typename FieldRecordType<FieldTypes>::type...>>;
+};
+
+template <typename SchemaT> struct SchemaRecordTypes
+{
+    using type = typename FieldRecordTypes<typename Schema<SchemaT>::Fields>::type;
+};
+
+template <typename List> struct ReferencedRecords;
+
+template <typename... Schemas> struct ReferencedRecords<TypeList<Schemas...>>
+{
+    using type = unique_t<concat_t<typename SchemaRecordTypes<Schemas>::type...>>;
+};
+
 template <typename Needles, typename Haystack> struct AllContained;
 
 template <typename T>
@@ -411,6 +464,8 @@ template <typename SchemaT> consteval bool validate_one_schema()
 {
     if constexpr (EnumerationSchemaType<SchemaT>) {
         return validate_enum_schema<SchemaT>();
+    } else if constexpr (RecordSchemaType<SchemaT>) {
+        return validate_record_schema<SchemaT>();
     } else {
         return validate_schema<SchemaT>();
     }
@@ -433,6 +488,28 @@ template <typename... Types>
 struct SchemaFieldCount<TypeList<Types...>>
     : std::integral_constant<std::size_t,
                              (FieldCount<typename Schema<Types>::Fields>::value + ... + 0U)>
+{};
+
+/// Count of Array-kind fields, one ArrayElement record apiece.
+template <typename FieldsT> struct ArrayFieldCount;
+
+template <typename... FieldTypes>
+struct ArrayFieldCount<Fields<FieldTypes...>>
+    : std::integral_constant<
+          std::size_t,
+          ((remote::detail::IsArray<
+                remote::detail::optional_value_t<remote::detail::field_member_t<FieldTypes>>>::value
+                ? 1U
+                : 0U) +
+           ... + 0U)>
+{};
+
+template <typename List> struct SchemaArrayFieldCount;
+
+template <typename... Types>
+struct SchemaArrayFieldCount<TypeList<Types...>>
+    : std::integral_constant<std::size_t,
+                             (ArrayFieldCount<typename Schema<Types>::Fields>::value + ... + 0U)>
 {};
 
 template <typename ValuesT> struct EnumValueCount;
@@ -514,14 +591,26 @@ struct BoundedCapacity<BoundedBytes<Capacity>>
     static_assert(Capacity <= UINT32_MAX);
 };
 
-template <typename T> consteval ValueKind value_kind()
+/// Array<T, Capacity>'s maximum_length reuses the same slot BoundedText/
+/// BoundedBytes use, just counting elements instead of bytes -- value_kind
+/// (Array vs Text/Bytes) on the same Field record disambiguates which.
+template <typename T, std::size_t Capacity>
+struct BoundedCapacity<solar::BoundedVector<T, Capacity>>
+    : std::integral_constant<std::uint32_t, static_cast<std::uint32_t>(Capacity)>
 {
-    using Value = remote::detail::optional_value_t<T>;
+    static_assert(Capacity <= UINT32_MAX);
+};
+
+/// The kind of a scalar/enum/Record value -- shared between a plain field
+/// (value_kind<T>) and an Array field's element (element_value_kind<T>,
+/// below), since both classify the same closed set of allowed member types.
+template <typename Value> consteval ValueKind scalar_or_record_kind()
+{
     if constexpr (std::is_same_v<Value, bool>) {
         return ValueKind::Boolean;
     } else if constexpr (EnumerationSchemaType<Value>) {
         return ValueKind::Enumeration;
-    } else if constexpr (StatusSchemaType<Value>) {
+    } else if constexpr (StatusSchemaType<Value> || RecordSchemaType<Value>) {
         return ValueKind::SchemaReference;
     } else if constexpr (std::unsigned_integral<Value>) {
         return ValueKind::Unsigned;
@@ -536,31 +625,83 @@ template <typename T> consteval ValueKind value_kind()
     }
 }
 
-template <typename T> consteval std::uint16_t bit_width()
+template <typename T> consteval ValueKind value_kind()
 {
     using Value = remote::detail::optional_value_t<T>;
+    if constexpr (remote::detail::IsArray<Value>::value) {
+        return ValueKind::Array;
+    } else {
+        return scalar_or_record_kind<Value>();
+    }
+}
+
+/// The ValueKind of an Array field's element type -- emitted on the
+/// ArrayElement record that immediately follows the field's own Field
+/// record (whose value_kind is Array, describing the array, not its
+/// elements).
+template <typename T> consteval ValueKind element_value_kind()
+{
+    using Value = remote::detail::optional_value_t<T>;
+    static_assert(remote::detail::IsArray<Value>::value);
+    return scalar_or_record_kind<typename remote::detail::IsArray<Value>::ElementType>();
+}
+
+template <typename Value> consteval std::uint16_t scalar_bit_width()
+{
     if constexpr (std::is_same_v<Value, bool>) {
         return 8;
     } else if constexpr (std::integral<Value> || std::floating_point<Value>) {
         static_assert(sizeof(Value) * 8U <= UINT16_MAX);
         return static_cast<std::uint16_t>(sizeof(Value) * 8U);
+    } else if constexpr (EnumerationSchemaType<Value>) {
+        return static_cast<std::uint16_t>(sizeof(std::underlying_type_t<Value>) * 8U);
     } else {
         return 0;
     }
 }
 
-template <typename T> consteval TypeId referenced_type()
+template <typename T> consteval std::uint16_t bit_width()
 {
     using Value = remote::detail::optional_value_t<T>;
-    if constexpr (EnumerationSchemaType<Value> || StatusSchemaType<Value>) {
+    if constexpr (remote::detail::IsArray<Value>::value) {
+        return scalar_bit_width<typename remote::detail::IsArray<Value>::ElementType>();
+    } else {
+        return scalar_bit_width<Value>();
+    }
+}
+
+template <typename Value> consteval TypeId schema_referenced_type()
+{
+    if constexpr (EnumerationSchemaType<Value> || StatusSchemaType<Value> ||
+                  RecordSchemaType<Value>) {
         return Schema<Value>::descriptor.id;
     }
     return {};
 }
 
+template <typename T> consteval TypeId referenced_type()
+{
+    using Value = remote::detail::optional_value_t<T>;
+    if constexpr (remote::detail::IsArray<Value>::value) {
+        return schema_referenced_type<typename remote::detail::IsArray<Value>::ElementType>();
+    } else {
+        return schema_referenced_type<Value>();
+    }
+}
+
 template <typename Value, typename FieldT> consteval std::uint32_t packed_offset()
 {
-    if constexpr (Schema<Value>::codec != Codec::Packed) {
+    // Record schemas have no ::codec (they're never independently CBOR/
+    // packed-encoded as a top-level value -- see RecordSchemaType) --
+    // checked as its own `if constexpr` branch, not folded into a `||`
+    // with the Schema<Value>::codec access below: a discarded `if
+    // constexpr` branch is never instantiated for a dependent expression,
+    // but both operands of an ordinary `||` still have to be well-formed
+    // regardless of which one short-circuits, so a Record Value would
+    // hard-error on the missing ::codec member.
+    if constexpr (RecordSchemaType<Value>) {
+        return UINT32_MAX;
+    } else if constexpr (Schema<Value>::codec != Codec::Packed) {
         return UINT32_MAX;
     } else {
         std::uint32_t offset{};
@@ -635,7 +776,7 @@ template <typename T> consteval SchemaShape schema_shape()
 
 template <typename T> consteval std::uint8_t schema_codec()
 {
-    if constexpr (EnumerationSchemaType<T>) {
+    if constexpr (EnumerationSchemaType<T> || RecordSchemaType<T>) {
         return 0;
     } else {
         return static_cast<std::uint8_t>(Schema<T>::codec);
@@ -644,7 +785,7 @@ template <typename T> consteval std::uint8_t schema_codec()
 
 template <typename T> consteval std::uint32_t schema_maximum()
 {
-    if constexpr (EnumerationSchemaType<T>) {
+    if constexpr (EnumerationSchemaType<T> || RecordSchemaType<T>) {
         return 0;
     } else {
         static_assert(Schema<T>::max_encoded_size <= UINT32_MAX);
@@ -762,10 +903,31 @@ template <typename Value, typename FieldT> consteval void emit_field(Writer& wri
     writer.text(FieldT::unit);
 }
 
+inline constexpr std::size_t array_element_record_size =
+    record_header_size + 4 /* owner_type_id */ + 2 /* field_id */ + 1 /* element_kind */ +
+    1 /* reserved */;
+
+/// Immediately follows an Array-kind Field record (see RecordKind::
+/// ArrayElement) describing the array's element type. A no-op for every
+/// other field kind.
+template <typename Value, typename FieldT> consteval void emit_array_element(Writer& writer)
+{
+    using Member = remote::detail::field_member_t<FieldT>;
+    using Unwrapped = remote::detail::optional_value_t<Member>;
+    if constexpr (remote::detail::IsArray<Unwrapped>::value) {
+        writer.record(RecordKind::ArrayElement,
+                      static_cast<std::uint16_t>(array_element_record_size), RecordFlags::None);
+        writer.u32(Schema<Value>::descriptor.id.value);
+        writer.u16(FieldT::id);
+        writer.u8(static_cast<std::uint8_t>(element_value_kind<Member>()));
+        writer.u8(0);
+    }
+}
+
 template <typename Value, typename... FieldTypes>
 consteval void emit_fields_for(Writer& writer, Fields<FieldTypes...>)
 {
-    (emit_field<Value, FieldTypes>(writer), ...);
+    ((emit_field<Value, FieldTypes>(writer), emit_array_element<Value, FieldTypes>(writer)), ...);
 }
 
 template <typename... Types> consteval void emit_fields(Writer& writer, TypeList<Types...>)
@@ -1172,7 +1334,7 @@ struct CapabilityPolicy<OutStream<Acquisition, Policies...>>
     static constexpr Permission permission = Permission::Observe;
     static constexpr std::uint32_t rate = policy_rate<Policies...>();
     static constexpr std::uint16_t batch = policy_batch<Policies...>();
-    static constexpr std::uint16_t window{};
+    static constexpr std::uint16_t window = policy_window<Policies...>();
     static constexpr DeliveryKind delivery = [] {
         constexpr auto declared = policy_delivery<Policies...>();
         if constexpr (declared != DeliveryKind::None) {
@@ -1185,9 +1347,33 @@ struct CapabilityPolicy<OutStream<Acquisition, Policies...>>
             return DeliveryKind::Latest;
         }
     }();
+    // BatchedFraming means "this endpoint actually coalesces multiple values
+    // per frame," i.e. a real `Batch<N>` (N>1) policy is present -- not
+    // merely that acquisition is Push. Every `Policies...` combination gets
+    // `batch` from `policy_batch` above; a Push OutStream with no `Batch<N>`
+    // (the common case, including every `direction: out` Stream today) has
+    // batch == 1 and must not claim batched framing.
     static constexpr CapabilityFlags flags =
-        std::same_as<Acquisition, Push> ? CapabilityFlags::BatchedFraming : CapabilityFlags::None;
+        (std::same_as<Acquisition, Push> && batch > 1) ? CapabilityFlags::BatchedFraming
+                                                        : CapabilityFlags::None;
 };
+
+// Regression coverage for a real bug: unconditionally setting BatchedFraming
+// for any Push OutStream (rather than only when Batch<N> > 1 is actually
+// declared) shipped silently for years because no `OutStream<Push,...>`
+// endpoint went through a real shipment-verification cross-check (ELF
+// manifest vs. authored IR) until ENMT301-RoboCup's `navigation.lidar.points`
+// -- see remote-output-stream-scheduler.md §7. A plain host build never
+// exercises the ELF-embedding path, so these static_asserts are the only
+// coverage that lives in this repo.
+static_assert(CapabilityPolicy<OutStream<Push, Queue<4, DropOldest>>>::flags ==
+                  CapabilityFlags::None,
+              "a Push OutStream with no Batch<N> must not claim BatchedFraming");
+static_assert(CapabilityPolicy<OutStream<Push, Queue<4, DropOldest>, Batch<3>>>::flags ==
+                  CapabilityFlags::BatchedFraming,
+              "a Push OutStream with a real Batch<N> (N>1) must claim BatchedFraming");
+static_assert(CapabilityPolicy<OutStream<Poll<nullptr>>>::flags == CapabilityFlags::None,
+              "a non-Push OutStream must never claim BatchedFraming");
 
 template <auto Consumer, typename... Policies>
 struct CapabilityPolicy<InStream<Consumer, Policies...>>
@@ -1267,11 +1453,14 @@ consteval void emit_topic_capabilities(Writer& writer, TypeList<TopicTypes...>)
 
 template <typename StreamT> consteval void emit_stream_capability(Writer& writer)
 {
-    if constexpr (requires { StreamT::input; } && StreamT::input) {
-        static_assert(
-            requires { typename StreamT::Capabilities; },
-            "SOLAR_DIAGNOSTIC_REMOTE_INPUT_STREAM_CAPABILITY: an input Stream requires "
-            "an InStream capability");
+    // Direction-agnostic: an input Stream always has a real `InStream<...>`
+    // capability; a `direction: out` Stream now may too (`OutStream<Push,
+    // ...>`, once the poll scheduler gives it a real delivery policy) --
+    // walk whatever `Capabilities` actually declares, in either direction,
+    // and only fall back to the generic `StreamPublication` placeholder
+    // record when a Stream declares none (a `direction: out` Stream with no
+    // `delivery:` policy wired through codegen yet).
+    if constexpr (list_size_v<typename StreamT::Capabilities::Entries> != 0) {
         []<typename... CapabilityTypes>(Writer& output,
                                         Capabilities<CapabilityTypes...>) consteval {
             using Sorted = sort_t<TypeList<CapabilityTypes...>, CapabilityKindLess>;
@@ -1282,6 +1471,9 @@ template <typename StreamT> consteval void emit_stream_capability(Writer& writer
             }(output, Sorted{});
         }(writer, typename StreamT::Capabilities{});
     } else {
+        static_assert(!(requires { StreamT::input; } && StreamT::input),
+                      "SOLAR_DIAGNOSTIC_REMOTE_INPUT_STREAM_CAPABILITY: an input Stream requires "
+                      "an InStream capability");
         emit_capability<EndpointDomain::Stream, StreamT, StreamPublication>(writer);
     }
 }
@@ -1427,16 +1619,21 @@ template <typename System> struct Image
                           typename detail::ValueSchemas<Streams>::type>>;
     using InitialObjectSchemas = filter_t<InitialCandidateSchemas, detail::IsObjectSchema>;
     using InitialReferencedEnums = typename detail::ReferencedEnums<InitialObjectSchemas>::type;
+    using InitialReferencedRecords = typename detail::ReferencedRecords<InitialObjectSchemas>::type;
     using CandidateSchemas =
-        unique_t<concat_t<InitialCandidateSchemas, InitialReferencedEnums,
+        unique_t<concat_t<InitialCandidateSchemas, InitialReferencedEnums, InitialReferencedRecords,
                           typename detail::ReferencedStatusSchemas<InitialObjectSchemas>::type>>;
     using CandidateObjectSchemas = filter_t<CandidateSchemas, detail::IsObjectSchema>;
     using CandidateEnumSchemas = filter_t<CandidateSchemas, detail::IsEnumerationSchema>;
     using ReferencedEnums = typename detail::ReferencedEnums<CandidateObjectSchemas>::type;
+    using ReferencedRecords = typename detail::ReferencedRecords<CandidateObjectSchemas>::type;
 
     static_assert(detail::AllContained<ReferencedEnums, AuthoredSchemas>::value,
                   "SOLAR_DIAGNOSTIC_REMOTE_UNBOUND_ENUM_SCHEMA: enum field schema must be "
                   "present in the effective Remote schema catalog");
+    static_assert(detail::AllContained<ReferencedRecords, AuthoredSchemas>::value,
+                  "SOLAR_DIAGNOSTIC_REMOTE_UNBOUND_RECORD_SCHEMA: an Array field's element "
+                  "Record schema must be present in the effective Remote schema catalog");
 
     using Schemas = detail::sort_t<unique_t<concat_t<CandidateObjectSchemas, CandidateEnumSchemas>>,
                                    detail::SchemaIdLess>;
@@ -1464,16 +1661,20 @@ template <typename System> struct Image
     static constexpr std::size_t link_count = list_size_v<Links>;
     static constexpr std::size_t in_stream_group_count = list_size_v<InStreamGroups>;
     static constexpr std::size_t field_count = detail::SchemaFieldCount<ObjectSchemas>::value;
+    static constexpr std::size_t array_field_count =
+        detail::SchemaArrayFieldCount<ObjectSchemas>::value;
     static constexpr std::size_t enum_value_count =
         detail::SchemaEnumValueCount<EnumSchemas>::value;
     static constexpr std::size_t capability_count =
         detail::DataCapabilityCount<Data>::value + topic_count + stream_count;
     static constexpr std::size_t record_count =
-        schema_count + field_count + enum_value_count + data_count + action_count + topic_count +
-        stream_count + capability_count + link_count + in_stream_group_count;
+        schema_count + field_count + array_field_count + enum_value_count + data_count +
+        action_count + topic_count + stream_count + capability_count + link_count +
+        in_stream_group_count;
 
     static constexpr std::size_t byte_count =
-        image_header_size + schema_count * 24 + field_count * 34 + enum_value_count * 24 +
+        image_header_size + schema_count * 24 + field_count * 34 +
+        array_field_count * detail::array_element_record_size + enum_value_count * 24 +
         data_count * 20 + action_count * 28 + topic_count * 20 + stream_count * 20 +
         capability_count * detail::capability_record_size + link_count * 16 +
         in_stream_group_count * 16 + detail::schema_text_size(Schemas{}) +

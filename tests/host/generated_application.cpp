@@ -1,4 +1,5 @@
 #include <cassert>
+#include <optional>
 
 #include <solar/application.hpp>
 
@@ -19,9 +20,9 @@ struct Cockpit
     {
         return {};
     }
-    static generated::Euler euler()
+    static std::optional<generated::Euler> euler()
     {
-        return {};
+        return generated::Euler{};
     }
     static generated::RobotState read_state()
     {
@@ -86,5 +87,7 @@ int main()
     using Dispatch = solar::system::Dispatch<generated::Contract, solar::TypeList<Cockpit>>;
     assert(Dispatch::update<generated::SystemStateData>({.enabled = true}));
     assert(Dispatch::query<generated::SystemStateData>().enabled);
+    const auto published = Dispatch::publish<contract::streams::imu::Euler>();
+    assert(published.has_value());
     assert(system::shutdown());
 }

@@ -100,6 +100,10 @@ enum class SchemaShape : std::uint8_t
     Object = 0,
     StatusCode = 1,
     Enumeration = 2,
+    /// A bounded, non-recursive element schema usable as an Array<T, N>
+    /// element: fixed-width fields only, no optional members, no nested
+    /// Array/Record. See remote-arrays-and-chunked-streaming.md.
+    Record = 3,
 };
 
 enum class EnumOpenness : std::uint8_t
@@ -233,6 +237,12 @@ enum class StatusCode : std::uint8_t
 
 template <std::size_t Capacity> using BoundedText = solar::BoundedText<Capacity>;
 template <std::size_t Capacity> using BoundedBytes = solar::BoundedBytes<Capacity>;
+
+/// A bounded array field: T must be a supported_scalar_v scalar/enum or a
+/// SchemaShape::Record type (see declaration.hpp) -- checked where Array is
+/// accepted as a field type, not here, since RecordSchemaType isn't visible
+/// yet at this point in the include graph.
+template <typename T, std::size_t Capacity> using Array = solar::BoundedVector<T, Capacity>;
 
 enum class Operation : std::uint8_t
 {

@@ -1,0 +1,8 @@
+tests:
+  solar.remote.chunked_best_effort_stream:
+    tags:
+      - solar
+      - remote
+      - protocol
+    platform_allow:
+      - native_sim/native/64

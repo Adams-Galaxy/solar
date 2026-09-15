@@ -100,6 +100,34 @@ template <typename Head, typename... Tail> struct SelectedQueuePolicy<Head, Tail
 
 template <typename T> struct PushStoragePolicy;
 
+template <typename T> struct IsReliableWindow : std::false_type
+{};
+
+template <std::size_t Count> struct IsReliableWindow<ReliableWindow<Count>> : std::true_type
+{
+    static constexpr std::size_t count = Count;
+};
+
+template <typename PolicyTypes> struct PoliciesReliable;
+
+template <typename... Policies> struct PoliciesReliable<TypeList<Policies...>>
+{
+    static_assert((static_cast<std::size_t>(IsReliableWindow<Policies>::value) + ... + 0U) <= 1,
+                  "SOLAR_DIAGNOSTIC_REMOTE_DUPLICATE_RELIABLE_WINDOW: declares more than one "
+                  "ReliableWindow");
+    static constexpr bool value = (IsReliableWindow<Policies>::value || ... || false);
+    static constexpr std::size_t window = [] {
+        std::size_t count{};
+        (([&] {
+             if constexpr (IsReliableWindow<Policies>::value) {
+                 count = IsReliableWindow<Policies>::count;
+             }
+         }()),
+         ...);
+        return count;
+    }();
+};
+
 template <typename T> struct IsBatchPolicy : std::false_type
 {};
 
@@ -125,11 +153,36 @@ template <typename... Policies> consteval std::size_t selected_batch_count()
 
 template <typename... Policies> struct PushStoragePolicy<OutStream<Push, Policies...>>
 {
+    using Reliability = PoliciesReliable<TypeList<Policies...>>;
+    static constexpr bool reliable = Reliability::value;
+    static_assert(!reliable || (static_cast<std::size_t>(IsQueuePolicy<Policies>::value) + ... +
+                                0U) == 0,
+                  "SOLAR_DIAGNOSTIC_REMOTE_OUTBOUND_QUEUE_RELIABLE_CONFLICT: Push OutStream "
+                  "cannot combine Queue<...> with ReliableWindow<...> -- ReliableWindow already "
+                  "determines the retry-buffer depth");
     using QueuePolicy = typename SelectedQueuePolicy<Policies...>::type;
-    static constexpr std::size_t depth = QueuePolicy::depth;
+    static constexpr std::size_t depth = reliable ? Reliability::window : QueuePolicy::depth;
     static constexpr std::size_t batch_count = selected_batch_count<Policies...>();
-    using Overflow = typename QueuePolicy::OverflowPolicy;
+    static_assert(!reliable || batch_count == 1,
+                  "SOLAR_DIAGNOSTIC_REMOTE_OUTBOUND_RELIABLE_BATCH_UNSUPPORTED: ReliableWindow "
+                  "does not yet support Batch<N> greater than one");
+#if defined(CONFIG_SOLAR_REMOTE_MAX_OUTBOUND_WINDOW)
+    static_assert(!reliable || depth <= CONFIG_SOLAR_REMOTE_MAX_OUTBOUND_WINDOW,
+                  "SOLAR_DIAGNOSTIC_REMOTE_OUTBOUND_WINDOW_CEILING: ReliableWindow exceeds "
+                  "CONFIG_SOLAR_REMOTE_MAX_OUTBOUND_WINDOW");
+#endif
+    using Overflow = std::conditional_t<reliable, Reject, typename QueuePolicy::OverflowPolicy>;
 };
+
+template <typename DataT>
+inline constexpr bool has_reliable_out_stream_v = [] {
+    if constexpr (!has_push_v<DataT>) {
+        return false;
+    } else {
+        using Stream = typename PushCapability<typename DataT::Capabilities>::type;
+        return PoliciesReliable<typename Stream::PolicyTypes>::value;
+    }
+}();
 
 template <typename T> struct IsOutStream : std::false_type
 {};
@@ -227,6 +280,27 @@ struct TopicPublication<TopicT, std::void_t<typename TopicT::Publication>>
                   "Watch<...> policy declaration");
 };
 
+// A `direction: out` Stream is poll-scheduled by exactly one producer (the
+// runtime's own maintenance tick, per-stream via `poll_output_streams`), so
+// `SingleProducer` is the honest default -- unlike `Watch`/`Topic`, which
+// really can have multiple independent writers. This is a label only today:
+// neither `SingleProducer` nor `MultipleProducers` is read by any storage or
+// locking path yet (see `DiscreteStoragePolicy` below, which only inspects
+// the `Queue<...>` policy slot).
+template <typename StreamT, typename = void> struct StreamPublication
+{
+    using type = Watch<Latest, SingleProducer>;
+};
+
+template <typename StreamT>
+struct StreamPublication<StreamT, std::void_t<typename StreamT::Publication>>
+{
+    using type = typename StreamT::Publication;
+    static_assert(IsWatch<type>::value,
+                  "SOLAR_DIAGNOSTIC_REMOTE_STREAM_PUBLICATION: Stream::Publication must be a "
+                  "Watch<...> policy declaration");
+};
+
 template <typename PolicyTypes> struct DiscreteStoragePolicy;
 
 template <typename... Policies> struct DiscreteStoragePolicy<TypeList<Policies...>>
@@ -269,14 +343,6 @@ template <typename Head, typename... Tail> struct InStreamCapability<Capabilitie
 
 template <typename DataT>
 inline constexpr bool has_in_stream_v = InStreamCapability<typename DataT::Capabilities>::present;
-
-template <typename T> struct IsReliableWindow : std::false_type
-{};
-
-template <std::size_t Count> struct IsReliableWindow<ReliableWindow<Count>> : std::true_type
-{
-    static constexpr std::size_t count = Count;
-};
 
 template <typename PolicyTypes> struct InboundWindow;
 
@@ -865,7 +931,7 @@ template <typename System, typename TopicT> [[nodiscard]] auto& topic_state()
 
 template <typename System, typename StreamT> [[nodiscard]] auto& stream_state()
 {
-    using Publication = Watch<Latest, MultipleProducers>;
+    using Publication = typename StreamPublication<StreamT>::type;
     using State = DiscreteState<StreamT, Publication>;
     return System::template StateSlot<StreamT, StreamStateKey<StreamT>, State>::value;
 }
@@ -1078,6 +1144,180 @@ void publish_data_value(typename DataT::Value value)
     publish_data_payload<System, DataT>(std::span{buffer}.first(*encoded), flags);
 }
 
+// Reliable OutStream delivery (ReliableWindow<Count>). Unlike best-effort
+// publish_subscription_payload (which pops the ring buffer head unconditionally
+// and broadcasts once, best-effort, to every currently-due link), this must
+// not advance the head until every currently active, session-active link
+// subscribed to this endpoint has actually received the value -- InStream's
+// mirror image, with the credit spend/grant roles reversed. A link with zero
+// credit blocks the advance (parking the head "in the Count-sized buffer the
+// window already implies," per the design doc) rather than being skipped;
+// a link stuck at zero credit past CONFIG_SOLAR_REMOTE_OUTBOUND_STALL_TIMEOUT_MS
+// is dropped from the subscription and told why via ErrorCode::TimedOut.
+template <typename System>
+[[nodiscard]] bool deliver_reliable_out_stream(std::span<const std::byte> payload,
+                                               std::uint16_t subscription_slot,
+                                               std::uint32_t target, protocol::Flags flags)
+{
+    using ServiceT = typename System::RemoteService;
+    bool ready{true};
+    []<typename... LinkTypes, std::size_t... Indices>(
+        std::span<const std::byte> encoded, std::uint16_t slot, std::uint32_t endpoint_target,
+        protocol::Flags payload_flags, bool& all_ready, TypeList<LinkTypes...>,
+        std::index_sequence<Indices...>) {
+        (([&] {
+             using State =
+                 detail::LinkState<ServiceT, LinkTypes, static_cast<std::uint16_t>(Indices)>;
+             bool subscribed{};
+             bool already_sent{};
+             std::uint16_t credits{};
+             {
+                 auto guard = State::output_lock.acquire();
+                 auto& subscription = State::subscriptions[slot];
+                 subscribed = subscription.active;
+                 already_sent = subscription.sent_current;
+                 credits = subscription.credits;
+             }
+             if (!subscribed || already_sent ||
+                 State::session.load(std::memory_order_acquire) != SessionState::Active) {
+                 return;
+             }
+             if (credits == 0) {
+                 all_ready = false;
+                 const auto now = kernel::now_ticks();
+                 bool timed_out{};
+                 {
+                     auto guard = State::output_lock.acquire();
+                     auto& subscription = State::subscriptions[slot];
+                     if (!subscription.stalled) {
+                         subscription.stalled = true;
+                         subscription.stall_deadline =
+                             now + kernel::to_ticks_ceil(std::chrono::milliseconds{
+                                       CONFIG_SOLAR_REMOTE_OUTBOUND_STALL_TIMEOUT_MS});
+                     } else if (subscription.stall_deadline <= now) {
+                         subscription = {};
+                         timed_out = true;
+                     }
+                 }
+                 if (timed_out) {
+                     (void)ServiceT::template protocol_error<LinkTypes,
+                                                             static_cast<std::uint16_t>(Indices)>(
+                         0, endpoint_target, protocol::ErrorCode::TimedOut);
+                 }
+                 return;
+             }
+             const auto transmitted =
+                 ServiceT::template transmit<LinkTypes, static_cast<std::uint16_t>(Indices)>(
+                     protocol::Kind::Data, encoded, 0, endpoint_target, payload_flags,
+                     static_cast<std::uint8_t>(protocol::SubscriptionKind::DataStream));
+             if (!transmitted) {
+                 all_ready = false;
+                 return;
+             }
+             auto guard = State::output_lock.acquire();
+             auto& subscription = State::subscriptions[slot];
+             --subscription.credits;
+             subscription.sent_current = true;
+             subscription.stalled = false;
+             ++subscription.delivered;
+         }()),
+         ...);
+    }(payload, subscription_slot, target, flags, ready, typename System::RemoteArchitecture::Links{},
+      std::make_index_sequence<list_size_v<typename System::RemoteArchitecture::Links>>{});
+    if (ready) {
+        []<typename... LinkTypes, std::size_t... Indices>(std::uint16_t slot,
+                                                          TypeList<LinkTypes...>,
+                                                          std::index_sequence<Indices...>) {
+            (([&] {
+                 using State =
+                     detail::LinkState<ServiceT, LinkTypes, static_cast<std::uint16_t>(Indices)>;
+                 auto guard = State::output_lock.acquire();
+                 State::subscriptions[slot].sent_current = false;
+             }()),
+             ...);
+        }(subscription_slot, typename System::RemoteArchitecture::Links{},
+          std::make_index_sequence<list_size_v<typename System::RemoteArchitecture::Links>>{});
+    }
+    return ready;
+}
+
+/// Attempts one queued value; returns whether it was popped (delivered, or
+/// permanently dropped for being unencodable) so the caller can keep draining
+/// while credit and backlog both remain, rather than one value per
+/// maintenance pass.
+template <typename System, typename DataT> [[nodiscard]] bool advance_reliable_out_stream()
+{
+    using Value = typename DataT::Value;
+    auto& state = push_state<System, DataT>();
+    std::optional<Value> head{};
+    {
+        auto guard = state.lock.acquire();
+        if (state.size != 0) {
+            head = state.values[state.head];
+        }
+    }
+    if (!head) {
+        return false;
+    }
+    auto& buffer = PublicationBuffer<System, DataT>::bytes;
+    Result<std::size_t, Error> encoded = [&]() -> Result<std::size_t, Error> {
+        if constexpr (Schema<Value>::codec == Codec::Cbor) {
+            return cbor::encode(*head, buffer);
+        } else {
+            return packed::encode(*head, buffer);
+        }
+    }();
+    bool ready{};
+    if (!encoded) {
+        // An un-encodable value can never succeed on retry either -- drop it
+        // rather than wedge the reliable window on it forever.
+        ready = true;
+    } else {
+        constexpr auto flags = Schema<Value>::codec == Codec::Packed
+                                   ? protocol::Flags::PackedPayload
+                                   : protocol::Flags::None;
+        // Reused verbatim for the Streams catalog (a poll-scheduled
+        // `direction: out` Stream with `ReliableWindow<Count>`) -- the only
+        // catalog-specific piece is which subscription-slot numbering space
+        // applies; everything else here (PushState, encoding, delivery) is
+        // already generic over any T with ::Capabilities/::Value.
+        constexpr auto slot = [] {
+            if constexpr (Data<DataT>) {
+                return data_stream_subscription_slot<System, DataT>();
+            } else {
+                return stream_subscription_slot<System, DataT>();
+            }
+        }();
+        ready = deliver_reliable_out_stream<System>(std::span{buffer}.first(*encoded), slot,
+                                                     DataT::descriptor.id.value, flags);
+    }
+    if (!ready) {
+        return false;
+    }
+    auto guard = state.lock.acquire();
+    if (state.size != 0) {
+        state.values[state.head].reset();
+        state.head = (state.head + 1U) % state.values.size();
+        --state.size;
+    }
+    return true;
+}
+
+template <typename System, typename DataT> void publish_reliable_out_stream()
+{
+    // Keep draining while credit and backlog both allow it, rather than one
+    // value per maintenance pass -- bounded by the window itself (Count),
+    // so this can't loop unboundedly.
+    while (advance_reliable_out_stream<System, DataT>()) {
+    }
+    // Clear the wake flag whether or not this pass made progress, so the
+    // caller's unconditional rearm_push() (matching take_next()'s callers)
+    // sees a fresh edge and schedules another attempt -- otherwise a link
+    // stuck at zero credit would never be retried and could never reach its
+    // stall deadline.
+    push_state<System, DataT>().wake_pending.store(false, std::memory_order_release);
+}
+
 template <typename System, typename DeclarationT, typename StateT>
 void publish_discrete_value(
     StateT& state, std::uint16_t subscription_slot, std::uint32_t target,
@@ -1233,16 +1473,30 @@ void process_stream_publication_for(std::uint16_t endpoint, TypeList<DataTypes..
           ? (
                 [&] {
                     if constexpr (has_push_v<DataTypes>) {
-                        using Storage = typename PushState<DataTypes>::Storage;
-                        if constexpr (Storage::batch_count > 1) {
-                            publish_push_batch<System, DataTypes>();
+                        if constexpr (has_reliable_out_stream_v<DataTypes>) {
+                            // Deliberately does not rearm_push() itself: with
+                            // InlineScheduler (or any synchronous notify
+                            // path), immediately re-notifying on every still-
+                            // blocked attempt recurses without ever returning
+                            // to the caller -- credit exhaustion must wait
+                            // for the periodic maintenance sweep
+                            // (poll_reliable_out_streams, service.hpp) to
+                            // retry, exactly matching "retried next work-
+                            // queue pass" rather than "retried immediately,
+                            // forever."
+                            publish_reliable_out_stream<System, DataTypes>();
                         } else {
-                            auto value = take_next<System, DataTypes>();
-                            if (value) {
-                                publish_data_value<System, DataTypes>(std::move(*value));
+                            using Storage = typename PushState<DataTypes>::Storage;
+                            if constexpr (Storage::batch_count > 1) {
+                                publish_push_batch<System, DataTypes>();
+                            } else {
+                                auto value = take_next<System, DataTypes>();
+                                if (value) {
+                                    publish_data_value<System, DataTypes>(std::move(*value));
+                                }
                             }
+                            rearm_push<System, DataTypes>();
                         }
-                        rearm_push<System, DataTypes>();
                     } else if constexpr (has_loaned_v<DataTypes>) {
                         publish_ready_loan<System, DataTypes>();
                     }
@@ -1324,6 +1578,232 @@ template <typename System> void process_publication(std::uint16_t endpoint)
         process_stream_endpoint_publication_for<System>(
             static_cast<std::uint16_t>(endpoint - data_count * 2 - topic_count), StreamTypes{});
     }
+}
+
+template <typename System, typename... DataTypes>
+void poll_reliable_out_streams_for(TypeList<DataTypes...>)
+{
+    // if constexpr, not a runtime ternary: PushState<DataT>/PushStoragePolicy
+    // are only well-formed for DataT with an OutStream<Push, ...> capability
+    // at all -- a ternary would force publish_reliable_out_stream<DataT> to
+    // be well-typed for every DataT unconditionally (it isn't) rather than
+    // discarding the branch for the DataT types that don't take it.
+    (
+        [] {
+            if constexpr (has_reliable_out_stream_v<DataTypes>) {
+                publish_reliable_out_stream<System, DataTypes>();
+            }
+        }(),
+        ...);
+}
+
+/// Periodic retry point for reliable OutStream delivery, driven by the
+/// service's own maintenance tick (service.hpp Service::run(), alongside
+/// expire_reassemblies) rather than the write-triggered notify path -- see
+/// the comment in process_stream_publication_for for why credit exhaustion
+/// must not immediately re-notify itself. Drains both the Data catalog's
+/// `OutStream<Push, ReliableWindow<...>>` capability (Stage 5) and the
+/// Streams catalog's poll-scheduled equivalent (`poll_output_streams`
+/// enqueues into the same `PushState` shape via `enqueue_reliable_stream`) --
+/// `poll_reliable_out_streams_for`/`advance_reliable_out_stream` are already
+/// generic over either catalog's declaration type.
+template <typename System> void poll_reliable_out_streams()
+{
+    using DataTypes = declarations_of_t<typename System::RemoteDataCatalog::EntryTypes>;
+    using StreamTypes = declarations_of_t<typename System::RemoteStreamCatalog::EntryTypes>;
+    poll_reliable_out_streams_for<System>(DataTypes{});
+    poll_reliable_out_streams_for<System>(StreamTypes{});
+}
+
+template <typename StreamT> struct PollScheduleKey
+{};
+
+/// Per-stream poll cadence, mirroring `SubscriptionSlot.next_delivery`'s
+/// rate-limit shape but scoped to the producer side (one clock per
+/// `direction: out` Stream, not per link/subscriber).
+struct PollScheduleState
+{
+    kernel::Tick next_poll{};
+};
+
+template <typename System, typename StreamT> [[nodiscard]] auto& poll_schedule_state()
+{
+    return System::template StateSlot<StreamT, PollScheduleKey<StreamT>, PollScheduleState>::value;
+}
+
+/// Whether an output Stream has at least one live subscriber. Poll-driven
+/// producers are deliberately dormant otherwise: an idle stream must not
+/// consume service wake-ups or advance a stateful publisher merely because it
+/// is declared in the contract.
+template <typename System, typename StreamT, typename... LinkTypes, std::size_t... Indices>
+[[nodiscard]] bool has_active_output_subscription_for(TypeList<LinkTypes...>,
+                                                       std::index_sequence<Indices...>)
+{
+    constexpr auto endpoint = stream_subscription_slot<System, StreamT>();
+    bool active{};
+    (([&] {
+         using State = LinkState<typename System::RemoteService, LinkTypes,
+                                 static_cast<std::uint16_t>(Indices)>;
+         auto guard = State::output_lock.acquire();
+         active = active ||
+                  (State::subscriptions[endpoint].active &&
+                   State::session.load(std::memory_order_acquire) == SessionState::Active);
+     }()),
+     ...);
+    return active;
+}
+
+template <typename System, typename StreamT> [[nodiscard]] bool has_active_output_subscription()
+{
+    using Links = typename System::RemoteArchitecture::Links;
+    return has_active_output_subscription_for<System, StreamT>(
+        Links{}, std::make_index_sequence<list_size_v<Links>>{});
+}
+
+/// Enqueues one poll-scheduled value into a `direction: out` Stream's
+/// reliable-window backlog (`push_state`, the same ring buffer Stage 5's
+/// Data-catalog `write_data` uses) -- called only from `poll_output_streams`
+/// on the runtime's own maintenance thread, never from a service, so unlike
+/// `write_data` this has no ISR path to guard and nothing waiting on a
+/// `Result` to report back to (the scheduler already has this tick's fresh
+/// value; there is no caller left to retry a failed enqueue against).
+template <typename System, Stream StreamT>
+void enqueue_reliable_stream(typename StreamT::Value value)
+{
+    static_assert(System::RemoteStreamCatalog::template contains<StreamT>,
+                  "SOLAR_DIAGNOSTIC_REMOTE_STREAM_NOT_REGISTERED: enqueued Stream is absent from "
+                  "the bound Remote catalog");
+    static_assert(has_reliable_out_stream_v<StreamT>,
+                  "SOLAR_DIAGNOSTIC_REMOTE_ENQUEUE_REQUIRES_RELIABLE: enqueue_reliable_stream "
+                  "requires an OutStream<Push, ReliableWindow<...>> capability");
+    using FacilityT = typename System::RemoteFacility;
+    if (!FacilityT::ready.load(std::memory_order_acquire) ||
+        !FacilityT::accepting.load(std::memory_order_acquire)) {
+        return;
+    }
+
+    auto& state = push_state<System, StreamT>();
+    {
+        auto guard = state.lock.acquire();
+        using Storage = typename std::remove_reference_t<decltype(state)>::Storage;
+        static_assert(std::same_as<typename Storage::Overflow, Reject>,
+                      "SOLAR_DIAGNOSTIC_REMOTE_RELIABLE_STREAM_OVERFLOW: ReliableWindow OutStream "
+                      "storage must resolve to Reject overflow");
+        if (state.size == state.values.size()) {
+            // Local retry buffer is full -- per the design, this is the
+            // "consumer genuinely stalled" case, not routine backpressure;
+            // `deliver_reliable_out_stream`'s stall-timeout/abort path
+            // (already implemented) is the real backstop. Drop this tick's
+            // value rather than block the poll scheduler on it.
+            ++state.replaced;
+            return;
+        }
+        const auto tail = (state.head + state.size) % state.values.size();
+        state.values[tail] = std::move(value);
+        ++state.size;
+        ++state.sequence;
+    }
+
+    const bool already_pending = state.wake_pending.exchange(true, std::memory_order_acq_rel);
+    if (state.interested_sessions.load(std::memory_order_acquire) == 0) {
+        state.wake_pending.store(false, std::memory_order_release);
+        return;
+    }
+    if (!already_pending) {
+        constexpr auto endpoint = stream_subscription_slot<System, StreamT>();
+        if (!System::RemoteService::notify_publication(endpoint)) {
+            state.wake_pending.store(false, std::memory_order_release);
+        }
+    }
+}
+
+/// Pulls one value from a `direction: out` Stream's `Output<Endpoint,
+/// Publisher>` binding (via the local, non-Remote `system::Dispatch` --
+/// `System::RemotePollDispatch`) on a rate-limited schedule and forwards it
+/// into the same delivery machinery Watch/Topic already use for best-effort
+/// delivery, or the reliable-window backlog for `ReliableWindow<Count>`
+/// streams. This is the producer path `direction: out` streams have never
+/// had: see `docs/development-docs/remote-output-stream-scheduler.md`.
+template <typename System, typename... StreamTypes>
+void poll_output_streams_for(TypeList<StreamTypes...>)
+{
+    if constexpr (!std::is_void_v<typename System::RemotePollDispatch>) {
+        (
+            [] {
+                if constexpr (!StreamTypes::input) {
+                    auto& schedule = poll_schedule_state<System, StreamTypes>();
+                    if (!has_active_output_subscription<System, StreamTypes>()) {
+                        schedule.next_poll = 0;
+                        return;
+                    }
+                    const auto now = kernel::now_ticks();
+                    if (schedule.next_poll > now) {
+                        return;
+                    }
+                    constexpr auto interval =
+                        StreamTypes::maximum_rate_hz == 0
+                            ? kernel::Tick{0}
+                            : kernel::to_ticks_ceil(std::chrono::microseconds{
+                                  1'000'000U / StreamTypes::maximum_rate_hz});
+                    schedule.next_poll = now + interval;
+                    auto value = System::RemotePollDispatch::template publish<
+                        typename StreamTypes::ContractType>();
+                    if (!value) {
+                        return;
+                    }
+                    if constexpr (has_reliable_out_stream_v<StreamTypes>) {
+                        enqueue_reliable_stream<System, StreamTypes>(std::move(*value));
+                    } else {
+                        (void)publish_stream<System, StreamTypes>(std::move(*value));
+                    }
+                }
+            }(),
+            ...);
+    }
+}
+
+template <typename System> void poll_output_streams()
+{
+    using StreamTypes = declarations_of_t<typename System::RemoteStreamCatalog::EntryTypes>;
+    poll_output_streams_for<System>(StreamTypes{});
+}
+
+/// Returns the next service wake-up requested by active poll-driven output
+/// Streams. The producer itself is still invoked by poll_output_streams();
+/// this only makes its existing per-stream cadence visible to Service::run's
+/// event-or-deadline reactor.
+template <typename System, typename StreamT> [[nodiscard]] kernel::Tick output_poll_release()
+{
+    constexpr auto maintenance = kernel::to_ticks_ceil(std::chrono::milliseconds{50});
+    if constexpr (StreamT::input || std::is_void_v<typename System::RemotePollDispatch>) {
+        return maintenance;
+    } else {
+        auto& schedule = poll_schedule_state<System, StreamT>();
+        if (!has_active_output_subscription<System, StreamT>()) {
+            schedule.next_poll = 0;
+            return maintenance;
+        }
+        const auto now = kernel::now_ticks();
+        if (schedule.next_poll <= now) {
+            return kernel::Tick{1};
+        }
+        return (std::max)(kernel::Tick{1}, schedule.next_poll - now);
+    }
+}
+
+template <typename System, typename... StreamTypes>
+[[nodiscard]] kernel::Tick output_poll_releases_for(TypeList<StreamTypes...>)
+{
+    constexpr auto maintenance = kernel::to_ticks_ceil(std::chrono::milliseconds{50});
+    kernel::Tick next = maintenance;
+    ((next = (std::min)(next, output_poll_release<System, StreamTypes>())), ...);
+    return next;
+}
+
+template <typename System> [[nodiscard]] kernel::Tick output_poll_releases()
+{
+    using StreamTypes = declarations_of_t<typename System::RemoteStreamCatalog::EntryTypes>;
+    return output_poll_releases_for<System>(StreamTypes{});
 }
 
 template <typename DataT> struct PollStateKey
@@ -1509,7 +1989,7 @@ template <typename System, typename... DataTypes>
     return next;
 }
 
-template <typename System> [[nodiscard]] std::int64_t process_poll_releases()
+template <typename System> [[nodiscard]] kernel::Tick process_poll_releases()
 {
     using DataTypes = declarations_of_t<typename System::RemoteDataCatalog::EntryTypes>;
     return process_poll_releases_for<System>(DataTypes{});
@@ -1715,6 +2195,13 @@ update_stream_subscription(std::uint32_t target, bool enable, protocol::Subscrip
         auto& state = stream_state<System, StreamT>();
         enable ? state.interested_sessions.fetch_add(1, std::memory_order_acq_rel)
                : state.interested_sessions.fetch_sub(1, std::memory_order_acq_rel);
+        if constexpr (!StreamT::input) {
+            // The request is already being handled on Remote's event-driven
+            // service thread. Mark the producer due now so the same turn can
+            // obtain its first value rather than inheriting an old
+            // subscription's cadence.
+            poll_schedule_state<System, StreamT>().next_poll = 0;
+        }
     }
     return true;
 }
@@ -3615,6 +4102,50 @@ bool dispatch_in_stream(const frame::Decoded& decoded, TypeList<DataTypes...>)
             ...);
 }
 
+// Mirror image of send_in_stream_credit: for InStream, the device sends
+// Kind::Credit and never receives it. For a reliable OutStream, the station
+// is the grantor, so the device must now be able to *receive* one -- this is
+// the only inbound Kind::Credit handling that exists anywhere in Remote.
+template <typename System, typename LinkT, std::uint16_t LinkIndex, typename DataT>
+void receive_out_stream_credit(const frame::Decoded& decoded)
+{
+    using ServiceT = typename System::RemoteService;
+    if constexpr (!has_reliable_out_stream_v<DataT>) {
+        (void)ServiceT::template protocol_error<LinkT, LinkIndex>(
+            0, decoded.envelope.target, protocol::ErrorCode::UnsupportedOperation);
+    } else {
+        auto decoded_grant = protocol::decode_credit_grant(decoded.payload);
+        if (!decoded_grant) {
+            (void)ServiceT::template protocol_error<LinkT, LinkIndex>(
+                0, decoded.envelope.target, protocol::ErrorCode::DecodeFailure);
+            return;
+        }
+        using State = detail::LinkState<ServiceT, LinkT, LinkIndex>;
+        constexpr auto slot = [] {
+            if constexpr (Data<DataT>) {
+                return data_stream_subscription_slot<System, DataT>();
+            } else {
+                return stream_subscription_slot<System, DataT>();
+            }
+        }();
+        auto guard = State::output_lock.acquire();
+        auto& subscription = State::subscriptions[slot];
+        if (subscription.active) {
+            subscription.credits = static_cast<std::uint16_t>(
+                (std::min)(0xFFFF, subscription.credits + decoded_grant->credits));
+        }
+    }
+}
+
+template <typename System, typename LinkT, std::uint16_t LinkIndex, typename... DataTypes>
+bool dispatch_out_stream_credit(const frame::Decoded& decoded, TypeList<DataTypes...>)
+{
+    return ((decoded.envelope.target == DataTypes::descriptor.id.value && has_push_v<DataTypes>
+                 ? (receive_out_stream_credit<System, LinkT, LinkIndex, DataTypes>(decoded), true)
+                 : false) ||
+            ...);
+}
+
 template <typename System, typename DataT> [[nodiscard]] bool in_stream_is_active()
 {
     if constexpr (!has_in_stream_v<DataT>) {
@@ -3990,6 +4521,18 @@ void process_link_application_frame(const frame::Decoded& decoded)
         }
         using StreamTypes = declarations_of_t<typename System::RemoteStreamCatalog::EntryTypes>;
         if (!dispatch_in_stream<System, LinkT, LinkIndex>(decoded, StreamTypes{})) {
+            (void)ServiceT::template protocol_error<LinkT, LinkIndex>(
+                0, decoded.envelope.target, protocol::ErrorCode::UnknownTarget);
+        }
+        return;
+    }
+    if (decoded.envelope.kind == protocol::Kind::Credit) {
+        using DataTypes = declarations_of_t<typename System::RemoteDataCatalog::EntryTypes>;
+        using StreamTypes = declarations_of_t<typename System::RemoteStreamCatalog::EntryTypes>;
+        const bool handled =
+            dispatch_out_stream_credit<System, LinkT, LinkIndex>(decoded, DataTypes{}) ||
+            dispatch_out_stream_credit<System, LinkT, LinkIndex>(decoded, StreamTypes{});
+        if (!handled) {
             (void)ServiceT::template protocol_error<LinkT, LinkIndex>(
                 0, decoded.envelope.target, protocol::ErrorCode::UnknownTarget);
         }

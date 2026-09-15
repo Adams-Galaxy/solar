@@ -1,5 +1,6 @@
 #include <array>
 #include <cassert>
+#include <optional>
 
 #include <solar/parameters/store.hpp>
 #include <solar/remote/server.hpp>
@@ -59,7 +60,7 @@ struct Cockpit
     {
         return {.sequence = request.sequence + 1};
     }
-    static int publish(Telemetry)
+    static std::optional<int> publish(Telemetry)
     {
         return ++sample;
     }

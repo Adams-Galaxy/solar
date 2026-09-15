@@ -107,6 +107,13 @@ struct SubscriptionSlot
     std::uint32_t delivered{};
     std::uint32_t skipped{};
     std::uint32_t dropped{};
+    // Reliable OutStream (ReliableWindow) accounting only -- always zero/unset
+    // for best-effort subscriptions (Queue<...>/Latest), which never touch
+    // these fields.
+    std::uint16_t credits{};
+    bool sent_current{};
+    bool stalled{};
+    kernel::Tick stall_deadline{};
 };
 
 struct ReassemblySlot
@@ -1626,9 +1633,14 @@ template <typename ArchitectureT, typename RuntimeContextT> struct Service
             poll_links(Links{});
             drain_outputs(Links{}, std::make_index_sequence<list_size_v<Links>>{});
             expire_reassemblies(Links{}, std::make_index_sequence<list_size_v<Links>>{});
+            detail::poll_output_streams<RuntimeContext>();
+            detail::poll_reliable_out_streams<RuntimeContext>();
             wait_ticks = maintenance;
-            const auto requested = detail::process_poll_releases<RuntimeContext>();
-            wait_ticks = (std::max)(kernel::Tick{1}, (std::min)(maintenance, requested));
+            const auto data_requested = detail::process_poll_releases<RuntimeContext>();
+            const auto output_requested = detail::output_poll_releases<RuntimeContext>();
+            wait_ticks = (std::max)(kernel::Tick{1},
+                                    (std::min)(maintenance,
+                                                (std::min)(data_requested, output_requested)));
         }
         return {};
     }

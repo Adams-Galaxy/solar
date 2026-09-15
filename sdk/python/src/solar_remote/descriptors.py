@@ -68,6 +68,11 @@ class FieldDescriptor:
     maximum_length: int
     schema_id: int | None
     packed_offset: int | None
+    # Set only when kind == "array": the ValueKind of the array's elements
+    # ("unsigned", "enum", "schema" for a Record element, etc.). schema_id
+    # is the referenced enum/Record schema when element_kind needs one;
+    # maximum_length is the array's Capacity (element count, not bytes).
+    element_kind: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -268,6 +273,11 @@ class ManifestCatalog:
                             packed_offset=(
                                 int(field["packed_offset"])
                                 if field.get("packed_offset") is not None
+                                else None
+                            ),
+                            element_kind=(
+                                str(field["element_kind"])
+                                if field.get("element_kind") is not None
                                 else None
                             ),
                         )

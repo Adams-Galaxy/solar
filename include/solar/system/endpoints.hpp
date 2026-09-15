@@ -2,6 +2,7 @@
 
 #include <concepts>
 #include <functional>
+#include <optional>
 #include <type_traits>
 #include <utility>
 
@@ -82,14 +83,15 @@ template <typename Endpoint, auto Handler> struct Handle
     }
 };
 
-/** Own an output Stream endpoint. */
+/** Own an output Stream endpoint. Publisher returns nullopt when there is
+ * nothing new to publish this scheduling tick. */
 template <typename Endpoint, auto Publisher> struct Output
 {
     using EndpointType = Endpoint;
     using Kind = OutputTag;
     static constexpr auto publisher = Publisher;
 
-    [[nodiscard]] static typename Endpoint::Value publish()
+    [[nodiscard]] static std::optional<typename Endpoint::Value> publish()
     {
         return std::invoke(Publisher);
     }

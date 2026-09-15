@@ -1,0 +1,8 @@
+tests:
+  solar.remote.output_stream_scheduler:
+    tags:
+      - solar
+      - remote
+      - protocol
+    platform_allow:
+      - native_sim/native/64

@@ -1,4 +1,5 @@
 #include <cassert>
+#include <optional>
 
 #include <solar/system/composer.hpp>
 
@@ -55,7 +56,7 @@ struct Cockpit
         return {.sequence = request.sequence + 1};
     }
 
-    static int publish(Telemetry)
+    static std::optional<int> publish(Telemetry)
     {
         return 42;
     }

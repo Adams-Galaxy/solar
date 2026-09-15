@@ -220,6 +220,19 @@ template <typename T> struct IsBoundedBytes : std::false_type
 template <std::size_t Capacity> struct IsBoundedBytes<BoundedBytes<Capacity>> : std::true_type
 {};
 
+template <typename T> struct IsArray : std::false_type
+{
+    using ElementType = void;
+    static constexpr std::size_t capacity = 0;
+};
+
+template <typename T, std::size_t Capacity>
+struct IsArray<solar::BoundedVector<T, Capacity>> : std::true_type
+{
+    using ElementType = T;
+    static constexpr std::size_t capacity = Capacity;
+};
+
 template <typename T>
 inline constexpr bool supported_scalar_v =
     std::is_same_v<T, bool> || std::integral<T> || std::floating_point<T> || std::is_enum_v<T> ||
@@ -274,9 +287,26 @@ template <typename... FieldTypes> consteval bool unique_field_names(Fields<Field
     return true;
 }
 
-template <typename... FieldTypes> consteval bool supported_fields(Fields<FieldTypes...>)
+template <typename T>
+inline constexpr bool record_scalar_v =
+    std::is_same_v<T, bool> || std::integral<T> || std::floating_point<T> || std::is_enum_v<T>;
+
+template <typename T>
+inline constexpr bool record_variable_length_v = IsBoundedText<T>::value || IsBoundedBytes<T>::value;
+
+template <typename... FieldTypes> consteval bool record_no_optional_fields(Fields<FieldTypes...>)
 {
-    return (supported_scalar_v<optional_value_t<field_member_t<FieldTypes>>> && ...);
+    return (FieldTypes::required && ...);
+}
+
+template <typename... FieldTypes> consteval bool record_no_variable_fields(Fields<FieldTypes...>)
+{
+    return (!record_variable_length_v<field_member_t<FieldTypes>> && ...);
+}
+
+template <typename... FieldTypes> consteval bool record_supported_fields(Fields<FieldTypes...>)
+{
+    return (record_scalar_v<field_member_t<FieldTypes>> && ...);
 }
 
 } // namespace detail
@@ -306,6 +336,68 @@ template <typename Value>
 concept StatusSchemaType = std::is_enum_v<Value> && ObjectSchemaType<Value> && requires {
     Schema<Value>::shape;
 } && Schema<Value>::shape == SchemaShape::StatusCode;
+
+/// A bounded, non-recursive element schema: fixed-width scalar/enum fields
+/// only, none optional, none themselves Array or Record. Intended use is as
+/// an Array<T, Capacity> element type (see remote-arrays-and-chunked-
+/// streaming.md), not as a standalone Data/Action/Stream Value -- unlike
+/// ObjectSchemaType, this concept does not require max_encoded_size or codec,
+/// since a Record's encoding context (nested CBOR map inside an Array, or a
+/// packed byte layout) is determined by whatever references it, not by the
+/// Record schema itself.
+template <typename Value>
+concept RecordSchemaType =
+    requires {
+        { Schema<Value>::descriptor } -> std::convertible_to<SchemaDescriptor>;
+        typename Schema<Value>::Fields;
+        { Schema<Value>::shape } -> std::convertible_to<SchemaShape>;
+    } && detail::is_fields_v<typename Schema<Value>::Fields> && std::is_object_v<Value> &&
+    std::is_default_constructible_v<Value> && std::is_copy_constructible_v<Value> &&
+    Schema<Value>::shape == SchemaShape::Record;
+
+namespace detail
+{
+
+// Placed after RecordSchemaType (unlike the other record_* checks above,
+// which never name Schema<T>): a field member type with no Schema<T>
+// specialization at all -- true for every ordinary scalar -- must SFINAE to
+// "not a Record" rather than hard error. RecordSchemaType's own requires-
+// block is what makes that safe; folding an equivalent check into a bare
+// variable-template `&&` chain outside a requires-expression does not get
+// the same immediate-context protection and hard-errors instead.
+template <typename... FieldTypes> consteval bool record_no_recursive_fields(Fields<FieldTypes...>)
+{
+    return (!RecordSchemaType<field_member_t<FieldTypes>> && ...);
+}
+
+// An Array<T, Capacity> element type is valid when it's a plain scalar/enum
+// (record_scalar_v, deliberately reused from the Record field-type check --
+// the same fixed-width restriction applies to array elements for the same
+// reason: fixed stride) or a SchemaShape::Record type. Gated the same way
+// record_no_recursive_fields is: RecordSchemaType<T> must be the outermost
+// check naming Schema<T>, never folded into a bare `&&` chain outside a
+// requires-expression, or a T with no Schema<T> specialization hard-errors
+// instead of SFINAE-ing to false.
+template <typename T> consteval bool array_element_supported()
+{
+    return record_scalar_v<T> || RecordSchemaType<T>;
+}
+
+template <typename T> consteval bool supported_field_type()
+{
+    if constexpr (IsArray<T>::value) {
+        return array_element_supported<typename IsArray<T>::ElementType>();
+    } else {
+        return supported_scalar_v<T>;
+    }
+}
+
+template <typename... FieldTypes> consteval bool supported_fields(Fields<FieldTypes...>)
+{
+    return (supported_field_type<optional_value_t<field_member_t<FieldTypes>>>() && ...);
+}
+
+} // namespace detail
 
 template <typename Value>
 concept SchemaType = ObjectSchemaType<Value> || EnumerationSchemaType<Value>;
@@ -465,6 +557,48 @@ template <typename Enum>
     requires EnumerationSchemaType<Enum>
 {
     return detail::declared_enum_value(value, typename Schema<Enum>::Values{});
+}
+
+template <typename Value> consteval bool validate_record_schema()
+{
+    static_assert(RecordSchemaType<Value>,
+                  "SOLAR_DIAGNOSTIC_REMOTE_MISSING_SCHEMA: external value requires Schema<T>");
+    using FieldList = typename Schema<Value>::Fields;
+    static_assert(detail::unique_field_ids(FieldList{}),
+                  "SOLAR_DIAGNOSTIC_REMOTE_DUPLICATE_FIELD_ID: Schema field IDs must be unique");
+    static_assert(detail::ordered_field_ids(FieldList{}),
+                  "SOLAR_DIAGNOSTIC_REMOTE_FIELD_ORDER: Schema fields must be ordered by ID");
+    static_assert(detail::unique_field_names(FieldList{}),
+                  "SOLAR_DIAGNOSTIC_REMOTE_DUPLICATE_FIELD_NAME: Schema field names must be "
+                  "unique");
+    static_assert(detail::record_no_optional_fields(FieldList{}),
+                  "SOLAR_DIAGNOSTIC_REMOTE_RECORD_OPTIONAL_FIELD: Record fields must not be "
+                  "std::optional -- every array element has a fixed stride");
+    static_assert(detail::record_no_variable_fields(FieldList{}),
+                  "SOLAR_DIAGNOSTIC_REMOTE_RECORD_VARIABLE_FIELD: Record fields must not be "
+                  "BoundedText or BoundedBytes -- variable length defeats fixed element stride");
+    static_assert(detail::record_no_recursive_fields(FieldList{}),
+                  "SOLAR_DIAGNOSTIC_REMOTE_RECORD_RECURSIVE_FIELD: a Record field must not "
+                  "itself be another Record -- no nested Record/Array in v1");
+    static_assert(detail::record_supported_fields(FieldList{}),
+                  "SOLAR_DIAGNOSTIC_REMOTE_RECORD_UNSUPPORTED_FIELD: Record fields must be a "
+                  "fixed-width bool, integer, floating-point, or enum type");
+    static_assert(detail::field_metadata_valid(FieldList{}));
+    static_assert(detail::field_enum_schemas_present(FieldList{}),
+                  "SOLAR_DIAGNOSTIC_REMOTE_MISSING_ENUM_SCHEMA: enum field requires an "
+                  "enumeration Schema<T>");
+    static_assert(Schema<Value>::descriptor.id.value != 0,
+                  "SOLAR_DIAGNOSTIC_REMOTE_MISSING_SCHEMA_ID: Schema requires a nonzero TypeId");
+    static_assert(!Schema<Value>::descriptor.name.empty(),
+                  "SOLAR_DIAGNOSTIC_REMOTE_EMPTY_SCHEMA_NAME: Schema name must not be empty");
+    static_assert(Schema<Value>::descriptor.version != 0,
+                  "SOLAR_DIAGNOSTIC_REMOTE_SCHEMA_VERSION: Schema version zero is reserved");
+#if defined(CONFIG_SOLAR_REMOTE_MAX_SCHEMA_FIELDS)
+    static_assert(FieldList::size <= CONFIG_SOLAR_REMOTE_MAX_SCHEMA_FIELDS,
+                  "SOLAR_DIAGNOSTIC_REMOTE_SCHEMA_FIELD_CEILING: Schema exceeds "
+                  "CONFIG_SOLAR_REMOTE_MAX_SCHEMA_FIELDS");
+#endif
+    return true;
 }
 
 template <typename... CapabilitiesT> struct Capabilities

@@ -691,12 +691,24 @@ def compile_project(
         _check_keys(
             declaration,
             common_type_keys
-            | ({"values", "underlying", "open"} if kind == "enum" else {"fields"}),
+            | (
+                {"values", "underlying", "open"}
+                if kind == "enum"
+                else {"fields", "shape"}
+            ),
             f"type {name}",
             document,
             path,
         )
         version = _version(declaration, document, path)
+        shape = None
+        if kind == "struct":
+            shape = declaration.get("shape", "object")
+            if shape not in ("object", "record"):
+                raise CompileError(
+                    "type shape must be 'object' or 'record'",
+                    _location(document, path + ("shape",)),
+                )
         qualified = f"{package}.{name}"
         stable_id, _ = allocator.allocate(
             f"schema:{qualified}",
@@ -713,6 +725,7 @@ def compile_project(
             "name": qualified,
             "cpp_name": _identifier(name),
             "kind": kind,
+            "shape": shape,
             "description": _optional_string(
                 declaration.get("description"),
                 "type description",
@@ -990,6 +1003,35 @@ def compile_project(
     for type_name in types:
         validate_acyclic(type_name, ())
 
+    for name, item in types.items():
+        if item["kind"] != "struct" or item["shape"] != "record":
+            continue
+        _, document, path, _ = raw_types[name]
+        for field in item["fields"]:
+            resolved = field["resolved"]
+            location = _location(document, path + ("fields", field["name"]))
+            if resolved["kind"] == "optional":
+                raise CompileError(
+                    f"record field {name}.{field['name']} must not be optional "
+                    "(a record element has no per-field presence)",
+                    location,
+                )
+            if resolved["kind"] in ("text", "bytes", "array", "sequence"):
+                raise CompileError(
+                    f"record field {name}.{field['name']} must be a fixed-width "
+                    "scalar or enum (variable-length and array fields are not "
+                    "permitted inside a record)",
+                    location,
+                )
+            if resolved["kind"] == "schema":
+                referenced = types[id_to_type[resolved["schema"]]]
+                if referenced["kind"] != "enum":
+                    raise CompileError(
+                        f"record field {name}.{field['name']} must not reference "
+                        "another struct (records cannot nest)",
+                        location,
+                    )
+
     encoded_bounds: dict[str, int] = {}
 
     def schema_encoded_bound(name: str) -> int:
@@ -1043,34 +1085,53 @@ def compile_project(
             )
             continue
         declaration, document, path, _ = raw_types[name]
+
+        def widen_enum(manifest_type: dict[str, Any]) -> dict[str, Any]:
+            if manifest_type["schema"] is None:
+                return manifest_type
+            referenced = types[id_to_type[manifest_type["schema"]]]
+            if referenced["kind"] != "enum":
+                return manifest_type
+            _, _, enum_width = PRIMITIVES[referenced["underlying"]]
+            return {**manifest_type, "kind": "enum", "width": enum_width}
+
         fields = []
         maximum = 2
         for field in item["fields"]:
             resolved = field["resolved"]
             maximum += encoded_bound(resolved) + 5
-            manifest_type = leaf_type(resolved)
-            if manifest_type["schema"] is not None:
-                referenced = types[id_to_type[manifest_type["schema"]]]
-                if referenced["kind"] == "enum":
-                    _, _, enum_width = PRIMITIVES[referenced["underlying"]]
-                    manifest_type = {
-                        **manifest_type,
-                        "kind": "enum",
-                        "width": enum_width,
-                    }
+            # array/sequence must stay "array" at the field level -- leaf_type()
+            # is only for drilling *through* array/optional to a referenced
+            # enum/schema id, not for naming the field's own manifest kind.
+            surface = resolved["element"] if resolved["kind"] == "optional" else resolved
+            if surface["kind"] in ("array", "sequence"):
+                element_type = widen_enum(leaf_type(surface["element"]))
+                field_kind = "array"
+                field_width = element_type["width"]
+                field_schema = element_type["schema"]
+                field_maximum_length = surface["maximum_length"]
+                element_kind = element_type["kind"]
+            else:
+                manifest_type = widen_enum(leaf_type(resolved))
+                field_kind = manifest_type["kind"]
+                field_width = manifest_type["width"]
+                field_schema = manifest_type["schema"]
+                field_maximum_length = resolved["maximum_length"]
+                element_kind = None
             fields.append(
                 {
                     "id": field["id"],
                     "name": field["name"],
                     "description": field["description"],
                     "unit": field["unit"],
-                    "kind": manifest_type["kind"],
+                    "kind": field_kind,
                     "required": field["required"] and resolved["kind"] != "optional",
                     "deprecated": False,
-                    "width": manifest_type["width"],
-                    "maximum_length": resolved["maximum_length"],
-                    "schema": manifest_type["schema"],
+                    "width": field_width,
+                    "maximum_length": field_maximum_length,
+                    "schema": field_schema,
                     "packed_offset": None,
+                    "element_kind": element_kind,
                 }
             )
         schemas.append(
@@ -1079,9 +1140,14 @@ def compile_project(
                 "name": item["name"],
                 "description": item["description"],
                 "version": item["version"],
-                "shape": "object",
-                "codec": "cbor",
-                "max_encoded_size": maximum,
+                "shape": item["shape"],
+                # A Record schema is reference-only, the same as an
+                # Enumeration: it carries no independent wire codec or size
+                # of its own (solar::remote::manifest::schema_codec/
+                # schema_maximum emit 0/"none" for it at the C++ level), so
+                # the shipment cross-check must not expect real values here.
+                "codec": "none" if item["shape"] == "record" else "cbor",
+                "max_encoded_size": 0 if item["shape"] == "record" else maximum,
                 "underlying_kind": None,
                 "underlying_width": 0,
                 "open": False,
@@ -1491,6 +1557,7 @@ def compile_project(
                 "direction",
                 "maximum-rate",
                 "exclusive-group",
+                "delivery",
                 "description",
             },
             f"stream {name}",
@@ -1557,6 +1624,44 @@ def compile_project(
                 "stream maximum-rate must be an integer from 1 through 4294967295",
                 _location(document, path + ("maximum-rate",)),
             )
+        delivery_raw = declaration.get("delivery", "latest")
+        if "delivery" in declaration and direction != "out":
+            raise CompileError(
+                "only output streams may declare a delivery policy",
+                _location(document, path + ("delivery",)),
+            )
+        if not isinstance(delivery_raw, str):
+            raise CompileError(
+                "stream delivery must be a string",
+                _location(document, path + ("delivery",)),
+            )
+        if delivery_raw == "latest":
+            delivery = {"kind": "latest", "depth": 1, "overflow": "drop-oldest", "window": 0}
+        else:
+            queue_match = re.fullmatch(
+                r"queue<([1-9][0-9]*),\s*(drop-oldest|drop-newest|reject)>", delivery_raw
+            )
+            reliable_match = re.fullmatch(r"reliable<([1-9][0-9]*)>", delivery_raw)
+            if queue_match:
+                delivery = {
+                    "kind": "queue",
+                    "depth": int(queue_match.group(1)),
+                    "overflow": queue_match.group(2),
+                    "window": 0,
+                }
+            elif reliable_match:
+                delivery = {
+                    "kind": "reliable",
+                    "depth": 0,
+                    "overflow": None,
+                    "window": int(reliable_match.group(1)),
+                }
+            else:
+                raise CompileError(
+                    "stream delivery must be 'latest', "
+                    "'queue<N,drop-oldest|drop-newest|reject>', or 'reliable<N>'",
+                    _location(document, path + ("delivery",)),
+                )
         item = {
             "id": stable_id,
             "name": name,
@@ -1565,6 +1670,7 @@ def compile_project(
             "schema": resolved["schema"],
             "direction": direction,
             "maximum_rate_hz": maximum_rate,
+            "delivery": delivery,
             "exclusive_group": stream_groups_by_name.get(exclusive_group_name),
             "description": description,
             "version": version,
@@ -1590,14 +1696,20 @@ def compile_project(
                     "endpoint": stable_id,
                     "permission_mask": 1,
                     "codec": "cbor",
-                    # A Stream is producer paced. The declared maximum remains
-                    # in the generated C++ declaration and client validation;
-                    # the Stream publication capability itself is not a poll
-                    # schedule.
-                    "maximum_rate_hz": 0,
+                    # Producer-paced, poll-scheduled at `maximum_rate_hz` by
+                    # the runtime's own maintenance tick (poll_output_streams)
+                    # -- a real poll schedule, not a placeholder, now that a
+                    # `direction: out` Stream has a real producer path.
+                    "maximum_rate_hz": maximum_rate,
                     "maximum_batch": 1,
-                    "reliable_window": 0,
-                    "delivery": "latest",
+                    "reliable_window": delivery["window"],
+                    "delivery": (
+                        "reliable"
+                        if delivery["kind"] == "reliable"
+                        else "latest"
+                        if delivery["kind"] == "latest"
+                        else f"queue_{delivery['overflow'].replace('-', '_')}"
+                    ),
                     "cancellation": False,
                     "batched": False,
                     "explicit_open": False,
@@ -2092,6 +2204,8 @@ def generate_remote_cpp(ir: dict[str, Any]) -> str:
         "// Generated by Solar codegen; do not edit.",
         "#pragma once",
         "",
+        "#include <optional>",
+        "",
         "#include <solar/remote.hpp>",
         "#include <solar/generated/app.hpp>",
         "",
@@ -2154,13 +2268,21 @@ def generate_remote_cpp(ir: dict[str, Any]) -> str:
                 field_expression(cpp, field)
                 for field in sorted(item["fields"], key=lambda field: field["id"])
             ]
-            lines.append(
-                "    using Fields = remote::Fields<" + ", ".join(field_lines) + ">;"
-            )
-            lines.append(
-                f"    static constexpr std::size_t max_encoded_size = {schema['max_encoded_size']};"
-            )
-            lines.append("    static constexpr Codec codec = Codec::Cbor;")
+            if item["shape"] == "record":
+                lines.append(
+                    "    static constexpr SchemaShape shape = SchemaShape::Record;"
+                )
+                lines.append(
+                    "    using Fields = remote::Fields<" + ", ".join(field_lines) + ">;"
+                )
+            else:
+                lines.append(
+                    "    using Fields = remote::Fields<" + ", ".join(field_lines) + ">;"
+                )
+                lines.append(
+                    f"    static constexpr std::size_t max_encoded_size = {schema['max_encoded_size']};"
+                )
+                lines.append("    static constexpr Codec codec = Codec::Cbor;")
         lines.extend(["};", ""])
 
     for item in ir["parameters"]:
@@ -2246,16 +2368,10 @@ def generate_remote_cpp(ir: dict[str, Any]) -> str:
         )
     for item in ir["stream_declarations"]:
         name = item["cpp_name"] + "Remote"
-        remote_streams.append(
-            name if item["direction"] == "out" else f"{name}<Endpoints>"
-        )
+        remote_streams.append(f"{name}<Endpoints>")
         lines.extend(
             [
-                *(
-                    ["template <typename Endpoints>"]
-                    if item["direction"] == "in"
-                    else []
-                ),
+                "template <typename Endpoints>",
                 f"struct {name}",
                 "{",
                 f"    using Value = {item['type']['cpp']};",
@@ -2264,10 +2380,37 @@ def generate_remote_cpp(ir: dict[str, Any]) -> str:
             ]
         )
         if item["direction"] == "out":
+            delivery = item["delivery"]
+            if delivery["kind"] == "latest":
+                out_stream_policies: list[str] = []
+            elif delivery["kind"] == "queue":
+                overflow_cpp = {
+                    "drop-oldest": "solar::remote::DropOldest",
+                    "drop-newest": "solar::remote::DropNewest",
+                    "reject": "solar::remote::Reject",
+                }[delivery["overflow"]]
+                out_stream_policies = [
+                    f"solar::remote::Queue<{delivery['depth']}, {overflow_cpp}>"
+                ]
+            else:
+                out_stream_policies = [
+                    f"solar::remote::ReliableWindow<{delivery['window']}>"
+                ]
+            # The manifest's `maximum_rate_hz` for this capability is derived
+            # from `Policies...` (`policy_rate`), not from the sibling
+            # `maximum_rate_hz` field below -- without a real `MaxRate<N>`
+            # policy here the shipped manifest silently reports rate 0 even
+            # though the poll scheduler genuinely paces this stream.
+            out_stream_policies.append(f"solar::remote::MaxRate<{item['maximum_rate_hz']}>")
+            out_stream = "solar::remote::OutStream<solar::remote::Push" + "".join(
+                f", {policy}" for policy in out_stream_policies
+            ) + ">"
             lines.extend(
                 [
                     f"    static constexpr std::uint32_t maximum_rate_hz = {item['maximum_rate_hz']}U;",
-                    "    using Capabilities = solar::remote::Capabilities<>;",
+                    f"    static std::optional<Value> publish() noexcept {{ return Endpoints::template publish<{item['cpp_name']}>(); }}",
+                    f"    using Capabilities = solar::remote::Capabilities<{out_stream}>;",
+                    f"    using ContractType = {item['cpp_name']};",
                 ]
             )
         else:
@@ -2328,7 +2471,9 @@ def generate_remote_cpp(ir: dict[str, Any]) -> str:
             "{",
             "using RemoteSchemas = solar::remote::ContributeSchemas<"
             + ", ".join(
-                item["cpp_name"] for item in ir["types"] if item["kind"] == "enum"
+                item["cpp_name"]
+                for item in ir["types"]
+                if item["kind"] == "enum" or item["shape"] == "record"
             )
             + ">;",
             "using RemoteData = solar::remote::ContributeData<"

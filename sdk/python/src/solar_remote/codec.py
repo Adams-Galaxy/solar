@@ -135,17 +135,36 @@ class DynamicCodec:
                 return numeric
         return value
 
+    def _encode_object(self, schema: dict[str, Any], source: Mapping[str, Any]) -> dict[int, Any]:
+        output: dict[int, Any] = {}
+        for item in schema["fields"]:
+            present = item["name"] in source and source[item["name"]] is not None
+            if item["required"] and not present:
+                raise CodecError(f"required field {item['name']} is missing")
+            if present:
+                output[item["id"]] = self._encode_field(item, source[item["name"]])
+        return output
+
+    def _encode_field(self, field: dict[str, Any], value: Any) -> Any:
+        if field["kind"] == "array":
+            if not isinstance(value, (list, tuple)) or len(value) > field["maximum_length"]:
+                raise CodecError(f"field {field['name']} violates its declared array bound")
+            return [self._encode_element(field, item) for item in value]
+        if field["kind"] == "schema" and self.schemas[field["schema"]]["shape"] == "record":
+            return self._encode_object(self.schemas[field["schema"]], self._mapping(value))
+        return self._validate(field, value)
+
+    def _encode_element(self, field: dict[str, Any], value: Any) -> Any:
+        kind = field["element_kind"]
+        if kind == "schema":
+            return self._encode_object(self.schemas[field["schema"]], self._mapping(value))
+        return self._validate({**field, "kind": kind, "required": True}, value)
+
     def encode(self, schema_id: int, value: Any) -> bytes:
         schema = self.schemas[schema_id]
         source = self._mapping(value)
         if schema["codec"] == "cbor":
-            output = {}
-            for item in schema["fields"]:
-                present = item["name"] in source and source[item["name"]] is not None
-                if item["required"] and not present:
-                    raise CodecError(f"required field {item['name']} is missing")
-                if present:
-                    output[item["id"]] = self._validate(item, source[item["name"]])
+            output = self._encode_object(schema, source)
             encoded = cbor2.dumps(output, canonical=True)
         elif schema["codec"] == "packed":
             output = bytearray(schema["max_encoded_size"])
@@ -168,27 +187,48 @@ class DynamicCodec:
             raise CodecError(f"schema {schema['name']} exceeded its encoded bound")
         return encoded
 
+    def _decode_object(self, schema: dict[str, Any], raw: Any) -> dict[str, Any]:
+        if not isinstance(raw, dict):
+            raise CodecError(f"{schema['name']} payload is not a CBOR map")
+        unknown = set(raw) - {item["id"] for item in schema["fields"]}
+        if unknown:
+            raise CodecError(f"unknown field IDs in {schema['name']}: {sorted(unknown)}")
+        output: dict[str, Any] = {}
+        for item in schema["fields"]:
+            if item["id"] not in raw:
+                if item["required"]:
+                    raise CodecError(f"required field {item['name']} is missing")
+                output[item["name"]] = None
+                continue
+            output[item["name"]] = self._decode_field(item, raw[item["id"]])
+        return output
+
+    def _decode_field(self, field: dict[str, Any], value: Any) -> Any:
+        if field["kind"] == "array":
+            if not isinstance(value, list) or len(value) > field["maximum_length"]:
+                raise CodecError(f"field {field['name']} violates its declared array bound")
+            return [self._decode_element(field, item) for item in value]
+        if field["kind"] == "schema" and self.schemas[field["schema"]]["shape"] == "record":
+            return self._decode_object(self.schemas[field["schema"]], value)
+        value = self._validate(field, value)
+        if field["kind"] == "enum":
+            value = self._enum(field["schema"], int(value))
+        return value
+
+    def _decode_element(self, field: dict[str, Any], value: Any) -> Any:
+        kind = field["element_kind"]
+        if kind == "schema":
+            return self._decode_object(self.schemas[field["schema"]], value)
+        value = self._validate({**field, "kind": kind, "required": True}, value)
+        if kind == "enum":
+            value = self._enum(field["schema"], int(value))
+        return value
+
     def decode(self, schema_id: int, payload: bytes) -> dict[str, Any]:
         schema = self.schemas[schema_id]
         if schema["codec"] == "cbor":
             raw = cbor2.loads(payload)
-            if not isinstance(raw, dict):
-                raise CodecError("object payload is not a CBOR map")
-            unknown = set(raw) - {item["id"] for item in schema["fields"]}
-            if unknown:
-                raise CodecError(f"unknown field IDs: {sorted(unknown)}")
-            output = {}
-            for item in schema["fields"]:
-                if item["id"] not in raw:
-                    if item["required"]:
-                        raise CodecError(f"required field {item['name']} is missing")
-                    output[item["name"]] = None
-                    continue
-                value = self._validate(item, raw[item["id"]])
-                if item["kind"] == "enum":
-                    value = self._enum(item["schema"], int(value))
-                output[item["name"]] = value
-            return output
+            return self._decode_object(schema, raw)
         if schema["codec"] != "packed" or len(payload) != schema["max_encoded_size"]:
             raise CodecError("packed payload size does not match its schema")
         output = {}

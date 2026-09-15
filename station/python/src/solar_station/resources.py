@@ -8,6 +8,7 @@ from typing import Any, Generic, TypeVar
 
 from solar_remote import (
     ActionEndpoint,
+    ChunkReassembler,
     DataEndpoint,
     EndpointDescriptor,
     Frame,
@@ -16,6 +17,7 @@ from solar_remote import (
     StreamEndpoint,
     TopicEndpoint,
     UnsupportedOperation,
+    reassemble_chunks,
 )
 
 from .models import ConnectionStatus, RecordingInformation, SourceInformation
@@ -135,6 +137,9 @@ class RobotResource:
         self.actions = ResourceCatalog(
             client, "actions", lambda descriptor: RobotAction(client, descriptor)
         )
+        self.streams = ResourceCatalog(
+            client, "streams", lambda descriptor: Source(client, descriptor)
+        )
 
 
 class Source:
@@ -169,6 +174,21 @@ class Source:
         )
         return TypedSubscription(self.client, self.descriptor, raw)
 
+    async def subscribe_chunks(
+        self, *, field: str = "points", queue_depth: int = 128
+    ) -> ChunkReassembler[Any]:
+        """Subscribe to a chunked stream and reassemble it into complete values.
+
+        See `remote-arrays-and-chunked-streaming.md` §6.4 -- yields
+        `ReassembledScan`/`ChunkGap` (`solar_remote.chunked`), not raw chunk
+        frames. Only meaningful for a stream whose `Value` carries
+        `generation`/`chunk_index`/`final` plus a `field`-named array.
+        """
+        subscription = await self.subscribe(queue_depth=queue_depth)
+        return reassemble_chunks(
+            subscription, field=field, unwrap=lambda frame: frame.value
+        )
+
 
 class SourceCollection(Mapping[str, Source]):
     def __init__(self, client: Any):
@@ -181,8 +201,7 @@ class SourceCollection(Mapping[str, Source]):
             descriptor = collection.get(identity)
             if descriptor is not None:
                 if isinstance(descriptor, DataEndpoint) and not (
-                    descriptor.supports("watch")
-                    or descriptor.supports("out_stream")
+                    descriptor.supports("watch") or descriptor.supports("out_stream")
                 ):
                     break
                 return descriptor
@@ -253,7 +272,9 @@ class InputProducer(AbstractAsyncContextManager["InputProducer"]):
 
 
 class InputEndpoint:
-    def __init__(self, client: Any, descriptor: DataEndpoint | TopicEndpoint | StreamEndpoint):
+    def __init__(
+        self, client: Any, descriptor: DataEndpoint | TopicEndpoint | StreamEndpoint
+    ):
         self.client = client
         self.descriptor = descriptor
 
@@ -351,7 +372,9 @@ class ConnectionResource:
         return ConnectionStatus.from_wire(value["robot"])
 
     async def reconnect(
-        self, *, timeout: float = 10.0  # noqa: ASYNC109
+        self,
+        *,
+        timeout: float = 10.0,  # noqa: ASYNC109
     ) -> dict[str, Any]:
         return await self.client.reconnect(timeout=timeout)
 

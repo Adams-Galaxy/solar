@@ -415,7 +415,7 @@ struct RemoteSynthesis
                              typename GeneratedContract::RemoteActions::Entries, TypeList<>,
                              typename GeneratedContract::RemoteStreams::Entries, Links, Components,
                              TypeList<>>;
-    using Runtime = remote::ByteRuntime<Application, Architecture, Dependencies>;
+    using Runtime = remote::ByteRuntime<Application, Architecture, Dependencies, Dispatch>;
     using Modules = TypeList<Runtime>;
 };
 

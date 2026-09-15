@@ -353,6 +353,16 @@ config SOLAR_REMOTE_MAX_INBOUND_WINDOW
 	range 1 64
 	default 8
 
+config SOLAR_REMOTE_MAX_OUTBOUND_WINDOW
+	int "Maximum outbound (reliable OutStream) window per link"
+	range 1 64
+	default 8
+
+config SOLAR_REMOTE_OUTBOUND_STALL_TIMEOUT_MS
+	int "Reliable OutStream retry-buffer stall timeout in milliseconds"
+	range 1 60000
+	default 5000
+
 config SOLAR_REMOTE_REASSEMBLY_SLOTS
 	int "Fragment reassembly slots per link"
 	range 1 16

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <concepts>
+#include <optional>
 #include <type_traits>
 #include <utility>
 
@@ -428,13 +429,13 @@ struct PublisherSignatureValid;
 template <typename Endpoint, typename Owner>
     struct PublisherSignatureValid<Endpoint, Owner, false> : std::bool_constant < requires
 {
-    {Owner::publish(Endpoint{})}->std::same_as<typename Endpoint::Value>;
+    {Owner::publish(Endpoint{})}->std::same_as<std::optional<typename Endpoint::Value>>;
 }>{};
 template <typename Endpoint, typename Owner>
     struct PublisherSignatureValid<Endpoint, Owner, true> : std::bool_constant < requires
 {
     {binding_for_t<Endpoint, endpoint::OutputTag, Owner>::publish()}
-        ->std::same_as<typename Endpoint::Value>;
+        ->std::same_as<std::optional<typename Endpoint::Value>>;
 }>{};
 
 template <typename Endpoint, typename Owner, bool = has_endpoints_v<Owner>>
@@ -638,7 +639,7 @@ template <typename ContractT, typename ComponentsT> struct Dispatch
         }
     }
 
-    template <typename Stream> [[nodiscard]] static typename Stream::Value publish()
+    template <typename Stream> [[nodiscard]] static std::optional<typename Stream::Value> publish()
     {
         using Owner =
             typename contribution_detail::FindOwner<Stream, PublishesTag, ComponentsT>::type;
